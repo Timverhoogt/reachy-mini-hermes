@@ -1,97 +1,141 @@
-# Reachy Mini Hermes — implementation plan
+# Reachy Mini Hermes — implementation plan and status
 
 ## Goal
 
-Create a public Reachy Mini Python app that lets a user wake the robot with **“Hey Hermes”**, speak naturally, and converse with their own Hermes Agent instance. The app must follow the Reachy Mini App SDK lifecycle and be publishable in the Reachy Mini/Hugging Face app catalog.
+Create a public Reachy Mini Python app that wakes on **“Hey Hermes”**, supports natural low-latency conversation, and preserves access to the user's Hermes identity, memory, skills, tools, and Home Assistant environment.
 
 ## Product principles
 
-- The robot is the voice and embodiment; Hermes Agent remains the tool-using brain.
-- One Reachy setting (`bridge_url` + bearer key) connects to the user's Hermes installation.
-- Wake-word, capture, state feedback, and safe motion happen locally on Reachy.
-- Agent tools execute on the Hermes API-server host, exactly like other Hermes API clients.
-- Secrets are never logged or returned by the settings API.
-- Voice states are obvious: wake/listening chime → listening pose → processing chime/thinking pose → speech animation.
-- The first release is conservative about motion and supports Reachy Mini Lite and Wireless.
+- Wake-word processing remains local.
+- Provider credentials remain on the Hermes host.
+- Reachy receives one bridge URL and one private bearer token.
+- Ordinary conversation should be fast; tool-using requests may delegate to the full Hermes agent.
+- Cloud audio starts only after wake detection.
+- Voice and power states must be visible and reversible.
+- Motor torque is disabled when physical movement is unnecessary.
+- No LLM receives direct motor-control primitives in v0.1.
 
-## Architecture
+## Implemented architecture
+
+### Realtime mode
 
 ```text
-Reachy microphone
-  → local open-vocabulary KWS (HEY HERMES)
-  → local adaptive VAD / utterance recorder
-  → Hermes Reachy Bridge /v1/audio/transcriptions
-  → Hermes API Server /v1/chat/completions
-  → Hermes Reachy Bridge /v1/audio/speech
-  → Reachy speaker + motion state machine
+Reachy local KWS
+  → private companion WebSocket
+  → OpenAI gpt-realtime-2.1
+      ↳ ask_hermes function
+          → Hermes API Server
+          → memory, tools, Home Assistant, files, current information
+  → streamed audio + Reachy motion
 ```
 
-### Reachy app
+Implemented:
 
-- SDK class: `ReachyMiniHermes(ReachyMiniApp)`.
-- Local media backend, audio-only where supported.
-- `sherpa-onnx` open-vocabulary English keyword spotter; no custom model training or non-commercial model dependency.
-- Keyword asset: `HEY HERMES`, configurable threshold/boost.
-- Adaptive energy-based VAD initially, isolated behind an interface for a later Silero VAD backend.
-- Hermes client with health checks, timeouts, bearer authentication, stable `X-Hermes-Session-Key`, and rotating `X-Hermes-Session-Id` after inactivity.
-- Settings web UI on port 8042.
-- Local status endpoint for setup diagnostics.
-- Safe, small listening/thinking/speaking poses; no direct LLM motor control in v0.1.
+- OpenAI GA Realtime WebSocket protocol;
+- 24 kHz PCM transport and device-rate resampling;
+- semantic VAD and interruption handling;
+- Marin and Cedar voices;
+- minimal through extra-high reasoning effort;
+- streamed transcript, audio, and status events;
+- `ask_hermes` function-call round trip;
+- credentials isolated to the Hermes host.
 
-### Hermes companion bridge
+### Pipeline mode
 
-A small standalone server runs on the same host/profile as Hermes Agent:
+```text
+Reachy local KWS
+  → local endpointing
+  → selected STT
+  → Hermes API Server agent
+  → selected TTS
+  → Reachy playback + motion
+```
 
-- Proxies authenticated Hermes chat requests to the standard API server.
-- Exposes OpenAI-style `/v1/audio/transcriptions` using Hermes' configured STT provider.
-- Exposes `/v1/audio/speech` using Hermes' configured TTS provider.
-- Uses the same bearer key as the Hermes API server.
-- Binds to loopback by default; LAN binding is explicit and documented.
-- Does not copy provider credentials to Reachy.
+Implemented:
 
-This companion exists because the Hermes API server currently exposes agent chat but not public audio transcription/speech endpoints.
+- configured and ElevenLabs STT/TTS selection;
+- model and account-voice discovery;
+- configurable Hermes agent routes;
+- continued conversation;
+- wake-phrase interruption during playback;
+- stable memory scope and rotating conversation IDs.
 
-## Configuration defaults
+### Power lifecycle
 
-- Bridge URL: `http://<hermes-host>:8643`
-- Wake phrase: `HEY HERMES`
-- Conversation inactivity timeout: 5 minutes
-- Initial speech timeout: 5 seconds
-- Maximum utterance: 20 seconds
-- End-of-speech silence: 0.8 seconds
-- Hermes model field: `hermes-agent` (cosmetic; server chooses the real model)
-- TTS response format: MP3
-- Continuous conversation: off by default
+Implemented states:
 
-## Public packaging
+- **Standby:** local wake processing, motors disabled;
+- **Awake:** local wake processing, motors enabled;
+- **Meeting:** timed microphone stop and motors disabled;
+- **Sleep:** indefinite microphone stop and motors disabled;
+- **App off:** asynchronous clean app stop;
+- **Pi shutdown:** explicit confirmation and graceful local power-off.
 
-- App package/entry point: `reachy_mini_hermes` / `ReachyMiniHermes`.
-- README frontmatter includes `reachy_mini_python_app`.
+## Current verification status
+
+Automated:
+
+- Ruff passes.
+- 23 pytest tests pass.
+- Wheel builds successfully.
+- No provider-key prefix is present in repository files.
+
+Live bridge:
+
+- OpenAI authentication succeeds.
+- `gpt-realtime-2.1` is visible.
+- Realtime `session.created` and `session.updated` succeed.
+- Configured reasoning effort is reflected by the server.
+- Native audio response and `ask_hermes` tool delegation succeed.
+- ElevenLabs TTS and STT round trip succeeds.
+
+Physical Reachy deployment:
+
+- app installs and starts through the Reachy daemon;
+- settings UI and model/voice discovery work;
+- microphone frames stop and resume in the correct power modes;
+- motor mode follows Standby/Awake/Meeting/Sleep;
+- app-off exits cleanly and restarts successfully;
+- daemon control loop reports zero errors;
+- status endpoints pass repeated-request soak tests;
+- network test reports zero packet loss.
+
+Human acceptance still required per hardware/audio environment:
+
+- real spoken **“Hey Hermes”** detection;
+- natural Realtime turn-taking;
+- acoustic barge-in while Reachy is speaking;
+- microphone/speaker quality after physical enclosure or cooling changes.
+
+## Performance observations
+
+Reference deployment measurements:
+
+| Path | Observed result |
+|---|---:|
+| Native Realtime short response | ~1.2 s |
+| ElevenLabs TTS | ~0.6 s |
+| ElevenLabs STT | ~1.1 s |
+| Full Hermes pipeline agent request | ~14 s |
+| Realtime request invoking `ask_hermes` | ~23 s in validation |
+
+Hermes pipeline latency is dominated by per-request agent/context preparation rather than STT or TTS. Realtime provides the low-latency conversational path while retaining conditional Hermes delegation.
+
+## Packaging and release scope
+
+- Package and entry point: `reachy_mini_hermes` / `ReachyMiniHermes`.
+- Reachy settings UI: port `8042`.
+- Companion bridge: port `8643`, loopback by default.
 - Apache-2.0 project license.
-- Publishable through `reachy-mini-app-assistant publish` after explicit user approval and Hugging Face authentication.
-- Wake/earcon assets generated for this project and licensed with it.
-- Downloaded third-party KWS model files retain their upstream notices and are cached at runtime rather than committed where practical.
+- Publishable through `reachy-mini-app-assistant publish` only after explicit user approval and Hugging Face authentication.
+- Third-party KWS model is downloaded, checksum-verified, and retains its upstream notice.
 
-## Test strategy
+## Deferred work
 
-- Unit tests for config redaction, session continuity, VAD segmentation, duplicate state cues, and HTTP error handling.
-- Mock Reachy media/robot test covering wake → record → transcribe → Hermes → TTS → playback.
-- Companion bridge tests with mocked Hermes STT/TTS and proxied chat.
-- `ruff`, `pytest`, package build, and `reachy-mini-app-assistant check`.
-- Simulation/import smoke test without hardware.
-- Final physical test on the configured Reachy Mini only after unit/package checks pass.
-
-## Assumptions for v0.1
-
-- Hermes Agent and Reachy are reachable on the same trusted LAN or through a user-managed TLS/VPN proxy.
-- The user's Hermes profile has STT and TTS configured.
-- English wake phrase detection is the first supported language; agent/STT languages remain provider-configurable.
-- Publishing to the user's Hugging Face account is a separate external action and will not happen without confirmation.
-
-## Deferred, not forgotten
-
-- Full duplex/barge-in while TTS is playing.
+- Acoustic echo cancellation tuned for raw WebSocket Realtime audio.
 - Camera frames and robot-specific Hermes tools.
 - Local offline STT/TTS fallback on Reachy Wireless.
 - Per-user wake-model personalization.
-- TLS termination and remote-internet deployment wizard.
+- Authenticated/TLS Reachy settings server for untrusted networks.
+- Route-specific warm Hermes agent reuse with session serialization, cache signatures, lifecycle controls, and usage accounting.
+- Broader simulated robot integration tests beyond the current unit and live hardware checks.

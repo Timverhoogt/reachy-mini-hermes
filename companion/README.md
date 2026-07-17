@@ -1,6 +1,14 @@
-# Hermes Reachy voice bridge
+# Hermes Reachy companion bridge
 
-Hermes Agent's public API server handles agent chat and tools. The companion bridge adds audio transcription and speech endpoints by reusing the **same Hermes profile's configured STT and TTS providers**. It also forwards chat to the official Hermes API server, so Reachy needs only one URL and bearer key.
+The companion bridge gives Reachy one authenticated endpoint for:
+
+- Hermes API Server chat;
+- model and voice discovery;
+- configured or explicitly selected STT/TTS providers;
+- a private OpenAI Realtime WebSocket;
+- `ask_hermes` delegation from Realtime back into the user's Hermes agent.
+
+Provider credentials stay on the Hermes host. Reachy stores only the bridge URL and the private `API_SERVER_KEY` bearer token.
 
 ## Prerequisites
 
@@ -16,6 +24,14 @@ Verify Hermes itself:
 curl http://127.0.0.1:8642/health
 ```
 
+For Realtime mode, add a direct OpenAI project key to the active profile's `.env`:
+
+```bash
+OPENAI_API_KEY=your-openai-project-key
+```
+
+The OpenAI account must have API billing and access to `gpt-realtime-2.1`. A ChatGPT subscription alone is not an API credential.
+
 ## Run the bridge
 
 Use the Python environment that belongs to Hermes Agent:
@@ -27,24 +43,56 @@ venv/bin/python /path/to/reachy_mini_hermes/companion/hermes_reachy_bridge.py \
   --port 8643
 ```
 
-The bridge reads `API_SERVER_KEY` from the active Hermes profile's environment,
-`.env`, or `config.yaml` (the location used by `hermes config set`). For another profile:
+The bridge resolves secrets from the selected Hermes profile's environment, `.env`, and configuration. For another profile:
 
 ```bash
-venv/bin/python /path/to/hermes_reachy_bridge.py --profile my-profile --host 0.0.0.0
+venv/bin/python /path/to/hermes_reachy_bridge.py \
+  --profile my-profile \
+  --host 0.0.0.0
 ```
 
-Then configure the Reachy app with:
+Configure Reachy with:
 
 ```text
 Bridge URL: http://<hermes-host-LAN-IP>:8643
 API key:    the same API_SERVER_KEY
 ```
 
-### Run at boot with systemd
+## API surface
 
-The included example assumes this repository is cloned to
-`~/reachy_mini_hermes`:
+All `/v1/*` routes require:
+
+```http
+Authorization: Bearer <API_SERVER_KEY>
+```
+
+| Route | Purpose |
+|---|---|
+| `GET /health` | Hermes, provider, and Realtime availability |
+| `GET /v1/models` | Reachy-compatible Hermes model routes |
+| `GET /v1/voice-options` | STT/TTS models and account voices |
+| `POST /v1/chat/completions` | Authenticated proxy to Hermes API Server |
+| `POST /v1/audio/transcriptions` | Configured/local/ElevenLabs STT |
+| `POST /v1/audio/speech` | Configured/Edge/ElevenLabs TTS |
+| `GET /v1/realtime` | Authenticated WebSocket proxy to OpenAI Realtime |
+
+The Realtime client sends an initial `session.start` envelope containing model, voice, reasoning effort, Hermes agent route, stable memory scope, and system prompt. The bridge then creates the OpenAI GA Realtime session and exposes `ask_hermes` as a function tool.
+
+### Realtime trust boundary
+
+OpenAI may answer ordinary conversation directly. The session instructions require `ask_hermes` for:
+
+- personal or persistent memory;
+- current information;
+- Home Assistant or other connected devices;
+- local files and system state;
+- consequential actions.
+
+The bridge executes `ask_hermes` through the authenticated local Hermes API Server and returns the tool result to the Realtime session. OpenAI does not receive the Hermes bearer token, and Reachy does not receive the OpenAI key.
+
+## Run at boot with systemd
+
+The included example assumes this repository is cloned to `~/reachy_mini_hermes`:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -58,13 +106,33 @@ Verify with:
 
 ```bash
 systemctl --user status hermes-reachy-bridge.service
-curl http://127.0.0.1:8643/health
+curl -H "Authorization: Bearer $API_SERVER_KEY" \
+  http://127.0.0.1:8643/health
 ```
+
+Expected Realtime health fields:
+
+```json
+{
+  "realtime_available": true,
+  "realtime_model": "gpt-realtime-2.1"
+}
+```
+
+## Logs
+
+```bash
+journalctl --user -u hermes-reachy-bridge.service -f
+```
+
+The bridge must not log bearer tokens, OpenAI keys, ElevenLabs keys, or response audio. Keep Hermes secret redaction enabled.
 
 ## Security
 
 - The default bind address is `127.0.0.1`.
 - Bind to `0.0.0.0` only on a trusted LAN or VPN.
-- Every chat/audio route uses constant-time bearer-token authentication.
-- Provider keys stay on the Hermes host and are never sent to Reachy.
-- For internet access, place the bridge behind HTTPS and an authenticated reverse proxy; do not expose the raw port publicly.
+- Every chat/audio/discovery/Realtime route uses constant-time bearer-token authentication.
+- Provider keys remain on the Hermes host.
+- The bearer token can invoke a tool-capable agent; treat it as an administrative credential.
+- For remote access, use TLS and an authenticated reverse proxy. Never expose raw port `8643` publicly.
+- Rotate both the bearer token and any provider credential after suspected disclosure.
