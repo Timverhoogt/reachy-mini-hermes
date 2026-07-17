@@ -207,11 +207,16 @@ class HermesVoiceRuntime:
 
     def test_camera(self) -> dict[str, object]:
         """Capture one frame locally for setup diagnostics without returning it."""
+        jpeg = self.camera_snapshot()
+        return {"bytes": len(jpeg), "content_type": "image/jpeg"}
+
+    def camera_snapshot(self) -> bytes:
+        """Capture one bounded JPEG for an explicitly authenticated request."""
         jpeg = self._capture_camera_jpeg()
         with self._status_lock:
             self._status.camera_captures += 1
             self._status.camera_last_error = ""
-        return {"bytes": len(jpeg), "content_type": "image/jpeg"}
+        return jpeg
 
     def _capture_camera_jpeg(self) -> bytes:
         media = getattr(self.robot, "media", None)

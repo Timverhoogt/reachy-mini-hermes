@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Settings UI for conversation mode, speech providers, voices, interruption, power, app stop, and shutdown.
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
 - Optional on-demand Reachy camera tool with local diagnostics and Realtime image input.
+- Authenticated, non-cacheable one-frame snapshot route for explicit image sharing.
 - Operations runbook covering deployment, rollback, cooling maintenance, health checks, and acoustic acceptance.
 
 ### Changed

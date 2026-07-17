@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import socket
 import subprocess
 import threading
 
-from fastapi import HTTPException
+from fastapi import Header, HTTPException, Response
 from pydantic import BaseModel, Field
 from reachy_mini import ReachyMini, ReachyMiniApp
 
@@ -158,6 +159,28 @@ class ReachyMiniHermes(ReachyMiniApp):
                 return {"ok": True, **self._runtime.test_camera()}
             except RuntimeError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/camera/snapshot")
+        def camera_snapshot(
+            request: ConfirmationRequest,
+            authorization: str = Header(default=""),
+        ) -> Response:
+            expected = f"Bearer {load_config().api_key}"
+            if not secrets.compare_digest(authorization, expected):
+                raise HTTPException(status_code=401, detail="Unauthorized")
+            if request.confirm.strip().lower() != "camera":
+                raise HTTPException(status_code=400, detail="Confirmation must be 'camera'")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                jpeg = self._runtime.camera_snapshot()
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            return Response(
+                content=jpeg,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
+            )
 
         @self.settings_app.post("/api/power")
         def power(request: PowerRequest) -> dict[str, object]:

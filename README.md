@@ -201,6 +201,8 @@ The settings server stays available in these modes. **Stop voice app** exits the
 
 Camera access is disabled by default. When enabled in Realtime mode, the model can request a single fresh frame for prompts such as “What do you see?” or “Look at this object.” Frames are not streamed continuously and the local camera test reports only JPEG metadata, not image content.
 
+An authenticated `POST /api/camera/snapshot` route can return one current JPEG for explicitly requested sharing or diagnostics. It requires the private bridge bearer token, the `camera` confirmation value, and disables response caching.
+
 ## Configuration storage
 
 Default path:

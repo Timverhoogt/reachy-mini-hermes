@@ -34,6 +34,8 @@ The model can call `ask_hermes`. That tool forwards a request to the local Herme
 
 Do not claim that local wake-word processing makes the entire conversation local: after wake-up, pipeline STT/TTS or Realtime audio may be sent to configured cloud providers. When on-demand camera is enabled, a fresh frame may also be sent to the Realtime provider only after a visual tool call; continuous camera streaming is not used.
 
+The snapshot API returns image bytes only after bearer-token authentication and explicit confirmation, and sets `Cache-Control: no-store`. The unauthenticated local camera test returns metadata only.
+
 ## Operational controls
 
 - Keep `security.redact_secrets` enabled in Hermes.
