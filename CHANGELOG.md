@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Updated OpenAI integration from the retired beta Realtime API shape to the GA protocol.
 - Added the required Realtime output sample rate.
 - App-off no longer waits on the daemon response from inside the process being stopped, removing a ten-second shutdown cycle and traceback.
+- Realtime interruption tracks locally buffered audio after server generation finishes, immediately flushes Reachy playback, and truncates the unplayed OpenAI conversation audio.
 - Meeting and Sleep stop active playback and microphone capture before disabling motors.
 
 ### Verified

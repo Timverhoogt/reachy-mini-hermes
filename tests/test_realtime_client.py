@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 
 import numpy as np
 
@@ -21,3 +22,25 @@ def test_audio_delta_decodes_pcm16() -> None:
     )
     actual = RealtimeBridgeSession.audio_samples(event)
     assert np.allclose(actual, expected, atol=1e-4)
+
+
+def test_truncate_audio_reports_played_offset() -> None:
+    class Socket:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def send(self, message: str) -> None:
+            self.messages.append(message)
+
+    session = RealtimeBridgeSession.__new__(RealtimeBridgeSession)
+    socket = Socket()
+    session._socket = socket  # type: ignore[assignment]
+
+    session.truncate_audio("item-123", 1450)
+
+    assert json.loads(socket.messages[0]) == {
+        "type": "conversation.item.truncate",
+        "item_id": "item-123",
+        "content_index": 0,
+        "audio_end_ms": 1450,
+    }

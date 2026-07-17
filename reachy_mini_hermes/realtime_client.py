@@ -127,6 +127,24 @@ class RealtimeBridgeSession:
         if self._socket is not None:
             self._socket.send(json.dumps({"type": "output_audio_buffer.clear"}))
 
+    def truncate_audio(self, item_id: str, audio_end_ms: int) -> None:
+        """Tell a WebSocket Realtime session how much audio was actually played."""
+        if self._socket is None or not item_id:
+            return
+        try:
+            self._socket.send(
+                json.dumps(
+                    {
+                        "type": "conversation.item.truncate",
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "audio_end_ms": max(0, audio_end_ms),
+                    }
+                )
+            )
+        except Exception as exc:
+            raise RealtimeBridgeError(f"Could not truncate interrupted audio: {exc}") from exc
+
     def close(self) -> None:
         self._closed.set()
         socket, self._socket = self._socket, None

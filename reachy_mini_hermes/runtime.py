@@ -54,6 +54,39 @@ class RuntimeStatus:
     interruptions: int = 0
 
 
+@dataclass(slots=True)
+class RealtimePlayback:
+    """Track audio that may still be buffered after generation has finished."""
+
+    item_id: str = ""
+    started_at: float | None = None
+    queued_until: float = 0.0
+    duration_seconds: float = 0.0
+
+    def add(self, now: float, duration_seconds: float) -> None:
+        if self.started_at is None or now >= self.queued_until:
+            self.started_at = now
+            self.queued_until = now
+            self.duration_seconds = 0.0
+        self.duration_seconds += duration_seconds
+        self.queued_until = max(now, self.queued_until) + duration_seconds
+
+    def audible(self, now: float) -> bool:
+        return self.started_at is not None and now < self.queued_until
+
+    def played_ms(self, now: float) -> int:
+        if self.started_at is None:
+            return 0
+        elapsed = max(0.0, now - self.started_at)
+        return int(min(elapsed, self.duration_seconds) * 1000.0)
+
+    def reset(self) -> None:
+        self.item_id = ""
+        self.started_at = None
+        self.queued_until = 0.0
+        self.duration_seconds = 0.0
+
+
 class HermesVoiceRuntime:
     """Own microphone capture and serialize voice turns through Hermes."""
 
@@ -296,6 +329,8 @@ class HermesVoiceRuntime:
         response_parts: list[str] = []
         last_activity = time.monotonic()
         speaking = False
+        generation_done = False
+        playback = RealtimePlayback()
         self._play_asset("listening.wav")
         self._discard_audio(0.34)
         self._set_status(
@@ -329,11 +364,21 @@ class HermesVoiceRuntime:
                             error = error.get("message") or error
                         raise RealtimeBridgeError(str(error or "Realtime session failed"))
                     if kind == "input_audio_buffer.speech_started":
-                        last_activity = time.monotonic()
+                        now = time.monotonic()
+                        last_activity = now
                         transcript_parts.clear()
-                        if speaking:
+                        if speaking or playback.audible(now):
+                            played_ms = playback.played_ms(now)
                             self._clear_streamed_audio()
+                            if playback.item_id:
+                                session.truncate_audio(playback.item_id, played_ms)
+                            _LOGGER.info(
+                                "Realtime interruption: cleared buffered audio at %s ms",
+                                played_ms,
+                            )
                             speaking = False
+                            generation_done = False
+                            playback.reset()
                             with self._status_lock:
                                 self._status.interruptions += 1
                         self._set_status("listening", "Listening to interruption")
@@ -355,14 +400,23 @@ class HermesVoiceRuntime:
                                 transcript="".join(transcript_parts).strip(),
                                 stt_provider="openai-realtime",
                             )
-                    elif kind in {"response.created", "response.output_item.added"}:
+                    elif kind == "response.created":
                         last_activity = time.monotonic()
+                        generation_done = False
+                        playback.reset()
                         self._set_status("thinking", "Hermes is responding")
                         if self._motion is not None:
                             self._motion.thinking()
+                    elif kind == "response.output_item.added":
+                        item = payload.get("item")
+                        if isinstance(item, dict):
+                            playback.item_id = str(item.get("id") or "")
+                        last_activity = time.monotonic()
+                        self._set_status("thinking", "Hermes is responding")
                     elif kind in {"response.output_audio.delta", "response.audio.delta"}:
                         audio = session.audio_samples(event)
                         if audio.size:
+                            now = time.monotonic()
                             if not speaking:
                                 speaking = True
                                 response_parts.clear()
@@ -375,7 +429,8 @@ class HermesVoiceRuntime:
                                     self._motion.speaking()
                             output = resample_linear(audio, 24000, self._output_sample_rate)
                             self.robot.media.push_audio_sample(output)
-                            last_activity = time.monotonic()
+                            playback.add(now, output.size / self._output_sample_rate)
+                            last_activity = now
                     elif kind in {
                         "response.output_audio_transcript.delta",
                         "response.audio_transcript.delta",
@@ -390,11 +445,15 @@ class HermesVoiceRuntime:
                         if kind == "response.done":
                             with self._status_lock:
                                 self._status.turns_completed += 1
-                        speaking = False
+                            generation_done = True
                         last_activity = time.monotonic()
-                        self._set_status("listening", "Waiting for a follow-up")
-                        if self._motion is not None:
-                            self._motion.listening()
+                if generation_done and speaking and not playback.audible(time.monotonic()):
+                    speaking = False
+                    generation_done = False
+                    playback.reset()
+                    self._set_status("listening", "Waiting for a follow-up")
+                    if self._motion is not None:
+                        self._motion.listening()
         finally:
             session.close()
             self._clear_streamed_audio()
