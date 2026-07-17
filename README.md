@@ -5,22 +5,27 @@ colorFrom: indigo
 colorTo: yellow
 sdk: static
 pinned: false
-short_description: Talk to your own Hermes Agent through Reachy Mini
+short_description: Embodied Hermes voice, vision, memory, and tools
 suggested_storage: medium
 tags:
   - reachy_mini
   - reachy_mini_python_app
   - voice-assistant
   - hermes-agent
+  - openai-realtime
+  - camera
+  - home-assistant
 ---
 
 # Reachy Mini Hermes
 
-Say **“Hey Hermes”** and talk to your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) through Reachy Mini.
+Say **“Hey Hermes”** and give Reachy Mini the voice, vision, memory, skills, and tools of your own [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+
+[**Open the app page**](https://huggingface.co/spaces/Timbo89/reachy_mini_hermes) · [**View the source**](https://github.com/Timverhoogt/reachy-mini-hermes)
 
 Wake-word detection stays local on the robot. After wake-up, choose between a configurable Hermes speech pipeline and low-latency OpenAI Realtime speech-to-speech. Provider credentials remain on the Hermes host.
 
-> **Status:** early alpha. Automated, bridge, network, and physical power-state tests pass on Reachy Mini Lite. Every new robot/audio environment still needs a real spoken wake-word and acoustic barge-in acceptance test.
+> **Status:** early alpha. Automated, bridge, network, camera, deployment, and physical power-state tests pass on Reachy Mini Lite. Every robot/audio environment still needs a real spoken wake-word and acoustic barge-in acceptance test.
 
 ## Conversation modes
 
@@ -266,7 +271,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **23 tests**.
+Current automated suite: **29 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

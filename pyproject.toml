@@ -27,6 +27,7 @@ classifiers = [
 ]
 
 [project.urls]
+Homepage = "https://huggingface.co/spaces/Timbo89/reachy_mini_hermes"
 Documentation = "https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server"
 Repository = "https://github.com/Timverhoogt/reachy-mini-hermes"
 

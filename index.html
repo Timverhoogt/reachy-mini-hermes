@@ -3,27 +3,178 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Reachy Mini Hermes</title>
+  <meta name="description" content="Give Reachy Mini the voice, vision, memory, tools, and smart-home access of your own Hermes Agent." />
+  <title>Reachy Mini Hermes — embodied voice, vision, and tools</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Reachy Mini Hermes home"><span class="brand-mark">H</span><span>Reachy Mini Hermes</span></a>
+    <nav aria-label="Primary navigation">
+      <a href="#architecture">Architecture</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#install">Install</a>
+      <a class="nav-cta" href="https://github.com/Timverhoogt/reachy-mini-hermes">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main id="top">
     <section class="hero">
-      <div class="copy">
-        <span class="tag">REACHY MINI × HERMES AGENT</span>
-        <h1>Your agent.<br />Now embodied.</h1>
-        <p>Wake Reachy with <strong>“Hey Hermes”</strong> and talk to your own Hermes Agent—its memory, skills, tools, and personality included.</p>
-        <div class="badges"><span>Local wake phrase</span><span>Bring your own Hermes</span><span>Apache-2.0</span></div>
+      <div class="hero-copy">
+        <p class="eyebrow">REACHY MINI × HERMES AGENT</p>
+        <h1>Your agent.<br /><em>Now embodied.</em></h1>
+        <p class="lede">Wake Reachy with <strong>“Hey Hermes”</strong>. Talk naturally, interrupt mid-sentence, ask what it sees, control Home Assistant, and keep the memory, skills, and tools of your own Hermes Agent.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="https://github.com/Timverhoogt/reachy-mini-hermes">View source on GitHub</a>
+          <a class="button secondary" href="#install">Install the app</a>
+        </div>
+        <div class="proof" aria-label="Project facts">
+          <span><strong>Local</strong> pre-wake audio</span>
+          <span><strong>29</strong> automated tests</span>
+          <span><strong>Apache-2.0</strong> licensed</span>
+        </div>
       </div>
-      <div class="visual" aria-label="Abstract glowing Hermes voice orb"><div class="orb"><i></i></div><p>HEY HERMES</p></div>
+
+      <div class="hero-system" aria-label="Animated voice system diagram">
+        <div class="signal signal-a"></div>
+        <div class="signal signal-b"></div>
+        <div class="orb"><span>HEY<br />HERMES</span></div>
+        <div class="state state-wake"><i></i>Local wake</div>
+        <div class="state state-voice"><i></i>Realtime voice</div>
+        <div class="state state-vision"><i></i>On-demand vision</div>
+        <div class="state state-tools"><i></i>Hermes tools</div>
+      </div>
     </section>
-    <section class="steps">
-      <article><b>01</b><h2>Connect</h2><p>Run the voice bridge beside Hermes Agent and enter its LAN URL in the Reachy app.</p></article>
-      <article><b>02</b><h2>Wake</h2><p>Open-vocabulary keyword spotting detects “Hey Hermes” locally on the robot.</p></article>
-      <article><b>03</b><h2>Talk</h2><p>Hermes hears through its configured STT, runs tools, and replies through its configured voice.</p></article>
-      <article><b>04</b><h2>Build</h2><p>Fork the Apache-licensed Python app and extend Reachy's motion, camera, and interaction design.</p></article>
+
+    <section class="mode-strip" aria-label="Conversation modes">
+      <article>
+        <p class="number">01 / REALTIME</p>
+        <h2>Fast, interruptible conversation</h2>
+        <p>OpenAI <code>gpt-realtime-2.1</code> streams speech directly. Server VAD, local playback accounting, queue flushing, and conversation truncation make natural barge-in possible.</p>
+      </article>
+      <article>
+        <p class="number">02 / PIPELINE</p>
+        <h2>Your providers, your agent</h2>
+        <p>Choose Hermes, ElevenLabs, or other configured STT/TTS routes. Every request can use Hermes memory, files, web access, Home Assistant, MCP servers, and skills.</p>
+      </article>
     </section>
-    <footer><span>Built for the Reachy Mini app ecosystem</span><a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a><a href="https://github.com/pollen-robotics/reachy_mini">Reachy Mini SDK</a></footer>
+
+    <section class="architecture section" id="architecture">
+      <div class="section-heading">
+        <p class="eyebrow">PRIVATE BY ARCHITECTURE</p>
+        <h2>The robot gets a bridge.<br />The host keeps the keys.</h2>
+        <p>Provider credentials stay on the Hermes machine. Reachy stores only a private bridge URL and bearer token. Cloud audio starts after the local wake phrase.</p>
+      </div>
+      <div class="flow" role="img" aria-label="Reachy to Hermes architecture flow">
+        <div class="flow-node">
+          <span class="node-label">ROBOT</span>
+          <strong>Reachy Mini</strong>
+          <small>Mic · speaker · camera · motion</small>
+        </div>
+        <div class="flow-link"><span>authenticated LAN / VPN</span></div>
+        <div class="flow-node accent-node">
+          <span class="node-label">TRUST BOUNDARY</span>
+          <strong>Private bridge</strong>
+          <small>Realtime · STT · TTS · discovery</small>
+        </div>
+        <div class="flow-link"><span>tool delegation</span></div>
+        <div class="flow-node">
+          <span class="node-label">AGENT HOST</span>
+          <strong>Hermes Agent</strong>
+          <small>Identity · memory · tools · secrets</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="capabilities section" id="capabilities">
+      <div class="section-heading compact">
+        <p class="eyebrow">VOICE, VISION, ACTION</p>
+        <h2>More than a talking demo.</h2>
+      </div>
+
+      <article class="feature feature-interrupt">
+        <div class="feature-index">01</div>
+        <div class="feature-copy">
+          <p class="feature-tag">NATURAL INTERRUPTION</p>
+          <h3>Generation finished.<br />Playback didn’t.</h3>
+          <p>The runtime tracks what Reachy has actually played—not just what the model has generated. When you speak, it clears the local GStreamer queue and truncates unheard audio from the conversation.</p>
+        </div>
+        <div class="wave-panel" aria-hidden="true">
+          <div class="wave assistant"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <div class="cut-line"><b>INTERRUPT</b></div>
+          <div class="wave human"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        </div>
+      </article>
+
+      <article class="feature feature-camera">
+        <div class="feature-index">02</div>
+        <div class="feature-copy">
+          <p class="feature-tag">ON-DEMAND CAMERA</p>
+          <h3>Look only when asked.</h3>
+          <p>For an explicit visual request, Reachy captures one fresh, bounded JPEG and adds it to the active Realtime conversation. No continuous cloud video. Meeting and Sleep block camera capture.</p>
+        </div>
+        <div class="camera-panel" aria-hidden="true">
+          <div class="viewfinder"><i></i><i></i><i></i><i></i><span>ONE FRAME</span></div>
+          <p>CAPTURE → ANALYZE → DISCARD</p>
+        </div>
+      </article>
+
+      <article class="feature feature-tools">
+        <div class="feature-index">03</div>
+        <div class="feature-copy">
+          <p class="feature-tag">HERMES DELEGATION</p>
+          <h3>A robot with your tools.</h3>
+          <p>Ordinary speech stays on the fast path. Requests involving personal memory, current information, files, Home Assistant, or consequential actions call <code>ask_hermes</code> and speak the verified result.</p>
+        </div>
+        <div class="tool-list" aria-label="Examples of Hermes capabilities">
+          <span>Home Assistant</span><span>Memory</span><span>Files</span><span>Web</span><span>Skills</span><span>MCP</span>
+        </div>
+      </article>
+    </section>
+
+    <section class="privacy section">
+      <div class="section-heading compact">
+        <p class="eyebrow">PHYSICAL STATES</p>
+        <h2>Privacy you can see.</h2>
+      </div>
+      <div class="state-table" role="table" aria-label="Power and privacy modes">
+        <div class="state-row header-row" role="row"><span>Mode</span><span>Microphone</span><span>Wake word</span><span>Motor torque</span></div>
+        <div class="state-row" role="row"><strong>Standby</strong><span>Local only</span><span class="on">Active</span><span>Released</span></div>
+        <div class="state-row" role="row"><strong>Awake</strong><span>Running</span><span class="on">Active</span><span class="on">Enabled</span></div>
+        <div class="state-row" role="row"><strong>Meeting</strong><span class="off">Stopped</span><span class="off">Disabled</span><span>Released</span></div>
+        <div class="state-row" role="row"><strong>Sleep</strong><span class="off">Stopped</span><span class="off">Disabled</span><span>Released</span></div>
+      </div>
+      <p class="privacy-note">Awake now runs Reachy’s physical wake-up motion. Meeting and Sleep stop microphone capture, clear active playback, disable wake detection, and release motor torque.</p>
+    </section>
+
+    <section class="install section" id="install">
+      <div class="install-copy">
+        <p class="eyebrow">OPEN SOURCE · EARLY ALPHA</p>
+        <h2>Build it. Run it.<br />Make it yours.</h2>
+        <p>Requires Reachy Mini SDK 1.9+, Python 3.11+, a reachable Hermes Agent API Server, and a trusted LAN/VPN. Realtime mode additionally needs OpenAI API access on the Hermes host.</p>
+        <div class="install-links">
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes#1-prepare-hermes-agent">Full installation guide ↗</a>
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/OPERATIONS.md">Operations runbook ↗</a>
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/SECURITY.md">Security model ↗</a>
+        </div>
+      </div>
+      <pre class="terminal" aria-label="Installation commands"><span>$</span> git clone https://github.com/Timverhoogt/reachy-mini-hermes
+<span>$</span> cd reachy-mini-hermes
+<span>$</span> uv build --wheel
+<span>$</span> uv pip install --reinstall dist/reachy_mini_hermes-*.whl
+
+<span class="terminal-comment"># Then open Reachy’s app settings and say:</span>
+<span class="terminal-accent">“Hey Hermes”</span></pre>
+    </section>
   </main>
+
+  <footer>
+    <div><strong>Reachy Mini Hermes</strong><span>Embodied voice, vision, memory, and tools.</span></div>
+    <nav aria-label="Footer navigation">
+      <a href="https://github.com/Timverhoogt/reachy-mini-hermes">GitHub</a>
+      <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
+      <a href="https://github.com/pollen-robotics/reachy_mini">Reachy Mini SDK</a>
+    </nav>
+  </footer>
 </body>
 </html>

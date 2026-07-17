@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Companion health output reports Realtime availability and model.
 - Voice status exposes power mode, Meeting timer, provider state, and interruption count.
 - Documentation now describes the dual-mode architecture and security boundaries.
+- Hugging Face app page now presents the complete voice, interruption, camera, Hermes-tool, and power/privacy architecture.
 
 ### Fixed
 
@@ -38,11 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - App-off no longer waits on the daemon response from inside the process being stopped, removing a ten-second shutdown cycle and traceback.
 - Realtime interruption tracks locally buffered audio after server generation finishes, immediately flushes Reachy playback, and truncates the unplayed OpenAI conversation audio.
 - Camera access defaults to off and captures only one fresh JPEG per explicit Realtime visual-tool call.
+- Camera capture waits for a completed tool item, deduplicates call IDs, and remains blocked in Meeting/Sleep.
+- Awake now runs Reachy's physical wake-up motion instead of only enabling motor torque.
 - Meeting and Sleep stop active playback and microphone capture before disabling motors.
 
 ### Verified
 
-- Ruff passes and 23 automated tests pass.
+- Ruff passes and 29 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.
