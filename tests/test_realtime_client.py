@@ -44,3 +44,26 @@ def test_truncate_audio_reports_played_offset() -> None:
         "content_index": 0,
         "audio_end_ms": 1450,
     }
+
+
+def test_camera_frame_creates_image_and_tool_output() -> None:
+    class Socket:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def send(self, message: str) -> None:
+            self.messages.append(message)
+
+    session = RealtimeBridgeSession.__new__(RealtimeBridgeSession)
+    socket = Socket()
+    session._socket = socket  # type: ignore[assignment]
+
+    session.send_camera_frame("camera-call", b"jpeg-data")
+
+    events = [json.loads(message) for message in socket.messages]
+    image_part = events[0]["item"]["content"][1]
+    assert image_part["type"] == "input_image"
+    assert base64.b64decode(image_part["image_url"].split(",", 1)[1]) == b"jpeg-data"
+    assert events[1]["item"]["type"] == "function_call_output"
+    assert events[1]["item"]["call_id"] == "camera-call"
+    assert events[2] == {"type": "response.create"}

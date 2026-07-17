@@ -105,7 +105,16 @@ Important fields:
 - `runtime.audio_frames_processed`;
 - `runtime.turns_completed`;
 - `runtime.interruptions`;
-- `config.conversation_mode`.
+- `config.conversation_mode`;
+- `config.camera_enabled`, `runtime.camera_captures`, and `runtime.camera_last_error`.
+
+Test one local camera frame without returning its image content:
+
+```bash
+curl -X POST http://REACHY_HOST:8042/api/camera/test \
+  -H 'Content-Type: application/json' \
+  -d '{"confirm":"camera"}'
+```
 
 In Standby, `audio_frames_processed` should increase while daemon motor mode remains `disabled`. In Meeting or Sleep, the frame count should stop increasing.
 
@@ -201,9 +210,10 @@ After installing or changing a heatsink/fan:
 3. Ask a simple social question; verify the native Realtime response begins promptly.
 4. Interrupt Reachy naturally while it is speaking; verify playback clears and the new turn is heard.
 5. Ask a non-consequential Hermes tool question, such as checking a sensor state.
-6. Verify the final answer matches the Hermes tool result rather than an unverified claim.
-7. Exercise Meeting, Standby, and Sleep from the UI.
-8. Review logs for tracebacks and record temperature after the test.
+6. With on-demand camera enabled, ask **“What do you see?”** and verify one camera capture is logged.
+7. Verify the final answers match the fresh image or Hermes tool result rather than an unverified claim.
+8. Exercise Meeting, Standby, and Sleep from the UI.
+9. Review logs for tracebacks and record temperature after the test.
 
 ## Soak test
 

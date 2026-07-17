@@ -60,6 +60,7 @@ class RealtimeBridgeSession:
                         "model": self.config.realtime_model,
                         "voice": self.config.realtime_voice,
                         "reasoning_effort": self.config.realtime_reasoning_effort,
+                        "camera_enabled": self.config.camera_enabled,
                         "agent_model": self.config.model,
                         "session_id": f"reachy-realtime-{self.config.instance_id}",
                         "system_prompt": self.config.system_prompt,
@@ -144,6 +145,64 @@ class RealtimeBridgeSession:
             )
         except Exception as exc:
             raise RealtimeBridgeError(f"Could not truncate interrupted audio: {exc}") from exc
+
+    def send_camera_frame(self, call_id: str, jpeg: bytes) -> None:
+        """Attach one on-demand camera frame and complete its tool call."""
+        if self._socket is None:
+            raise RealtimeBridgeError("Realtime session is not connected")
+        if not call_id:
+            raise RealtimeBridgeError("Camera tool call did not include a call ID")
+        if not jpeg or len(jpeg) > 1_000_000:
+            raise RealtimeBridgeError("Camera JPEG must be between 1 byte and 1 MB")
+        image_url = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
+        events = [
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Current on-demand Reachy camera frame."},
+                        {"type": "input_image", "image_url": image_url},
+                    ],
+                },
+            },
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": "A fresh Reachy camera frame was attached for visual analysis.",
+                },
+            },
+            {"type": "response.create"},
+        ]
+        try:
+            for event in events:
+                self._socket.send(json.dumps(event))
+        except Exception as exc:
+            raise RealtimeBridgeError(f"Could not send camera frame: {exc}") from exc
+
+    def send_camera_error(self, call_id: str, message: str) -> None:
+        """Complete a failed camera tool call so the model can explain it."""
+        if self._socket is None or not call_id:
+            return
+        try:
+            self._socket.send(
+                json.dumps(
+                    {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": f"Camera capture failed: {message}",
+                        },
+                    }
+                )
+            )
+            self._socket.send(json.dumps({"type": "response.create"}))
+        except Exception as exc:
+            raise RealtimeBridgeError(f"Could not report camera failure: {exc}") from exc
 
     def close(self) -> None:
         self._closed.set()

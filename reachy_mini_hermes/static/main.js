@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 const fields = [
   "bridge_url", "api_key", "model", "conversation_mode", "language", "stt_provider", "stt_model",
   "tts_provider", "tts_model", "tts_voice", "continuous_conversation",
-  "motion_enabled", "barge_in_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
+  "motion_enabled", "barge_in_enabled", "camera_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
   "end_silence_seconds", "max_utterance_seconds", "vad_min_rms", "vad_noise_multiplier",
   "wake_keyword_threshold", "wake_keyword_score",
 ];
@@ -47,7 +47,7 @@ function updateStatus(payload) {
   $("last-response").textContent = runtime.response_preview || "—";
   const dot = $("status-dot");
   dot.className = "status-dot";
-  if (["waiting_for_wake_word", "listening", "thinking", "speaking"].includes(state)) dot.classList.add("ready");
+  if (["waiting_for_wake_word", "listening", "looking", "thinking", "speaking"].includes(state)) dot.classList.add("ready");
   if (["error", "configuration_error"].includes(state)) dot.classList.add("error");
   fillConfig(payload.config);
   currentConfig = payload.config || currentConfig;
@@ -210,6 +210,26 @@ $("test-button").addEventListener("click", async () => {
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
     setMessage(`Connected: ${body.health.status || "ok"}`, "ok");
+  } catch (error) {
+    setMessage(String(error), "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("camera-test-button").addEventListener("click", async () => {
+  const button = $("camera-test-button");
+  button.disabled = true;
+  setMessage("Capturing one local camera frame…");
+  try {
+    const response = await fetch("/api/camera/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "camera" }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    setMessage(`Camera ready: ${body.bytes} byte JPEG captured locally`, "ok");
   } catch (error) {
     setMessage(String(error), "error");
   } finally {

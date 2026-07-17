@@ -38,6 +38,7 @@ Implemented:
 - minimal through extra-high reasoning effort;
 - streamed transcript, audio, and status events;
 - `ask_hermes` function-call round trip;
+- on-demand `capture_reachy_camera` tool and Realtime image input;
 - credentials isolated to the Hermes host.
 
 ### Pipeline mode
@@ -93,6 +94,7 @@ Physical Reachy deployment:
 
 - app installs and starts through the Reachy daemon;
 - settings UI and model/voice discovery work;
+- local camera capture returns a valid bounded JPEG without exposing it through the settings API;
 - microphone frames stop and resume in the correct power modes;
 - motor mode follows Standby/Awake/Meeting/Sleep;
 - app-off exits cleanly and restarts successfully;

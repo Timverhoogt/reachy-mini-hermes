@@ -52,6 +52,8 @@ class RuntimeStatus:
     power_mode: str = "standby"
     meeting_seconds_remaining: int = 0
     interruptions: int = 0
+    camera_captures: int = 0
+    camera_last_error: str = ""
 
 
 @dataclass(slots=True)
@@ -111,6 +113,7 @@ class HermesVoiceRuntime:
         self._spotter: HeyHermesSpotter | None = None
         self._last_wake_at = 0.0
         self._power_lock = threading.RLock()
+        self._camera_lock = threading.Lock()
         self._power_mode = "standby"
         self._meeting_until = 0.0
         self._recording = False
@@ -185,6 +188,34 @@ class HermesVoiceRuntime:
     def status(self) -> dict[str, object]:
         with self._status_lock:
             return asdict(self._status)
+
+    def test_camera(self) -> dict[str, object]:
+        """Capture one frame locally for setup diagnostics without returning it."""
+        jpeg = self._capture_camera_jpeg()
+        with self._status_lock:
+            self._status.camera_captures += 1
+            self._status.camera_last_error = ""
+        return {"bytes": len(jpeg), "content_type": "image/jpeg"}
+
+    def _capture_camera_jpeg(self) -> bytes:
+        media = getattr(self.robot, "media", None)
+        capture = getattr(media, "get_frame_jpeg", None)
+        if not callable(capture):
+            raise RuntimeError("Reachy camera capture is unavailable")
+        with self._camera_lock:
+            for _ in range(20):
+                frame = capture()
+                if frame:
+                    if not isinstance(frame, (bytes, bytearray, memoryview)):
+                        raise RuntimeError("Reachy camera returned an unsupported JPEG payload")
+                    jpeg = bytes(frame)
+                    if len(jpeg) > 1_000_000:
+                        raise RuntimeError(
+                            f"Camera JPEG is too large for the private Realtime bridge ({len(jpeg)} bytes)"
+                        )
+                    return jpeg
+                time.sleep(0.05)
+        raise RuntimeError("Reachy camera did not return a frame")
 
     def _set_status(self, state: str, detail: str = "", **updates: object) -> None:
         with self._status_lock:
@@ -400,6 +431,29 @@ class HermesVoiceRuntime:
                                 transcript="".join(transcript_parts).strip(),
                                 stt_provider="openai-realtime",
                             )
+                    elif (
+                        kind == "response.function_call_arguments.done"
+                        and payload.get("name") == "capture_reachy_camera"
+                    ):
+                        call_id = str(payload.get("call_id") or "")
+                        self._set_status("looking", "Capturing one on-demand camera frame")
+                        try:
+                            if not config.camera_enabled:
+                                raise RuntimeError("Camera access is disabled in Reachy settings")
+                            jpeg = self._capture_camera_jpeg()
+                            session.send_camera_frame(call_id, jpeg)
+                            with self._status_lock:
+                                self._status.camera_captures += 1
+                                self._status.camera_last_error = ""
+                            _LOGGER.info("Sent on-demand Reachy camera frame: %s bytes", len(jpeg))
+                            self._set_status("thinking", "Hermes is looking at the fresh camera frame")
+                        except Exception as exc:
+                            message = str(exc)
+                            _LOGGER.exception("Could not provide Reachy camera frame")
+                            with self._status_lock:
+                                self._status.camera_last_error = message
+                            session.send_camera_error(call_id, message)
+                            self._set_status("thinking", "Camera capture failed; Hermes is responding")
                     elif kind == "response.created":
                         last_activity = time.monotonic()
                         generation_done = False

@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Motor torque and microphone lifecycle management for privacy/power states.
 - Settings UI for conversation mode, speech providers, voices, interruption, power, app stop, and shutdown.
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
+- Optional on-demand Reachy camera tool with local diagnostics and Realtime image input.
 - Operations runbook covering deployment, rollback, cooling maintenance, health checks, and acoustic acceptance.
 
 ### Changed
@@ -35,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added the required Realtime output sample rate.
 - App-off no longer waits on the daemon response from inside the process being stopped, removing a ten-second shutdown cycle and traceback.
 - Realtime interruption tracks locally buffered audio after server generation finishes, immediately flushes Reachy playback, and truncates the unplayed OpenAI conversation audio.
+- Camera access defaults to off and captures only one fresh JPEG per explicit Realtime visual-tool call.
 - Meeting and Sleep stop active playback and microphone capture before disabling motors.
 
 ### Verified

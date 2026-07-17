@@ -52,6 +52,7 @@ class AppConfig:
     wake_cooldown_seconds: float = 2.0
     motion_enabled: bool = True
     barge_in_enabled: bool = True
+    camera_enabled: bool = False
     realtime_model: str = "gpt-realtime-2.1"
     realtime_voice: str = "marin"
     realtime_reasoning_effort: str = "low"

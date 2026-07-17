@@ -19,6 +19,9 @@ class FakeMedia:
         self.recording = False
         self.stops += 1
 
+    def get_frame_jpeg(self) -> bytes:
+        return b"test-jpeg"
+
 
 class FakeRobot:
     def __init__(self) -> None:
@@ -67,3 +70,12 @@ def test_realtime_playback_remains_audible_after_generation_finishes() -> None:
     playback.reset()
     assert playback.item_id == ""
     assert playback.played_ms(15.0) == 0
+
+
+def test_camera_test_captures_locally_without_returning_image() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+
+    result = runtime.test_camera()
+
+    assert result == {"bytes": 9, "content_type": "image/jpeg"}
+    assert runtime.status()["camera_captures"] == 1

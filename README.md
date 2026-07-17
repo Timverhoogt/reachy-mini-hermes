@@ -33,6 +33,7 @@ Reachy microphone
   → OpenAI gpt-realtime-2.1 speech-to-speech
        ↳ ask_hermes tool when memory, current information,
          Home Assistant, files, or consequential actions are required
+       ↳ capture_reachy_camera for a fresh on-demand image
   → streamed Reachy audio and motion
 ```
 
@@ -60,6 +61,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Realtime semantic VAD, streaming audio, reasoning-effort selection, and natural interruption.
 - Pipeline interruption by saying **“Hey Hermes”** while Reachy is speaking.
 - `ask_hermes` tool delegation for memory, Home Assistant, current information, files, and actions.
+- Privacy-preserving on-demand camera: one JPEG is captured only when a visual request needs it.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
 - Stable Hermes memory scope plus rotating conversation sessions after inactivity.
 - Listening, processing, speaking, and error cues with optional voice-state motion.
@@ -197,6 +199,8 @@ Press **Test connection**, save, then say:
 
 The settings server stays available in these modes. **Stop voice app** exits the app and releases its resources. **Shut down Pi** requires typing `SHUTDOWN` in the UI before the host power-off command is scheduled.
 
+Camera access is disabled by default. When enabled in Realtime mode, the model can request a single fresh frame for prompts such as “What do you see?” or “Look at this object.” Frames are not streamed continuously and the local camera test reports only JPEG metadata, not image content.
+
 ## Configuration storage
 
 Default path:
@@ -231,6 +235,7 @@ curl -H "Authorization: Bearer $API_SERVER_KEY" http://HERMES_HOST:8643/health
 - The bridge defaults to `127.0.0.1`; LAN binding is explicit.
 - Chat, audio, discovery, and Realtime routes require constant-time bearer-token authentication.
 - Provider credentials never leave the Hermes host.
+- Camera frames leave Reachy only after local wake detection, during an active Realtime session, and after the model requests visual grounding.
 - Do **not** expose ports `8042`, `8642`, or `8643` directly to the internet.
 - The settings UI includes power controls and therefore belongs only on a trusted management network.
 - Hermes tools execute on the Hermes API-server host, not on Reachy.

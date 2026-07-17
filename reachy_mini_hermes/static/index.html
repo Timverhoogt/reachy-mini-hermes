@@ -122,6 +122,13 @@
           <span><strong>Interruption</strong><small>Pipeline: say “Hey Hermes” while speaking. Realtime: natural barge-in.</small></span>
           <input id="barge_in_enabled" name="barge_in_enabled" type="checkbox" checked />
         </label>
+        <label class="toggle-row">
+          <span><strong>On-demand camera</strong><small>Realtime captures one frame only when a visual request needs it.</small></span>
+          <input id="camera_enabled" name="camera_enabled" type="checkbox" />
+        </label>
+        <div class="actions">
+          <button type="button" id="camera-test-button" class="secondary">Test camera locally</button>
+        </div>
         <details>
           <summary>Advanced voice timing</summary>
           <div class="grid-two advanced">

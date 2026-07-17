@@ -44,6 +44,7 @@ class SettingsUpdate(BaseModel):
     wake_cooldown_seconds: float | None = Field(default=None, ge=0.5, le=30)
     motion_enabled: bool | None = None
     barge_in_enabled: bool | None = None
+    camera_enabled: bool | None = None
     realtime_model: str | None = None
     realtime_voice: str | None = None
     realtime_reasoning_effort: str | None = None
@@ -146,6 +147,17 @@ class ReachyMiniHermes(ReachyMiniApp):
                     client.close()
             except Exception as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/camera/test")
+        def test_camera(request: ConfirmationRequest) -> dict[str, object]:
+            if request.confirm.strip().lower() != "camera":
+                raise HTTPException(status_code=400, detail="Confirmation must be 'camera'")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return {"ok": True, **self._runtime.test_camera()}
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
 
         @self.settings_app.post("/api/power")
         def power(request: PowerRequest) -> dict[str, object]:

@@ -32,7 +32,7 @@ The OpenAI Realtime session receives post-wake audio and the configured system i
 
 The model can call `ask_hermes`. That tool forwards a request to the local Hermes API Server, where enabled Hermes tools determine the possible impact. Apply least privilege to the API Server platform toolset and disable unrelated MCP servers for the voice route where practical.
 
-Do not claim that local wake-word processing makes the entire conversation local: after wake-up, pipeline STT/TTS or Realtime audio may be sent to configured cloud providers.
+Do not claim that local wake-word processing makes the entire conversation local: after wake-up, pipeline STT/TTS or Realtime audio may be sent to configured cloud providers. When on-demand camera is enabled, a fresh frame may also be sent to the Realtime provider only after a visual tool call; continuous camera streaming is not used.
 
 ## Operational controls
 

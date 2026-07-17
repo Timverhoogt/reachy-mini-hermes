@@ -7,6 +7,7 @@ The companion bridge gives Reachy one authenticated endpoint for:
 - configured or explicitly selected STT/TTS providers;
 - a private OpenAI Realtime WebSocket;
 - `ask_hermes` delegation from Realtime back into the user's Hermes agent.
+- pass-through of on-demand Reachy camera frames to Realtime image input.
 
 Provider credentials stay on the Hermes host. Reachy stores only the bridge URL and the private `API_SERVER_KEY` bearer token.
 
@@ -89,6 +90,8 @@ OpenAI may answer ordinary conversation directly. The session instructions requi
 - consequential actions.
 
 The bridge executes `ask_hermes` through the authenticated local Hermes API Server and returns the tool result to the Realtime session. OpenAI does not receive the Hermes bearer token, and Reachy does not receive the OpenAI key.
+
+When Reachy enables camera support, the bridge advertises `capture_reachy_camera`. The tool call is forwarded to Reachy, which captures one bounded JPEG and sends it as an `input_image` conversation item. The bridge never polls or continuously streams the camera.
 
 ## Run at boot with systemd
 

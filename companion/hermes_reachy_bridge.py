@@ -308,12 +308,55 @@ class Bridge:
         agent_model = str(config.get("agent_model") or "hermes-agent")[:160]
         session_id = str(config.get("session_id") or "reachy-realtime")[:160]
         system_prompt = str(config.get("system_prompt") or "")[:8_000]
+        camera_enabled = config.get("camera_enabled") is True
+        realtime_tools: list[dict[str, Any]] = [
+            {
+                "type": "function",
+                "name": "ask_hermes",
+                "description": "Use Hermes memory and tools to answer or perform the request.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"request": {"type": "string"}},
+                    "required": ["request"],
+                    "additionalProperties": False,
+                },
+            }
+        ]
+        if camera_enabled:
+            realtime_tools.append(
+                {
+                    "type": "function",
+                    "name": "capture_reachy_camera",
+                    "description": (
+                        "Capture one fresh frame from Reachy's camera. Use this whenever the user asks "
+                        "what you see, shows an object, asks you to inspect the room, or needs visual grounding."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "purpose": {
+                                "type": "string",
+                                "description": "Short reason the current camera frame is needed.",
+                            }
+                        },
+                        "required": ["purpose"],
+                        "additionalProperties": False,
+                    },
+                }
+            )
+        camera_instruction = (
+            "When a request depends on what is physically in front of Reachy, call capture_reachy_camera "
+            "before answering and describe only the returned fresh frame. "
+            if camera_enabled
+            else "Do not claim to see the physical environment because camera access is disabled. "
+        )
         instructions = (
             "You are Hermes, speaking through a Reachy Mini robot. Be concise, natural, and conversational. "
             "Never say punctuation names or announce that you are awake. You may answer simple social conversation "
             "directly. For personal memory, current information, Home Assistant, files, devices, or any consequential "
             "action, call ask_hermes and faithfully speak its result. Never claim an action "
             "succeeded without that tool. "
+            + camera_instruction
             + system_prompt
         )
         upstream_headers = {"Authorization": f"Bearer {openai_key}"}
@@ -352,21 +395,7 @@ class Bridge:
                                         "voice": voice,
                                     },
                                 },
-                                "tools": [
-                                    {
-                                        "type": "function",
-                                        "name": "ask_hermes",
-                                        "description": "Use Hermes memory and tools to answer or perform the request.",
-                                        "parameters": {
-                                            "type": "object",
-                                            "properties": {
-                                                "request": {"type": "string"},
-                                            },
-                                            "required": ["request"],
-                                            "additionalProperties": False,
-                                        },
-                                    }
-                                ],
+                                "tools": realtime_tools,
                                 "tool_choice": "auto",
                             },
                         }
