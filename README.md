@@ -2,7 +2,7 @@
 title: Reachy Mini Hermes
 emoji: 🪽
 colorFrom: indigo
-colorTo: orange
+colorTo: yellow
 sdk: static
 pinned: false
 short_description: Talk to your own Hermes Agent through Reachy Mini
