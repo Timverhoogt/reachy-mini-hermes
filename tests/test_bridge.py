@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+BRIDGE_PATH = Path(__file__).resolve().parents[1] / "companion" / "hermes_reachy_bridge.py"
+
+
+def load_bridge_module():
+    spec = importlib.util.spec_from_file_location("hermes_reachy_bridge", BRIDGE_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_env_parser_and_api_key_resolution(tmp_path, monkeypatch) -> None:
+    bridge = load_bridge_module()
+    env_path = tmp_path / ".env"
+    env_path.write_text('API_SERVER_KEY="from-file"\nIGNORED=value\n', encoding="utf-8")
+    assert bridge._parse_env_file(env_path)["API_SERVER_KEY"] == "from-file"
+
+    monkeypatch.setenv("API_SERVER_KEY", "from-env")
+    assert bridge._resolve_api_key("", None) == "from-env"
+    assert bridge._resolve_api_key("explicit", None) == "explicit"
+
+
+def test_api_key_resolution_from_profile_config(tmp_path, monkeypatch) -> None:
+    bridge = load_bridge_module()
+    profile_home = tmp_path / "profiles" / "robot"
+    profile_home.mkdir(parents=True)
+    (profile_home / "config.yaml").write_text(
+        "API_SERVER_KEY: from-config\n", encoding="utf-8"
+    )
+    monkeypatch.delenv("API_SERVER_KEY", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    assert bridge._resolve_api_key("", "robot") == "from-config"
+
+
+def test_create_app_routes_are_present() -> None:
+    bridge = load_bridge_module()
+    app = bridge.create_app(api_key="secret", hermes_url="http://127.0.0.1:8642")
+    routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
+    assert ("POST", "/v1/chat/completions") in routes
+    assert ("POST", "/v1/audio/transcriptions") in routes
+    assert ("POST", "/v1/audio/speech") in routes
+    assert ("GET", "/health") in routes

@@ -1,0 +1,20 @@
+[Unit]
+Description=Hermes Reachy Mini Voice Bridge
+After=network-online.target hermes-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.hermes/hermes-agent
+ExecStart=%h/.hermes/hermes-agent/venv/bin/python %h/reachy_mini_hermes/companion/hermes_reachy_bridge.py --host 0.0.0.0 --port 8643
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.hermes %h/.cache %h/.local
+
+[Install]
+WantedBy=default.target

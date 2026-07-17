@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reachy_mini_hermes"
+version = "0.1.0"
+description = "Talk to your Hermes Agent through Reachy Mini with the Hey Hermes wake phrase"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Tim Verhoogt and contributors" }]
+dependencies = [
+    "httpx>=0.28,<1",
+    "mutagen>=1.47,<2",
+    "numpy>=1.26",
+    "reachy-mini>=1.9.0",
+    "sherpa-onnx>=1.13.4,<2",
+]
+keywords = ["reachy-mini-app", "hermes-agent", "voice-assistant", "robotics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Human Machine Interfaces",
+]
+
+[project.urls]
+Documentation = "https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server"
+Repository = "https://github.com/Timverhoogt/reachy-mini-hermes"
+
+[project.scripts]
+reachy-mini-hermes = "reachy_mini_hermes.main:run_cli"
+
+[project.entry-points."reachy_mini_apps"]
+reachy_mini_hermes = "reachy_mini_hermes.main:ReachyMiniHermes"
+
+[dependency-groups]
+dev = [
+    "build>=1.2",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.9",
+]
+
+[tool.setuptools]
+package-dir = { "" = "." }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["reachy_mini_hermes*"]
+
+[tool.setuptools.package-data]
+reachy_mini_hermes = ["assets/*", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --disable-warnings --maxfail=1"
+
+[tool.ruff]
+line-length = 119
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP"]
