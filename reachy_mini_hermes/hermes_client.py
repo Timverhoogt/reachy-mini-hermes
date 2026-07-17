@@ -23,6 +23,7 @@ class SpeechAudio:
     data: bytes
     content_type: str
     extension: str
+    provider: str = "configured"
 
 
 class HermesBridgeClient:
@@ -34,6 +35,8 @@ class HermesBridgeClient:
         self._owns_client = client is None
         self._session_id = self._new_session_id()
         self._last_turn_at = 0.0
+        self.last_stt_provider = ""
+        self.last_tts_provider = ""
 
     def close(self) -> None:
         if self._owns_client:
@@ -68,19 +71,47 @@ class HermesBridgeClient:
         except Exception as exc:
             raise HermesBridgeError(f"Hermes bridge is unavailable: {exc}") from exc
 
+    def voice_options(self) -> dict[str, object]:
+        response = self._client.get(
+            f"{self.config.bridge_url}/v1/voice-options",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+        )
+        self._raise_for_error(response, "voice option discovery")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise HermesBridgeError("Hermes returned invalid voice options")
+        return payload
+
     def transcribe(self, wav_data: bytes) -> str:
         response = self._client.post(
             f"{self.config.bridge_url}/v1/audio/transcriptions",
             headers={"Authorization": f"Bearer {self.config.api_key}"},
-            data={"language": self.config.language},
+            data={
+                "language": self.config.language,
+                "provider": self.config.stt_provider,
+                "model": self.config.stt_model,
+            },
             files={"file": ("utterance.wav", wav_data, "audio/wav")},
         )
         self._raise_for_error(response, "transcription")
         payload = response.json()
         transcript = str(payload.get("text") or payload.get("transcript") or "").strip()
+        self.last_stt_provider = str(payload.get("provider") or self.config.stt_provider)
         if not transcript:
             raise HermesBridgeError("Hermes STT returned an empty transcript")
         return transcript
+
+    def models(self) -> list[dict[str, object]]:
+        response = self._client.get(
+            f"{self.config.bridge_url}/v1/models",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+        )
+        self._raise_for_error(response, "model discovery")
+        payload = response.json()
+        data = payload.get("data", []) if isinstance(payload, dict) else []
+        if not isinstance(data, list):
+            raise HermesBridgeError("Hermes returned an invalid model list")
+        return [item for item in data if isinstance(item, dict) and item.get("id")]
 
     def chat(self, transcript: str) -> str:
         self._rotate_session_if_stale()
@@ -110,7 +141,13 @@ class HermesBridgeClient:
         response = self._client.post(
             f"{self.config.bridge_url}/v1/audio/speech",
             headers={"Authorization": f"Bearer {self.config.api_key}"},
-            json={"model": "hermes-tts", "input": text, "voice": "configured", "response_format": "mp3"},
+            json={
+                "provider": self.config.tts_provider,
+                "model": self.config.tts_model,
+                "input": text,
+                "voice": self.config.tts_voice,
+                "response_format": "mp3",
+            },
         )
         self._raise_for_error(response, "speech synthesis")
         content_type = response.headers.get("content-type", "audio/mpeg").split(";", 1)[0]
@@ -124,7 +161,9 @@ class HermesBridgeClient:
         }.get(content_type, ".audio")
         if not response.content:
             raise HermesBridgeError("Hermes TTS returned no audio")
-        return SpeechAudio(response.content, content_type, extension)
+        provider = response.headers.get("x-reachy-tts-provider", self.config.tts_provider)
+        self.last_tts_provider = provider
+        return SpeechAudio(response.content, content_type, extension, provider)
 
     @staticmethod
     def _raise_for_error(response: httpx.Response, operation: str) -> None:

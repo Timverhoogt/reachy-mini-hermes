@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Protocol
 
 import numpy as np
 from reachy_mini.utils import create_head_pose
@@ -10,12 +11,36 @@ from reachy_mini.utils import create_head_pose
 _LOGGER = logging.getLogger(__name__)
 
 
+class VoiceRobot(Protocol):
+    """Reachy motion methods used by the voice-state animator."""
+
+    def goto_target(self, **kwargs: object) -> object: ...
+
+    def enable_wobbling(self) -> None: ...
+
+    def disable_wobbling(self) -> None: ...
+
+
 class VoiceMotion:
     """Express voice state without a competing real-time motor loop."""
 
-    def __init__(self, robot: object, *, enabled: bool = True) -> None:
+    def __init__(self, robot: VoiceRobot, *, enabled: bool = True) -> None:
         self.robot = robot
         self.enabled = enabled
+        self._wobbling = False
+
+    def _set_wobbling(self, enabled: bool) -> None:
+        """Toggle Reachy's subtle audio-reactive speaking motion."""
+        if not self.enabled or enabled == self._wobbling:
+            return
+        try:
+            if enabled:
+                self.robot.enable_wobbling()
+            else:
+                self.robot.disable_wobbling()
+            self._wobbling = enabled
+        except Exception as exc:
+            _LOGGER.warning("Could not change Reachy voice wobbling: %s", exc)
 
     def _pose(
         self,
@@ -37,16 +62,21 @@ class VoiceMotion:
             _LOGGER.warning("Could not apply Reachy voice pose: %s", exc)
 
     def listening(self) -> None:
-        self._pose(pitch=-4.0, right_antenna=16.0, left_antenna=-16.0)
+        self._set_wobbling(False)
+        self._pose(pitch=-5.0, yaw=5.0, right_antenna=18.0, left_antenna=-18.0)
 
     def thinking(self) -> None:
+        self._set_wobbling(False)
         self._pose(pitch=-2.0, roll=6.0, right_antenna=8.0, left_antenna=-22.0, duration=0.45)
 
     def speaking(self) -> None:
         self._pose(pitch=3.0, roll=-2.0, right_antenna=20.0, left_antenna=-20.0, duration=0.3)
+        self._set_wobbling(True)
 
     def idle(self) -> None:
+        self._set_wobbling(False)
         self._pose(duration=0.45)
 
     def error(self) -> None:
+        self._set_wobbling(False)
         self._pose(pitch=5.0, roll=-7.0, right_antenna=-8.0, left_antenna=8.0, duration=0.35)

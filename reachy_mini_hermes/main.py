@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import socket
+import subprocess
 import threading
 
 from fastapi import HTTPException
@@ -22,7 +24,13 @@ class SettingsUpdate(BaseModel):
     bridge_url: str | None = None
     api_key: str | None = None
     model: str | None = None
+    conversation_mode: str | None = None
     language: str | None = None
+    stt_provider: str | None = None
+    stt_model: str | None = None
+    tts_provider: str | None = None
+    tts_model: str | None = None
+    tts_voice: str | None = None
     system_prompt: str | None = None
     continuous_conversation: bool | None = None
     conversation_timeout_seconds: float | None = Field(default=None, ge=30, le=3600)
@@ -35,6 +43,19 @@ class SettingsUpdate(BaseModel):
     wake_keyword_threshold: float | None = Field(default=None, ge=0.01, le=1)
     wake_cooldown_seconds: float | None = Field(default=None, ge=0.5, le=30)
     motion_enabled: bool | None = None
+    barge_in_enabled: bool | None = None
+    realtime_model: str | None = None
+    realtime_voice: str | None = None
+    realtime_reasoning_effort: str | None = None
+
+
+class PowerRequest(BaseModel):
+    mode: str
+    duration_minutes: float = Field(default=60, ge=1, le=480)
+
+
+class ConfirmationRequest(BaseModel):
+    confirm: str
 
 
 class ReachyMiniHermes(ReachyMiniApp):
@@ -103,6 +124,87 @@ class ReachyMiniHermes(ReachyMiniApp):
                 return {"ok": True, "health": health}
             except Exception as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.get("/api/models")
+        def models() -> dict[str, object]:
+            try:
+                client = HermesBridgeClient(load_config())
+                try:
+                    return {"models": client.models(), "health": client.health()}
+                finally:
+                    client.close()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.get("/api/voice-options")
+        def voice_options() -> dict[str, object]:
+            try:
+                client = HermesBridgeClient(load_config())
+                try:
+                    return client.voice_options()
+                finally:
+                    client.close()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/power")
+        def power(request: PowerRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                runtime = self._runtime.set_power_mode(
+                    request.mode,
+                    duration_seconds=request.duration_minutes * 60.0,
+                )
+                return {"ok": True, "runtime": runtime}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/app-off")
+        def app_off(request: ConfirmationRequest) -> dict[str, object]:
+            if request.confirm.strip().lower() != "off":
+                raise HTTPException(status_code=400, detail="Confirmation must be 'off'")
+
+            def stop_app() -> None:
+                try:
+                    # The daemon intentionally holds this response until the app
+                    # has exited. Waiting for it from inside the app creates a
+                    # shutdown cycle, so dispatch the request and close without
+                    # waiting for response headers.
+                    with socket.create_connection(("127.0.0.1", 8000), timeout=2.0) as connection:
+                        connection.sendall(
+                            b"POST /api/apps/stop-current-app HTTP/1.1\r\n"
+                            b"Host: 127.0.0.1\r\n"
+                            b"Content-Length: 0\r\n"
+                            b"Connection: close\r\n\r\n"
+                        )
+                except Exception:
+                    _LOGGER.exception("Could not stop Reachy app")
+
+            timer = threading.Timer(0.4, stop_app)
+            timer.daemon = True
+            timer.start()
+            return {"ok": True, "state": "stopping"}
+
+        @self.settings_app.post("/api/shutdown")
+        def shutdown(request: ConfirmationRequest) -> dict[str, object]:
+            if request.confirm.strip().lower() != "shutdown":
+                raise HTTPException(status_code=400, detail="Confirmation must be 'shutdown'")
+            if self._runtime is not None:
+                self._runtime.set_power_mode("sleep")
+
+            def poweroff() -> None:
+                try:
+                    subprocess.run(
+                        ["sudo", "-n", "systemctl", "poweroff", "--no-wall"],
+                        check=True,
+                        timeout=10,
+                    )
+                except Exception:
+                    _LOGGER.exception("Could not shut down Reachy Pi")
+
+            threading.Timer(0.8, poweroff).start()
+            return {"ok": True, "state": "shutting_down"}
 
     def run(self, reachy_mini: ReachyMini, stop_event: threading.Event) -> None:
         """Run wake detection and serialized Hermes voice turns."""

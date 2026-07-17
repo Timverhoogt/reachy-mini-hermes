@@ -45,3 +45,6 @@ def test_create_app_routes_are_present() -> None:
     assert ("POST", "/v1/audio/transcriptions") in routes
     assert ("POST", "/v1/audio/speech") in routes
     assert ("GET", "/health") in routes
+    assert ("GET", "/v1/models") in routes
+    assert ("GET", "/v1/voice-options") in routes
+    assert ("GET", "/v1/realtime") in routes

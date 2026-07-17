@@ -20,11 +20,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp import ClientSession, ClientTimeout, FormData, web
 
 _LOGGER = logging.getLogger("hermes_reachy_bridge")
 _MAX_AUDIO_BYTES = 25 * 1024 * 1024
 _MAX_TTS_CHARACTERS = 15_000
+_MAX_REALTIME_MESSAGE_BYTES = 2 * 1024 * 1024
 
 
 def _hermes_home(profile: str | None = None) -> Path:
@@ -43,6 +44,13 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip().strip("\"'")
     return values
+
+
+def _resolve_secret(name: str, profile: str | None) -> str:
+    environment = os.getenv(name, "").strip()
+    if environment:
+        return environment
+    return _parse_env_file(_hermes_home(profile) / ".env").get(name, "").strip()
 
 
 def _resolve_api_key(explicit: str, profile: str | None) -> str:
@@ -116,7 +124,89 @@ class Bridge:
                     hermes_ok = response.status == 200
             except Exception:
                 hermes_ok = False
-        return web.json_response({"status": "ok" if hermes_ok else "degraded", "hermes_api": hermes_ok})
+        providers: dict[str, str] = {}
+        try:
+            import yaml
+
+            payload = yaml.safe_load(
+                (_hermes_home(self.profile) / "config.yaml").read_text(encoding="utf-8")
+            ) or {}
+            for section in ("stt", "tts"):
+                value = payload.get(section, {})
+                if isinstance(value, dict) and value.get("provider"):
+                    providers[f"{section}_provider"] = str(value["provider"])
+        except (ImportError, OSError, TypeError, ValueError):
+            pass
+        return web.json_response(
+            {
+                "status": "ok" if hermes_ok else "degraded",
+                "hermes_api": hermes_ok,
+                "realtime_available": bool(_resolve_secret("OPENAI_API_KEY", self.profile)),
+                "realtime_model": "gpt-realtime-2.1",
+                **providers,
+            }
+        )
+
+    async def models(self, request: web.Request) -> web.Response:
+        """Expose only the model aliases configured by Hermes API Server."""
+        self.require_auth(request)
+        if self.http is None:
+            raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        async with self.http.get(f"{self.hermes_url}/v1/models", headers=headers) as upstream:
+            body = await upstream.read()
+            return web.Response(
+                status=upstream.status,
+                body=body,
+                content_type=upstream.content_type or "application/json",
+            )
+
+    async def voice_options(self, request: web.Request) -> web.Response:
+        """Return credential-backed speech options without exposing credentials."""
+        self.require_auth(request)
+        if self.http is None:
+            raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        eleven_key = _resolve_secret("ELEVENLABS_API_KEY", self.profile)
+        options: dict[str, object] = {
+            "stt": [
+                {"id": "configured", "label": "Hermes configured STT"},
+                {"id": "local", "label": "Local Whisper", "models": ["base"]},
+            ],
+            "tts": [
+                {"id": "configured", "label": "Hermes configured TTS"},
+            ],
+        }
+        if eleven_key:
+            voices: list[dict[str, str]] = []
+            try:
+                async with self.http.get(
+                    "https://api.elevenlabs.io/v1/voices",
+                    headers={"xi-api-key": eleven_key},
+                ) as upstream:
+                    if upstream.status == 200:
+                        payload = await upstream.json()
+                        voices = [
+                            {
+                                "id": str(item.get("voice_id") or ""),
+                                "name": str(item.get("name") or "Unnamed voice"),
+                            }
+                            for item in payload.get("voices", [])
+                            if item.get("voice_id")
+                        ]
+            except Exception:
+                _LOGGER.warning("Could not list ElevenLabs voices", exc_info=True)
+            options["stt"].append(  # type: ignore[union-attr]
+                {"id": "elevenlabs", "label": "ElevenLabs Scribe API", "models": ["scribe_v2"]}
+            )
+            options["tts"].append(  # type: ignore[union-attr]
+                {
+                    "id": "elevenlabs",
+                    "label": "ElevenLabs API",
+                    "models": ["eleven_flash_v2_5", "eleven_multilingual_v2"],
+                    "voices": voices,
+                }
+            )
+        return web.json_response(options)
 
     async def chat(self, request: web.Request) -> web.Response:
         self.require_auth(request)
@@ -148,29 +238,271 @@ class Bridge:
                 headers=response_headers,
             )
 
+    async def _hermes_answer(
+        self,
+        text: str,
+        *,
+        model: str,
+        system_prompt: str,
+        session_id: str,
+    ) -> str:
+        if self.http is None:
+            raise RuntimeError("Bridge HTTP client is not ready")
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "X-Hermes-Session-Id": session_id,
+        }
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text},
+            ],
+        }
+        async with self.http.post(
+            f"{self.hermes_url}/v1/chat/completions", json=payload, headers=headers
+        ) as response:
+            body = await response.json(content_type=None)
+            if response.status != 200:
+                raise RuntimeError(str(body.get("error") or body))
+            return str(body["choices"][0]["message"]["content"]).strip()
+
+    async def realtime(self, request: web.Request) -> web.StreamResponse:
+        """Proxy a private Reachy audio session to OpenAI Realtime.
+
+        The OpenAI credential never leaves the Hermes host. Reachy sends and
+        receives standard Realtime events through this authenticated LAN socket.
+        A curated ``ask_hermes`` tool keeps personal memory and consequential
+        actions authoritative in Hermes rather than duplicating them in a voice
+        model prompt.
+        """
+        self.require_auth(request)
+        openai_key = _resolve_secret("OPENAI_API_KEY", self.profile)
+        if not openai_key:
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({"error": {"message": "OPENAI_API_KEY is not configured on the Hermes host"}}),
+                content_type="application/json",
+            )
+
+        client = web.WebSocketResponse(heartbeat=20, max_msg_size=_MAX_REALTIME_MESSAGE_BYTES)
+        await client.prepare(request)
+        first = await client.receive(timeout=15)
+        if first.type != web.WSMsgType.TEXT:
+            await client.close(code=1002, message=b"session.start required")
+            return client
+        try:
+            config = json.loads(first.data)
+            if config.get("type") != "session.start":
+                raise ValueError("session.start required")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            await client.close(code=1002, message=b"invalid session.start")
+            return client
+
+        model = str(config.get("model") or "gpt-realtime-2.1")[:80]
+        voice = str(config.get("voice") or "marin")[:40]
+        reasoning_effort = str(config.get("reasoning_effort") or "low")
+        if reasoning_effort not in {"minimal", "low", "medium", "high", "xhigh"}:
+            reasoning_effort = "low"
+        agent_model = str(config.get("agent_model") or "hermes-agent")[:160]
+        session_id = str(config.get("session_id") or "reachy-realtime")[:160]
+        system_prompt = str(config.get("system_prompt") or "")[:8_000]
+        instructions = (
+            "You are Hermes, speaking through a Reachy Mini robot. Be concise, natural, and conversational. "
+            "Never say punctuation names or announce that you are awake. You may answer simple social conversation "
+            "directly. For personal memory, current information, Home Assistant, files, devices, or any consequential "
+            "action, call ask_hermes and faithfully speak its result. Never claim an action "
+            "succeeded without that tool. "
+            + system_prompt
+        )
+        upstream_headers = {"Authorization": f"Bearer {openai_key}"}
+        upstream_url = f"wss://api.openai.com/v1/realtime?model={model}"
+        ws_timeout = ClientTimeout(total=None, connect=10, sock_connect=10)
+
+        try:
+            async with ClientSession(timeout=ws_timeout) as realtime_http:
+                async with realtime_http.ws_connect(
+                    upstream_url,
+                    headers=upstream_headers,
+                    heartbeat=20,
+                    max_msg_size=_MAX_REALTIME_MESSAGE_BYTES,
+                ) as upstream:
+                    await upstream.send_json(
+                        {
+                            "type": "session.update",
+                            "session": {
+                                "type": "realtime",
+                                "model": model,
+                                "instructions": instructions,
+                                "output_modalities": ["audio"],
+                                "reasoning": {"effort": reasoning_effort},
+                                "audio": {
+                                    "input": {
+                                        "format": {"type": "audio/pcm", "rate": 24000},
+                                        "turn_detection": {
+                                            "type": "semantic_vad",
+                                            "create_response": True,
+                                            "interrupt_response": True,
+                                        },
+                                        "transcription": {"model": "gpt-realtime-whisper"},
+                                    },
+                                    "output": {
+                                        "format": {"type": "audio/pcm", "rate": 24000},
+                                        "voice": voice,
+                                    },
+                                },
+                                "tools": [
+                                    {
+                                        "type": "function",
+                                        "name": "ask_hermes",
+                                        "description": "Use Hermes memory and tools to answer or perform the request.",
+                                        "parameters": {
+                                            "type": "object",
+                                            "properties": {
+                                                "request": {"type": "string"},
+                                            },
+                                            "required": ["request"],
+                                            "additionalProperties": False,
+                                        },
+                                    }
+                                ],
+                                "tool_choice": "auto",
+                            },
+                        }
+                    )
+
+                    async def client_to_openai() -> None:
+                        async for message in client:
+                            if message.type == web.WSMsgType.TEXT:
+                                event = json.loads(message.data)
+                                if event.get("type") == "session.stop":
+                                    return
+                                await upstream.send_str(message.data)
+                            elif message.type in {web.WSMsgType.CLOSE, web.WSMsgType.ERROR}:
+                                return
+
+                    async def openai_to_client() -> None:
+                        async for message in upstream:
+                            if message.type != web.WSMsgType.TEXT:
+                                if message.type in {web.WSMsgType.CLOSE, web.WSMsgType.ERROR}:
+                                    return
+                                continue
+                            event = json.loads(message.data)
+                            is_hermes_call = (
+                                event.get("type") == "response.function_call_arguments.done"
+                                and event.get("name") == "ask_hermes"
+                            )
+                            if is_hermes_call:
+                                try:
+                                    arguments = json.loads(event.get("arguments") or "{}")
+                                    answer = await self._hermes_answer(
+                                        str(arguments.get("request") or ""),
+                                        model=agent_model,
+                                        system_prompt=system_prompt,
+                                        session_id=session_id,
+                                    )
+                                except Exception as exc:
+                                    _LOGGER.exception("Realtime ask_hermes failed")
+                                    answer = f"Hermes could not complete that request: {exc}"
+                                await upstream.send_json(
+                                    {
+                                        "type": "conversation.item.create",
+                                        "item": {
+                                            "type": "function_call_output",
+                                            "call_id": event.get("call_id"),
+                                            "output": answer,
+                                        },
+                                    }
+                                )
+                                await upstream.send_json({"type": "response.create"})
+                            await client.send_str(message.data)
+
+                    tasks = [
+                        asyncio.create_task(client_to_openai()),
+                        asyncio.create_task(openai_to_client()),
+                    ]
+                    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                    for task in pending:
+                        task.cancel()
+                    await asyncio.gather(*done, *pending, return_exceptions=True)
+        except Exception as exc:
+            _LOGGER.exception("Realtime proxy failed")
+            if not client.closed:
+                await client.send_json({"type": "bridge.error", "error": str(exc)})
+        finally:
+            if not client.closed:
+                await client.close()
+        return client
+
     async def transcribe(self, request: web.Request) -> web.Response:
         self.require_auth(request)
         if not request.content_type.startswith("multipart/"):
             raise web.HTTPBadRequest(text="Expected multipart form data")
         reader = await request.multipart()
         temp_path = ""
+        options: dict[str, str] = {}
         try:
-            while part := await reader.next():
+            while True:
+                part: Any = await reader.next()
+                if part is None:
+                    break
                 if part.name != "file":
-                    await part.release()
+                    if part.name in {"provider", "model", "language"}:
+                        options[part.name] = (await part.text()).strip()
+                    else:
+                        await part.release()
                     continue
                 suffix = Path(part.filename or "audio.wav").suffix or ".wav"
-                with tempfile.NamedTemporaryFile(prefix="reachy-hermes-stt-", suffix=suffix, delete=False) as output:
+                with tempfile.NamedTemporaryFile(
+                    prefix="reachy-hermes-stt-", suffix=suffix, delete=False
+                ) as output:
                     temp_path = output.name
                     total = 0
                     while chunk := await part.read_chunk(64 * 1024):
                         total += len(chunk)
                         if total > _MAX_AUDIO_BYTES:
-                            raise web.HTTPRequestEntityTooLarge(max_size=_MAX_AUDIO_BYTES, actual_size=total)
+                            raise web.HTTPRequestEntityTooLarge(
+                                max_size=_MAX_AUDIO_BYTES, actual_size=total
+                            )
                         output.write(chunk)
-                break
             if not temp_path:
                 raise web.HTTPBadRequest(text="Missing audio file")
+
+            provider = options.get("provider", "configured").lower()
+            if provider == "elevenlabs":
+                if self.http is None:
+                    raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+                eleven_key = _resolve_secret("ELEVENLABS_API_KEY", self.profile)
+                if not eleven_key:
+                    raise web.HTTPBadRequest(text="ElevenLabs is not configured on the Hermes host")
+                model = options.get("model") or "scribe_v2"
+                form = FormData()
+                with open(temp_path, "rb") as audio_file:
+                    form.add_field(
+                        "file",
+                        audio_file,
+                        filename=Path(temp_path).name,
+                        content_type="audio/wav",
+                    )
+                    form.add_field("model_id", model)
+                    if language := options.get("language"):
+                        form.add_field("language_code", language)
+                    form.add_field("tag_audio_events", "false")
+                    form.add_field("diarize", "false")
+                    async with self.http.post(
+                        "https://api.elevenlabs.io/v1/speech-to-text",
+                        headers={"xi-api-key": eleven_key},
+                        data=form,
+                    ) as upstream:
+                        payload = await upstream.json(content_type=None)
+                        if upstream.status != 200:
+                            raise web.HTTPBadRequest(
+                                text=str(payload.get("detail") or "ElevenLabs transcription failed")
+                            )
+                return web.json_response(
+                    {"text": str(payload.get("text") or "").strip(), "provider": "elevenlabs"}
+                )
 
             _ensure_hermes_imports()
             from tools.transcription_tools import transcribe_audio
@@ -203,6 +535,32 @@ class Bridge:
         if len(text) > _MAX_TTS_CHARACTERS:
             raise web.HTTPRequestEntityTooLarge(max_size=_MAX_TTS_CHARACTERS, actual_size=len(text))
 
+        provider = str(payload.get("provider") or "configured").lower()
+        if provider == "elevenlabs":
+            if self.http is None:
+                raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+            eleven_key = _resolve_secret("ELEVENLABS_API_KEY", self.profile)
+            if not eleven_key:
+                raise web.HTTPBadRequest(text="ElevenLabs is not configured on the Hermes host")
+            voice = str(payload.get("voice") or "pNInz6obpgDQGcFmaJgB").strip()
+            model = str(payload.get("model") or "eleven_flash_v2_5").strip()
+            if not voice or not all(character.isalnum() or character in "_-" for character in voice):
+                raise web.HTTPBadRequest(text="Invalid ElevenLabs voice ID")
+            async with self.http.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
+                params={"output_format": "mp3_44100_128"},
+                headers={"xi-api-key": eleven_key, "Content-Type": "application/json"},
+                json={"text": text, "model_id": model},
+            ) as upstream:
+                audio = await upstream.read()
+                if upstream.status != 200:
+                    raise web.HTTPBadRequest(text="ElevenLabs speech synthesis failed")
+            return web.Response(
+                body=audio,
+                content_type="audio/mpeg",
+                headers={"X-Reachy-TTS-Provider": "elevenlabs"},
+            )
+
         _ensure_hermes_imports()
         from tools.tts_tool import text_to_speech_tool
 
@@ -219,7 +577,10 @@ class Bridge:
             return web.Response(
                 body=audio,
                 content_type=content_type,
-                headers={"Content-Disposition": f'inline; filename="{actual_path.name}"'},
+                headers={
+                    "Content-Disposition": f'inline; filename="{actual_path.name}"',
+                    "X-Reachy-TTS-Provider": str(result.get("provider") or "configured"),
+                },
             )
         finally:
             for child in temp_directory.glob("*"):
@@ -239,6 +600,9 @@ def create_app(*, api_key: str, hermes_url: str, profile: str | None = None) -> 
     app.on_startup.append(bridge.start)
     app.on_cleanup.append(bridge.stop)
     app.router.add_get("/health", bridge.health)
+    app.router.add_get("/v1/models", bridge.models)
+    app.router.add_get("/v1/voice-options", bridge.voice_options)
+    app.router.add_get("/v1/realtime", bridge.realtime)
     app.router.add_post("/v1/chat/completions", bridge.chat)
     app.router.add_post("/v1/audio/transcriptions", bridge.transcribe)
     app.router.add_post("/v1/audio/speech", bridge.speech)

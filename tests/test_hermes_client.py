@@ -60,6 +60,27 @@ def test_error_does_not_put_api_key_in_exception() -> None:
     assert "401" in str(error.value)
 
 
+def test_model_discovery() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/models"
+        assert request.headers["authorization"] == "Bearer secret"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "hermes-agent", "root": "hermes-agent"},
+                    {"id": "reachy-gemini", "root": "gemini-3.5-flash"},
+                ]
+            },
+        )
+
+    client = make_client(handler)
+    assert [model["id"] for model in client.models()] == [
+        "hermes-agent",
+        "reachy-gemini",
+    ]
+
+
 def test_transcription_payload() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/audio/transcriptions"

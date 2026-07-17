@@ -29,7 +29,13 @@ class AppConfig:
     bridge_url: str = "http://127.0.0.1:8643"
     api_key: str = ""
     model: str = "hermes-agent"
+    conversation_mode: str = "pipeline"
     language: str = "en"
+    stt_provider: str = "configured"
+    stt_model: str = "base"
+    tts_provider: str = "configured"
+    tts_model: str = "eleven_flash_v2_5"
+    tts_voice: str = "pNInz6obpgDQGcFmaJgB"
     system_prompt: str = (
         "You are speaking through a Reachy Mini robot. Reply naturally and concisely for speech. "
         "Avoid Markdown tables, long lists, file paths, and MEDIA tags unless the user asks for them."
@@ -45,13 +51,26 @@ class AppConfig:
     wake_keyword_threshold: float = 0.25
     wake_cooldown_seconds: float = 2.0
     motion_enabled: bool = True
+    barge_in_enabled: bool = True
+    realtime_model: str = "gpt-realtime-2.1"
+    realtime_voice: str = "marin"
+    realtime_reasoning_effort: str = "low"
     instance_id: str = ""
 
     def __post_init__(self) -> None:
         self.bridge_url = self.bridge_url.strip().rstrip("/")
         self.api_key = self.api_key.strip()
         self.model = self.model.strip() or "hermes-agent"
+        self.conversation_mode = self.conversation_mode.strip().lower() or "pipeline"
         self.language = self.language.strip() or "en"
+        self.stt_provider = self.stt_provider.strip().lower() or "configured"
+        self.stt_model = self.stt_model.strip() or "base"
+        self.tts_provider = self.tts_provider.strip().lower() or "configured"
+        self.tts_model = self.tts_model.strip() or "eleven_flash_v2_5"
+        self.tts_voice = self.tts_voice.strip() or "pNInz6obpgDQGcFmaJgB"
+        self.realtime_model = self.realtime_model.strip() or "gpt-realtime-2.1"
+        self.realtime_voice = self.realtime_voice.strip() or "marin"
+        self.realtime_reasoning_effort = self.realtime_reasoning_effort.strip().lower() or "low"
         if not self.instance_id:
             self.instance_id = uuid.uuid4().hex
         self.validate()
@@ -70,6 +89,14 @@ class AppConfig:
             raise ValueError("initial_speech_timeout_seconds must be between 1 and 30")
         if not 0.001 <= float(self.vad_min_rms) <= 0.5:
             raise ValueError("vad_min_rms must be between 0.001 and 0.5")
+        if self.stt_provider not in {"configured", "local", "elevenlabs"}:
+            raise ValueError("Unsupported STT provider")
+        if self.tts_provider not in {"configured", "elevenlabs"}:
+            raise ValueError("Unsupported TTS provider")
+        if self.conversation_mode not in {"pipeline", "realtime"}:
+            raise ValueError("Unsupported conversation mode")
+        if self.realtime_reasoning_effort not in {"minimal", "low", "medium", "high", "xhigh"}:
+            raise ValueError("Unsupported realtime reasoning effort")
 
     @property
     def configured(self) -> bool:
