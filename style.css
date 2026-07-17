@@ -168,7 +168,7 @@ main, footer { width: min(1240px, calc(100% - 40px)); margin: 0 auto; }
 .privacy { display: grid; grid-template-columns: .65fr 1.35fr; column-gap: 8vw; }
 .privacy .section-heading { grid-column: 1; }
 .state-table { grid-column: 2; border-top: 1px solid var(--line); }
-.state-row { min-height: 70px; display: grid; grid-template-columns: 1.1fr repeat(3,1fr); align-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .86rem; }
+.state-row { min-height: 70px; display: grid; grid-template-columns: 1.1fr repeat(4,1fr); align-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .86rem; }
 .state-row strong { color: var(--ink); }
 .header-row { min-height: 50px; font-family: var(--mono); font-size: .63rem; letter-spacing: .08em; text-transform: uppercase; }
 .state-row .on { color: var(--green); }
@@ -241,7 +241,7 @@ footer a:hover, footer a:focus-visible { color: var(--ink); }
   .feature-index, .feature > :last-child { grid-column: 1; }
   .wave-panel, .camera-panel { min-height: 280px; }
   .tool-list { min-height: 220px; padding: 25px; }
-  .state-row { grid-template-columns: 1.1fr repeat(3,.9fr); font-size: .69rem; gap: 6px; }
+  .state-row { grid-template-columns: 1.1fr repeat(4,.9fr); font-size: .62rem; gap: 5px; }
   .header-row { font-size: .54rem; }
   footer { align-items: flex-start; flex-direction: column; justify-content: center; }
   footer nav { margin-left: 0; flex-wrap: wrap; }

@@ -34,6 +34,10 @@ The model can call `ask_hermes`. That tool forwards a request to the local Herme
 
 Do not claim that local wake-word processing makes the entire conversation local: after wake-up, pipeline STT/TTS or Realtime audio may be sent to configured cloud providers. When on-demand camera is enabled, a fresh frame may also be sent to the Realtime provider only after a visual tool call; continuous camera streaming is not used.
 
+Optional face following is separate from cloud vision. It runs in the Reachy daemon only during an active post-wake conversation and is disabled when the conversation ends or Meeting/Sleep begins. Tracking frames are not forwarded to Hermes or OpenAI. Optional DOA reads one local microphone-array direction estimate after wake detection and uses it only to orient the head.
+
+Realtime robot tools are allow-listed to local head direction, recorded emotion, and recorded dance actions. They cannot invoke shell commands, Home Assistant, files, or arbitrary Hermes tools. Those capabilities remain behind the authenticated `ask_hermes` boundary.
+
 The snapshot API returns image bytes only after bearer-token authentication and explicit confirmation, and sets `Cache-Control: no-store`. The unauthenticated local camera test returns metadata only.
 
 ## Operational controls

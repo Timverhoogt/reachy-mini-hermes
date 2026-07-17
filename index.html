@@ -23,14 +23,14 @@
       <div class="hero-copy">
         <p class="eyebrow">REACHY MINI × HERMES AGENT</p>
         <h1>Your agent.<br /><em>Now embodied.</em></h1>
-        <p class="lede">Wake Reachy with <strong>“Hey Hermes”</strong>. Talk naturally, interrupt mid-sentence, ask what it sees, control Home Assistant, and keep the memory, skills, and tools of your own Hermes Agent.</p>
+        <p class="lede">Wake Reachy with <strong>“Hey Hermes”</strong>. Talk naturally, interrupt mid-sentence, let it follow you locally, ask what it sees, dance, control Home Assistant, and keep the memory, skills, and tools of your own Hermes Agent.</p>
         <div class="hero-actions">
           <a class="button primary" href="https://github.com/Timverhoogt/reachy-mini-hermes">View source on GitHub</a>
           <a class="button secondary" href="#install">Install the app</a>
         </div>
         <div class="proof" aria-label="Project facts">
           <span><strong>Local</strong> pre-wake audio</span>
-          <span><strong>29</strong> automated tests</span>
+          <span><strong>45</strong> automated tests</span>
           <span><strong>Apache-2.0</strong> licensed</span>
         </div>
       </div>
@@ -122,6 +122,18 @@
       <article class="feature feature-tools">
         <div class="feature-index">03</div>
         <div class="feature-copy">
+          <p class="feature-tag">LOCAL EMBODIMENT</p>
+          <h3>Move like Reachy.<br />Think like Hermes.</h3>
+          <p>Realtime can look in a direction, express curated emotions, and perform authentic recorded dances. Optional local face tracking follows you only during the active conversation, while local microphone-array direction finding turns toward the wake phrase.</p>
+        </div>
+        <div class="tool-list" aria-label="Reachy embodiment capabilities">
+          <span>Look</span><span>Emotion</span><span>Dance</span><span>Face follow</span><span>Wake direction</span><span>Voice motion</span>
+        </div>
+      </article>
+
+      <article class="feature feature-tools">
+        <div class="feature-index">04</div>
+        <div class="feature-copy">
           <p class="feature-tag">HERMES DELEGATION</p>
           <h3>A robot with your tools.</h3>
           <p>Ordinary speech stays on the fast path. Requests involving personal memory, current information, files, Home Assistant, or consequential actions call <code>ask_hermes</code> and speak the verified result.</p>
@@ -138,13 +150,13 @@
         <h2>Privacy you can see.</h2>
       </div>
       <div class="state-table" role="table" aria-label="Power and privacy modes">
-        <div class="state-row header-row" role="row"><span>Mode</span><span>Microphone</span><span>Wake word</span><span>Motor torque</span></div>
-        <div class="state-row" role="row"><strong>Standby</strong><span>Local only</span><span class="on">Active</span><span>Released</span></div>
-        <div class="state-row" role="row"><strong>Awake</strong><span>Running</span><span class="on">Active</span><span class="on">Enabled</span></div>
-        <div class="state-row" role="row"><strong>Meeting</strong><span class="off">Stopped</span><span class="off">Disabled</span><span>Released</span></div>
-        <div class="state-row" role="row"><strong>Sleep</strong><span class="off">Stopped</span><span class="off">Disabled</span><span>Released</span></div>
+        <div class="state-row header-row" role="row"><span>Mode</span><span>Microphone</span><span>Wake word</span><span>Face tracking</span><span>Motor torque</span></div>
+        <div class="state-row" role="row"><strong>Standby</strong><span>Local only</span><span class="on">Active</span><span>Post-wake only</span><span>Released</span></div>
+        <div class="state-row" role="row"><strong>Awake</strong><span>Running</span><span class="on">Active</span><span>Optional post-wake</span><span class="on">Enabled</span></div>
+        <div class="state-row" role="row"><strong>Meeting</strong><span class="off">Stopped</span><span class="off">Disabled</span><span class="off">Disabled</span><span>Released</span></div>
+        <div class="state-row" role="row"><strong>Sleep</strong><span class="off">Stopped</span><span class="off">Disabled</span><span class="off">Disabled</span><span>Released</span></div>
       </div>
-      <p class="privacy-note">Awake now runs Reachy’s physical wake-up motion. Meeting and Sleep stop microphone capture, clear active playback, disable wake detection, and release motor torque.</p>
+      <p class="privacy-note">Face tracking and wake-direction sensing stay local to Reachy. Tracking starts only for an active post-wake conversation. Meeting and Sleep stop microphone capture and tracking, cancel physical actions, clear playback, disable wake detection, and release motor torque.</p>
     </section>
 
     <section class="install section" id="install">

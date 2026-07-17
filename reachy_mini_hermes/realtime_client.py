@@ -61,6 +61,7 @@ class RealtimeBridgeSession:
                         "voice": self.config.realtime_voice,
                         "reasoning_effort": self.config.realtime_reasoning_effort,
                         "camera_enabled": self.config.camera_enabled,
+                        "robot_tools_enabled": self.config.robot_tools_enabled,
                         "agent_model": self.config.model,
                         "session_id": f"reachy-realtime-{self.config.instance_id}",
                         "system_prompt": self.config.system_prompt,
@@ -209,6 +210,29 @@ class RealtimeBridgeSession:
             self._socket.send(json.dumps({"type": "response.create"}))
         except Exception as exc:
             raise RealtimeBridgeError(f"Could not report camera failure: {exc}") from exc
+
+    def send_tool_result(self, call_id: str, result: dict[str, object]) -> None:
+        """Complete one robot-local function call and continue the response."""
+        if self._socket is None:
+            raise RealtimeBridgeError("Realtime session is not connected")
+        if not call_id:
+            raise RealtimeBridgeError("Robot tool call did not include a call ID")
+        try:
+            self._socket.send(
+                json.dumps(
+                    {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps(result),
+                        },
+                    }
+                )
+            )
+            self._socket.send(json.dumps({"type": "response.create"}))
+        except Exception as exc:
+            raise RealtimeBridgeError(f"Could not send robot tool result: {exc}") from exc
 
     def close(self) -> None:
         self._closed.set()

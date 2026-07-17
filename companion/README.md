@@ -77,7 +77,7 @@ Authorization: Bearer <API_SERVER_KEY>
 | `POST /v1/audio/speech` | Configured/Edge/ElevenLabs TTS |
 | `GET /v1/realtime` | Authenticated WebSocket proxy to OpenAI Realtime |
 
-The Realtime client sends an initial `session.start` envelope containing model, voice, reasoning effort, Hermes agent route, stable memory scope, and system prompt. The bridge then creates the OpenAI GA Realtime session and exposes `ask_hermes` as a function tool.
+The Realtime client sends an initial `session.start` envelope containing model, voice, reasoning effort, Hermes agent route, stable memory scope, system prompt, and the camera/robot-tool feature flags. The bridge then creates the OpenAI GA Realtime session and exposes `ask_hermes` plus only the enabled, curated Reachy-local tools.
 
 ### Realtime trust boundary
 
@@ -92,6 +92,8 @@ OpenAI may answer ordinary conversation directly. The session instructions requi
 The bridge executes `ask_hermes` through the authenticated local Hermes API Server and returns the tool result to the Realtime session. OpenAI does not receive the Hermes bearer token, and Reachy does not receive the OpenAI key.
 
 When Reachy enables camera support, the bridge advertises `capture_reachy_camera`. The tool call is forwarded to Reachy, which captures one bounded JPEG and sends it as an `input_image` conversation item. The bridge never polls or continuously streams the camera.
+
+When Reachy enables robot tools, the bridge advertises `move_reachy_head`, `express_reachy_emotion`, and `dance_reachy`. The bridge never executes these physical actions itself: completed calls are forwarded to the robot, where an allow-listed local worker performs them. Knowledge, Home Assistant, files, memory, and consequential actions continue to route through `ask_hermes`.
 
 ## Run at boot with systemd
 

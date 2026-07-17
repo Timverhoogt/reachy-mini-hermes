@@ -2,7 +2,8 @@ const $ = (id) => document.getElementById(id);
 const fields = [
   "bridge_url", "api_key", "model", "conversation_mode", "language", "stt_provider", "stt_model",
   "tts_provider", "tts_model", "tts_voice", "continuous_conversation",
-  "motion_enabled", "barge_in_enabled", "camera_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
+  "motion_enabled", "barge_in_enabled", "camera_enabled", "face_tracking_enabled", "face_tracking_weight",
+  "doa_enabled", "robot_tools_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
   "end_silence_seconds", "max_utterance_seconds", "vad_min_rms", "vad_noise_multiplier",
   "wake_keyword_threshold", "wake_keyword_score",
 ];

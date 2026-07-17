@@ -39,6 +39,7 @@ Reachy microphone
        ↳ ask_hermes tool when memory, current information,
          Home Assistant, files, or consequential actions are required
        ↳ capture_reachy_camera for a fresh on-demand image
+       ↳ local look, emotion, and authentic recorded-dance tools
   → streamed Reachy audio and motion
 ```
 
@@ -66,6 +67,9 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Realtime semantic VAD, streaming audio, reasoning-effort selection, and natural interruption.
 - Pipeline interruption by saying **“Hey Hermes”** while Reachy is speaking.
 - `ask_hermes` tool delegation for memory, Home Assistant, current information, files, and actions.
+- Curated Realtime embodiment tools for looking, emotions, and authentic recorded Reachy dances.
+- Optional daemon-local face following, active only after the wake phrase for the current conversation.
+- Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
 - Privacy-preserving on-demand camera: one JPEG is captured only when a visual request needs it.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
 - Stable Hermes memory scope plus rotating conversation sessions after inactivity.
@@ -195,16 +199,20 @@ Press **Test connection**, save, then say:
 
 ## Power and privacy states
 
-| Mode | Microphone | Wake detection | Motor torque | Intended use |
-|---|---|---|---|---|
-| Standby | Local capture | Active | Disabled | Normal waiting state |
-| Awake | Local capture | Active | Enabled | Keep Reachy physically awake |
-| Meeting | Stopped | Disabled | Disabled | Timed privacy mode |
-| Sleep | Stopped | Disabled | Disabled | Indefinite privacy mode |
+| Mode | Microphone | Wake detection | Local face tracking | Motor torque | Intended use |
+|---|---|---|---|---|---|
+| Standby | Local capture | Active | Off until an active conversation | Disabled | Normal waiting state |
+| Awake | Local capture | Active | Optional during active conversation | Enabled | Keep Reachy physically awake |
+| Meeting | Stopped | Disabled | Disabled | Disabled | Timed privacy mode |
+| Sleep | Stopped | Disabled | Disabled | Disabled | Indefinite privacy mode |
 
 The settings server stays available in these modes. **Stop voice app** exits the app and releases its resources. **Shut down Pi** requires typing `SHUTDOWN` in the UI before the host power-off command is scheduled.
 
 Camera access is disabled by default. When enabled in Realtime mode, the model can request a single fresh frame for prompts such as “What do you see?” or “Look at this object.” Frames are not streamed continuously and the local camera test reports only JPEG metadata, not image content.
+
+Local face following is a separate opt-in. It uses Reachy SDK 1.9 daemon-side tracking only after **Hey Hermes** and stops when that conversation ends or Meeting/Sleep begins. Tracking frames are not forwarded to Hermes or OpenAI. Optional DOA uses the microphone array's local angle estimate once after wake detection, then discards it after orienting the head.
+
+Realtime physical tools are local and allow-listed: `move_reachy_head`, `express_reachy_emotion`, and `dance_reachy`. They run in a serialized motion worker so microphone streaming remains responsive. Recorded-move audio is suppressed because Hermes remains the only voice source.
 
 An authenticated `POST /api/camera/snapshot` route can return one current JPEG for explicitly requested sharing or diagnostics. It requires the private bridge bearer token, the `camera` confirmation value, and disables response caching.
 
@@ -243,6 +251,8 @@ curl -H "Authorization: Bearer $API_SERVER_KEY" http://HERMES_HOST:8643/health
 - Chat, audio, discovery, and Realtime routes require constant-time bearer-token authentication.
 - Provider credentials never leave the Hermes host.
 - Camera frames leave Reachy only after local wake detection, during an active Realtime session, and after the model requests visual grounding.
+- Face-tracking frames remain local to Reachy's daemon and tracking stops outside the active conversation or in Meeting/Sleep.
+- Realtime physical tools are curated local motions; privileged and consequential actions still go through `ask_hermes`.
 - Do **not** expose ports `8042`, `8642`, or `8643` directly to the internet.
 - The settings UI includes power controls and therefore belongs only on a trusted management network.
 - Hermes tools execute on the Hermes API-server host, not on Reachy.
@@ -271,7 +281,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **29 tests**.
+Current automated suite: **45 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

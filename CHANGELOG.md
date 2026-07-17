@@ -17,10 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Realtime natural interruption and streamed-output flushing.
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.
 - Motor torque and microphone lifecycle management for privacy/power states.
-- Settings UI for conversation mode, speech providers, voices, interruption, power, app stop, and shutdown.
+- Settings UI for conversation mode, speech providers, voices, interruption, local face/DOA controls, robot actions, power, app stop, and shutdown.
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
 - Optional on-demand Reachy camera tool with local diagnostics and Realtime image input.
 - Authenticated, non-cacheable one-frame snapshot route for explicit image sharing.
+- Privacy-controlled daemon-local face following that runs only during an active post-wake conversation.
+- Optional wake-time DOA orientation using Reachy's local microphone-array direction estimate.
+- Curated Realtime robot tools for look direction, authentic recorded emotions, and three recorded dance styles.
+- Serialized action worker that yields face/voice motion during explicit moves and cancels actions on Meeting/Sleep.
 - Operations runbook covering deployment, rollback, cooling maintenance, health checks, and acoustic acceptance.
 
 ### Changed
@@ -42,10 +46,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Camera capture waits for a completed tool item, deduplicates call IDs, and remains blocked in Meeting/Sleep.
 - Awake now runs Reachy's physical wake-up motion instead of only enabling motor torque.
 - Meeting and Sleep stop active playback and microphone capture before disabling motors.
+- Meeting/Sleep action cancellation now restarts Reachy's playback backend when returning to Standby/Awake.
+- Motion cancellation uses generation checks so dequeued actions cannot start after a privacy transition.
+- Wake activation rechecks privacy before motors, face tracking, and cloud conversation startup.
+- Pipeline synthesis and playback recheck privacy before starting TTS audio.
+- `ask_hermes` now executes only for completed, deduplicated Realtime function-call items.
+- Robot function-call output now reports the actual physical execution result instead of queue acceptance.
+- DOA orientation accepts only a recent speech-validated, finite microphone-array estimate.
 
 ### Verified
 
-- Ruff passes and 29 automated tests pass.
+- Ruff passes and 45 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

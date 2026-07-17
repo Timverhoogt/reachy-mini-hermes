@@ -35,6 +35,21 @@ def test_masked_key_keeps_existing_secret() -> None:
     assert updated.language == "nl"
 
 
+def test_embodiment_features_are_explicit_and_privacy_bounded_by_default() -> None:
+    config = AppConfig()
+
+    assert config.face_tracking_enabled is False
+    assert config.face_tracking_weight == 0.65
+    assert config.doa_enabled is False
+    assert config.robot_tools_enabled is True
+
+
+@pytest.mark.parametrize("weight", [-0.01, 1.01])
+def test_face_tracking_weight_must_be_bounded(weight: float) -> None:
+    with pytest.raises(ValueError, match="face_tracking_weight"):
+        AppConfig(face_tracking_weight=weight)
+
+
 @pytest.mark.parametrize("url", ["", "localhost:8643", "file:///tmp/socket"])
 def test_bridge_url_must_be_http(url: str) -> None:
     with pytest.raises(ValueError):

@@ -48,3 +48,38 @@ def test_create_app_routes_are_present() -> None:
     assert ("GET", "/v1/models") in routes
     assert ("GET", "/v1/voice-options") in routes
     assert ("GET", "/v1/realtime") in routes
+
+
+def test_realtime_robot_tools_are_curated_and_can_be_disabled() -> None:
+    bridge = load_bridge_module()
+
+    names = {tool["name"] for tool in bridge._build_realtime_tools(True, True)}
+    assert names == {
+        "ask_hermes",
+        "capture_reachy_camera",
+        "move_reachy_head",
+        "express_reachy_emotion",
+        "dance_reachy",
+    }
+    assert {tool["name"] for tool in bridge._build_realtime_tools(False, False)} == {"ask_hermes"}
+
+
+def test_ask_hermes_requires_completed_output_item() -> None:
+    bridge = load_bridge_module()
+    completed = {
+        "item": {
+            "type": "function_call",
+            "status": "completed",
+            "name": "ask_hermes",
+            "call_id": "call-hermes",
+            "arguments": '{"request":"turn on the light"}',
+        }
+    }
+    incomplete = {"item": {**completed["item"], "status": "incomplete"}}
+
+    assert bridge._completed_hermes_call("response.function_call_arguments.done", completed) is None
+    assert bridge._completed_hermes_call("response.output_item.done", incomplete) is None
+    assert bridge._completed_hermes_call("response.output_item.done", completed) == (
+        "call-hermes",
+        {"request": "turn on the light"},
+    )

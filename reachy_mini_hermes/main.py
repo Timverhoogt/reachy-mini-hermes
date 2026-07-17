@@ -46,6 +46,10 @@ class SettingsUpdate(BaseModel):
     motion_enabled: bool | None = None
     barge_in_enabled: bool | None = None
     camera_enabled: bool | None = None
+    face_tracking_enabled: bool | None = None
+    face_tracking_weight: float | None = Field(default=None, ge=0, le=1)
+    doa_enabled: bool | None = None
+    robot_tools_enabled: bool | None = None
     realtime_model: str | None = None
     realtime_voice: str | None = None
     realtime_reasoning_effort: str | None = None

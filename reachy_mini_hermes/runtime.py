@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import tempfile
 import threading
@@ -26,9 +27,11 @@ from .config import AppConfig, load_config
 from .hermes_client import HermesBridgeClient, HermesBridgeError, SpeechAudio
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
+from .robot_tools import ReachyRobotActions, completed_robot_tool_call
 from .wakeword import HeyHermesSpotter, ensure_kws_model
 
 _LOGGER = logging.getLogger(__name__)
+_POWER_MODES = frozenset({"standby", "awake", "meeting", "sleep"})
 _MEDIA_TAG = re.compile(r"(?m)^\s*(?:\[\[audio_as_voice\]\]\s*)?MEDIA:\S+\s*$")
 _MARKDOWN = re.compile(r"[`*_#>|]+")
 
@@ -54,6 +57,11 @@ class RuntimeStatus:
     interruptions: int = 0
     camera_captures: int = 0
     camera_last_error: str = ""
+    face_tracking_active: bool = False
+    doa_angle_degrees: float | None = None
+    robot_actions: int = 0
+    last_robot_action: str = ""
+    robot_action_last_error: str = ""
 
 
 @dataclass(slots=True)
@@ -105,6 +113,14 @@ def completed_camera_call_id(kind: str, payload: dict[str, object]) -> str:
     return str(item.get("call_id") or "")
 
 
+def doa_yaw_degrees(angle_radians: float) -> float:
+    """Convert XVF3800 DOA coordinates to a conservative Reachy head yaw."""
+    yaw = -(math.degrees(angle_radians) - 90.0) * 0.8
+    if abs(yaw) < 10.0:
+        return 0.0
+    return round(max(-60.0, min(60.0, yaw)), 1)
+
+
 class HermesVoiceRuntime:
     """Own microphone capture and serialize voice turns through Hermes."""
 
@@ -126,19 +142,30 @@ class HermesVoiceRuntime:
         self._sample_rate = 16000
         self._output_sample_rate = 48000
         self._motion: VoiceMotion | None = None
+        self._actions: ReachyRobotActions | None = None
         self._spotter: HeyHermesSpotter | None = None
         self._last_wake_at = 0.0
         self._power_lock = threading.RLock()
+        self._privacy_requested = threading.Event()
         self._camera_lock = threading.Lock()
         self._power_mode = "standby"
         self._meeting_until = 0.0
         self._recording = False
+        self._face_tracking_active = False
+        self._face_tracking_desired = False
+        self._face_tracking_weight = 0.65
+        self._playback_stopped_for_privacy = False
+        self._last_doa_sample_at = 0.0
+        self._last_valid_doa_at = 0.0
+        self._last_valid_doa_angle: float | None = None
 
     def set_power_mode(self, mode: str, *, duration_seconds: float = 0.0) -> dict[str, object]:
         """Change the voice lifecycle without stopping the settings service."""
         mode = mode.strip().lower()
-        if mode not in {"standby", "awake", "meeting", "sleep"}:
+        if mode not in _POWER_MODES:
             raise ValueError(f"Unsupported power mode: {mode}")
+        if mode in {"meeting", "sleep"}:
+            self._privacy_requested.set()
         with self._power_lock:
             self._power_mode = mode
             self._meeting_until = (
@@ -147,6 +174,8 @@ class HermesVoiceRuntime:
                 else 0.0
             )
         self._apply_power_mode()
+        if mode not in {"meeting", "sleep"}:
+            self._privacy_requested.clear()
         return self.status()
 
     def _effective_power_mode(self) -> str:
@@ -154,6 +183,7 @@ class HermesVoiceRuntime:
             if self._power_mode == "meeting" and time.monotonic() >= self._meeting_until:
                 self._power_mode = "standby"
                 self._meeting_until = 0.0
+                self._privacy_requested.clear()
             return self._power_mode
 
     def _apply_power_mode(self) -> None:
@@ -163,6 +193,12 @@ class HermesVoiceRuntime:
             if mode == "meeting":
                 remaining = max(0, int(self._meeting_until - time.monotonic()))
         if mode in {"meeting", "sleep"}:
+            self._face_tracking_desired = False
+            self._set_face_tracking(False)
+            if self._actions is not None:
+                self._playback_stopped_for_privacy = (
+                    self._actions.cancel() or self._playback_stopped_for_privacy
+                )
             try:
                 self.robot.media.play_sound(str(self.assets / "silence.wav"))
             except Exception:
@@ -181,6 +217,13 @@ class HermesVoiceRuntime:
                 meeting_seconds_remaining=remaining,
             )
             return
+        if self._playback_stopped_for_privacy:
+            start_playing = getattr(self.robot.media, "start_playing", None)
+            if callable(start_playing):
+                start_playing()
+            self._playback_stopped_for_privacy = False
+        if self._motion is not None:
+            self._motion.resume()
         if not self._recording:
             self.robot.media.start_recording()
             self._recording = True
@@ -238,6 +281,102 @@ class HermesVoiceRuntime:
                 time.sleep(0.05)
         raise RuntimeError("Reachy camera did not return a frame")
 
+    def _set_face_tracking(self, enabled: bool, *, weight: float | None = None) -> None:
+        """Control daemon-local face tracking and mirror the real state in status."""
+        if enabled == self._face_tracking_active and (weight is None or weight == self._face_tracking_weight):
+            return
+        try:
+            if enabled:
+                self._face_tracking_weight = float(weight if weight is not None else self._face_tracking_weight)
+                self.robot.start_head_tracking(weight=self._face_tracking_weight)
+            else:
+                if self._face_tracking_active:
+                    self.robot.stop_head_tracking()
+            self._face_tracking_active = enabled
+            with self._status_lock:
+                self._status.face_tracking_active = enabled
+            _LOGGER.info("Local face tracking %s", "enabled" if enabled else "disabled")
+        except Exception as exc:
+            self._face_tracking_active = False
+            with self._status_lock:
+                self._status.face_tracking_active = False
+            _LOGGER.warning("Could not change local face tracking: %s", exc)
+
+    def _sample_doa(self, *, force: bool = False) -> float | None:
+        """Cache a recent valid local microphone-array direction estimate."""
+        now = time.monotonic()
+        if not force and now - self._last_doa_sample_at < 0.1:
+            return self._last_valid_doa_angle
+        self._last_doa_sample_at = now
+        getter = getattr(self.robot.media, "get_DoA", None)
+        if not callable(getter):
+            return None
+        result = getter()
+        if not isinstance(result, tuple) or len(result) < 2 or not bool(result[1]):
+            return None
+        angle_radians = float(result[0])
+        if not math.isfinite(angle_radians):
+            return None
+        self._last_valid_doa_angle = angle_radians
+        self._last_valid_doa_at = now
+        return angle_radians
+
+    def _orient_to_voice(self, config: AppConfig) -> None:
+        """Turn once toward a recent local wake-phrase direction estimate."""
+        if not config.doa_enabled or self._motion is None:
+            return
+        try:
+            angle_radians = self._sample_doa(force=True)
+            if angle_radians is None:
+                age = time.monotonic() - self._last_valid_doa_at
+                if self._last_valid_doa_angle is None or age > 1.5:
+                    _LOGGER.debug("No recent speech-validated DOA is available for wake orientation")
+                    return
+                angle_radians = self._last_valid_doa_angle
+            yaw = doa_yaw_degrees(angle_radians)
+            with self._status_lock:
+                self._status.doa_angle_degrees = round(math.degrees(angle_radians), 1)
+            if yaw:
+                self._motion.orient_to_sound(yaw)
+            _LOGGER.info(
+                "Local wake DOA: %.1f degrees, Reachy yaw %.1f degrees",
+                math.degrees(angle_radians),
+                yaw,
+            )
+        except Exception as exc:
+            _LOGGER.warning("Could not orient to local wake DOA: %s", exc)
+
+    def _before_robot_action(self) -> None:
+        self._set_face_tracking(False)
+        if self._motion is not None:
+            self._motion.suspend()
+
+    def _after_robot_action(self) -> None:
+        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            return
+        if self._motion is not None:
+            self._motion.resume()
+            state = str(self.status().get("state") or "")
+            if state == "speaking":
+                self._motion.speaking()
+            elif state in {"thinking", "transcribing", "synthesizing", "looking"}:
+                self._motion.thinking()
+            elif state == "listening":
+                self._motion.listening()
+            else:
+                self._motion.idle()
+        if self._face_tracking_desired and self._effective_power_mode() not in {"meeting", "sleep"}:
+            self._set_face_tracking(True, weight=self._face_tracking_weight)
+
+    def _on_robot_action_result(self, name: str, result: dict[str, object]) -> None:
+        with self._status_lock:
+            self._status.last_robot_action = name
+            if result.get("ok"):
+                self._status.robot_actions += 1
+                self._status.robot_action_last_error = ""
+            else:
+                self._status.robot_action_last_error = str(result.get("error") or "Robot action failed")
+
     def _set_status(self, state: str, detail: str = "", **updates: object) -> None:
         with self._status_lock:
             self._status.state = state
@@ -250,6 +389,14 @@ class HermesVoiceRuntime:
         self._set_status("starting", "Preparing the Hey Hermes wake-word model")
         config = self.config_loader()
         self._motion = VoiceMotion(self.robot, enabled=config.motion_enabled)
+        self._actions = ReachyRobotActions(
+            self.robot,
+            self.stop_event,
+            before_action=self._before_robot_action,
+            after_action=self._after_robot_action,
+            on_result=self._on_robot_action_result,
+        )
+        self._actions.start()
         model_directory = ensure_kws_model()
         self._spotter = HeyHermesSpotter(
             model_directory,
@@ -281,6 +428,10 @@ class HermesVoiceRuntime:
             self._listen_for_wake_word()
         finally:
             self._set_status("stopping")
+            self._face_tracking_desired = False
+            self._set_face_tracking(False)
+            if self._actions is not None:
+                self._actions.close()
             try:
                 if self._recording:
                     self.robot.media.stop_recording()
@@ -342,6 +493,11 @@ class HermesVoiceRuntime:
             frame = self._read_16k_frame()
             if frame is None:
                 continue
+            if config.doa_enabled:
+                try:
+                    self._sample_doa()
+                except Exception:
+                    _LOGGER.debug("Could not sample local wake DOA", exc_info=True)
             rms = float(np.sqrt(np.mean(np.square(frame), dtype=np.float64)))
             peak = float(np.max(np.abs(frame))) if frame.size else 0.0
             with self._status_lock:
@@ -357,7 +513,22 @@ class HermesVoiceRuntime:
                 continue
             self._last_wake_at = now
             _LOGGER.info("Wake word detected: %s", keyword)
+            if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                continue
             self._set_motor_mode(True, wake=True)
+            if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                self._set_motor_mode(False)
+                continue
+            self._orient_to_voice(config)
+            self._face_tracking_desired = config.face_tracking_enabled
+            self._face_tracking_weight = config.face_tracking_weight
+            if self._face_tracking_desired and not self._privacy_requested.is_set():
+                self._set_face_tracking(True, weight=self._face_tracking_weight)
+            if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                self._face_tracking_desired = False
+                self._set_face_tracking(False)
+                self._set_motor_mode(False)
+                continue
             try:
                 if config.conversation_mode == "realtime":
                     self._run_realtime_conversation(config)
@@ -369,6 +540,8 @@ class HermesVoiceRuntime:
                 self._signal_error()
                 self.stop_event.wait(0.4)
             finally:
+                self._face_tracking_desired = False
+                self._set_face_tracking(False)
                 self._spotter.reset()
                 if self._motion is not None:
                     self._motion.idle()
@@ -384,6 +557,7 @@ class HermesVoiceRuntime:
         generation_done = False
         playback = RealtimePlayback()
         handled_camera_call_ids: set[str] = set()
+        handled_robot_call_ids: set[str] = set()
         self._play_asset("listening.wav")
         self._discard_audio(0.34)
         self._set_status(
@@ -392,7 +566,12 @@ class HermesVoiceRuntime:
             bridge_healthy=True,
             last_error="",
         )
+        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            return
         session.start()
+        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            session.close()
+            return
         self._set_status("listening", "Realtime session active")
         if self._motion is not None:
             self._motion.listening()
@@ -454,6 +633,7 @@ class HermesVoiceRuntime:
                                 stt_provider="openai-realtime",
                             )
                     camera_call_id = completed_camera_call_id(kind, payload)
+                    robot_call = completed_robot_tool_call(kind, payload)
                     if camera_call_id and camera_call_id not in handled_camera_call_ids:
                         handled_camera_call_ids.add(camera_call_id)
                         self._set_status("looking", "Capturing one on-demand camera frame")
@@ -476,6 +656,39 @@ class HermesVoiceRuntime:
                                 self._status.camera_last_error = message
                             session.send_camera_error(camera_call_id, message)
                             self._set_status("thinking", "Camera capture failed; Hermes is responding")
+                    elif robot_call is not None and robot_call.call_id not in handled_robot_call_ids:
+                        handled_robot_call_ids.add(robot_call.call_id)
+                        if not config.robot_tools_enabled:
+                            result: dict[str, object] = {
+                                "ok": False,
+                                "error": "Robot tools are disabled in Reachy settings",
+                            }
+                        elif self._effective_power_mode() in {"meeting", "sleep"}:
+                            result = {
+                                "ok": False,
+                                "error": "Physical actions are blocked in the current privacy mode",
+                            }
+                        elif self._actions is None:
+                            result = {"ok": False, "error": "Robot action controller is unavailable"}
+                        else:
+                            def complete_robot_tool(
+                                completed: dict[str, object],
+                                call_id: str = robot_call.call_id,
+                            ) -> None:
+                                try:
+                                    session.send_tool_result(call_id, completed)
+                                except Exception:
+                                    _LOGGER.exception("Could not complete Realtime robot tool %s", call_id)
+
+                            result = self._actions.enqueue(
+                                robot_call.name,
+                                robot_call.arguments,
+                                on_complete=complete_robot_tool,
+                            )
+                        if not result.get("accepted"):
+                            session.send_tool_result(robot_call.call_id, result)
+                        _LOGGER.info("Realtime robot tool %s: %s", robot_call.name, result)
+                        self._set_status("thinking", "Hermes queued a Reachy action")
                     elif kind == "response.created":
                         last_activity = time.monotonic()
                         generation_done = False
@@ -599,6 +812,8 @@ class HermesVoiceRuntime:
                     response_preview=response_text[:240],
                 )
                 speech = client.synthesize(spoken_text)
+                if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                    break
                 self._set_status("speaking", "Reachy is speaking", tts_provider=speech.provider)
                 interrupted = self._play_response(speech, spoken_text, barge_in=config.barge_in_enabled)
                 if self._effective_power_mode() in {"meeting", "sleep"}:
@@ -652,6 +867,8 @@ class HermesVoiceRuntime:
             self._read_16k_frame()
 
     def _play_asset(self, name: str) -> None:
+        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            return
         path = self.assets / name
         if path.exists():
             self.robot.media.play_sound(str(path))
@@ -674,6 +891,8 @@ class HermesVoiceRuntime:
             path = Path(output.name)
         interrupted = False
         try:
+            if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                return False
             duration = self._audio_duration(path, fallback_text=text)
             self._set_status("speaking", "Hermes is speaking")
             if self._motion is not None:

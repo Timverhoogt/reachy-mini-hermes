@@ -119,6 +119,22 @@
           <input id="motion_enabled" name="motion_enabled" type="checkbox" checked />
         </label>
         <label class="toggle-row">
+          <span><strong>Reachy action tools</strong><small>Realtime may look, express emotions, and perform authentic recorded dances. Physical actions stay local.</small></span>
+          <input id="robot_tools_enabled" name="robot_tools_enabled" type="checkbox" checked />
+        </label>
+        <label class="toggle-row">
+          <span><strong>Local face following</strong><small>After “Hey Hermes”, follow a face locally for that conversation only. Never sends tracking frames to Hermes or the cloud.</small></span>
+          <input id="face_tracking_enabled" name="face_tracking_enabled" type="checkbox" />
+        </label>
+        <label>Face-following weight
+          <input id="face_tracking_weight" name="face_tracking_weight" type="range" min="0" max="1" step="0.05" value="0.65" />
+          <small>Blend local face tracking with Reachy's voice and action motion.</small>
+        </label>
+        <label class="toggle-row">
+          <span><strong>Turn toward wake phrase</strong><small>Use the microphone array's local direction estimate once after wake. No audio or direction data leaves Reachy.</small></span>
+          <input id="doa_enabled" name="doa_enabled" type="checkbox" />
+        </label>
+        <label class="toggle-row">
           <span><strong>Interruption</strong><small>Pipeline: say “Hey Hermes” while speaking. Realtime: natural barge-in.</small></span>
           <input id="barge_in_enabled" name="barge_in_enabled" type="checkbox" checked />
         </label>

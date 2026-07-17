@@ -28,6 +28,149 @@ _MAX_TTS_CHARACTERS = 15_000
 _MAX_REALTIME_MESSAGE_BYTES = 2 * 1024 * 1024
 
 
+def _build_realtime_tools(camera_enabled: bool, robot_tools_enabled: bool) -> list[dict[str, Any]]:
+    """Build the curated Realtime tool surface without exposing privileged credentials."""
+    tools: list[dict[str, Any]] = [
+        {
+            "type": "function",
+            "name": "ask_hermes",
+            "description": "Use Hermes memory and tools to answer or perform the request.",
+            "parameters": {
+                "type": "object",
+                "properties": {"request": {"type": "string"}},
+                "required": ["request"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+    if camera_enabled:
+        tools.append(
+            {
+                "type": "function",
+                "name": "capture_reachy_camera",
+                "description": (
+                    "Capture exactly one current still image from Reachy's camera. Call only when the user "
+                    "explicitly asks you to look, see, read, identify, inspect, or otherwise answer from "
+                    "the robot's current view. Never call for monitoring or speculatively."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "purpose": {
+                            "type": "string",
+                            "description": "Short reason the current camera frame is needed.",
+                        }
+                    },
+                    "required": ["purpose"],
+                    "additionalProperties": False,
+                },
+            }
+        )
+    if robot_tools_enabled:
+        tools.extend(
+            [
+                {
+                    "type": "function",
+                    "name": "move_reachy_head",
+                    "description": (
+                        "Physically look left, right, up, down, or return to center. Use when the user asks "
+                        "Reachy to look in a direction, or when one subtle physical gesture adds meaning."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "direction": {
+                                "type": "string",
+                                "enum": ["left", "right", "up", "down", "center"],
+                            }
+                        },
+                        "required": ["direction"],
+                        "additionalProperties": False,
+                    },
+                },
+                {
+                    "type": "function",
+                    "name": "express_reachy_emotion",
+                    "description": (
+                        "Express one concise emotion using Reachy's authentic recorded head and antenna motion. "
+                        "Use sparingly when requested or when it naturally strengthens the interaction."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "emotion": {
+                                "type": "string",
+                                "enum": [
+                                    "happy",
+                                    "excited",
+                                    "loving",
+                                    "grateful",
+                                    "thinking",
+                                    "confused",
+                                    "sad",
+                                    "surprised",
+                                    "calm",
+                                    "welcoming",
+                                    "yes",
+                                    "no",
+                                ],
+                            }
+                        },
+                        "required": ["emotion"],
+                        "additionalProperties": False,
+                    },
+                },
+                {
+                    "type": "function",
+                    "name": "dance_reachy",
+                    "description": (
+                        "Perform one authentic Reachy dance. Use only when the user asks for a dance or celebration; "
+                        "prefer short unless a longer style is explicitly wanted."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "style": {
+                                "type": "string",
+                                "enum": ["short", "groovy", "energetic"],
+                            }
+                        },
+                        "required": ["style"],
+                        "additionalProperties": False,
+                    },
+                },
+            ]
+        )
+    return tools
+
+
+def _completed_hermes_call(
+    kind: str,
+    event: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    """Parse ask_hermes only after OpenAI marks the function-call item completed."""
+    if kind != "response.output_item.done":
+        return None
+    item = event.get("item")
+    if not isinstance(item, dict):
+        return None
+    call_id = str(item.get("call_id") or "")
+    if (
+        item.get("type") != "function_call"
+        or item.get("status") != "completed"
+        or item.get("name") != "ask_hermes"
+        or not call_id
+    ):
+        return None
+    try:
+        arguments = json.loads(item.get("arguments") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        arguments = {}
+    if not isinstance(arguments, dict):
+        arguments = {}
+    return call_id, arguments
+
+
 def _hermes_home(profile: str | None = None) -> Path:
     root = Path(os.getenv("HERMES_HOME", "~/.hermes")).expanduser()
     return root / "profiles" / profile if profile else root
@@ -309,48 +452,21 @@ class Bridge:
         session_id = str(config.get("session_id") or "reachy-realtime")[:160]
         system_prompt = str(config.get("system_prompt") or "")[:8_000]
         camera_enabled = config.get("camera_enabled") is True
-        realtime_tools: list[dict[str, Any]] = [
-            {
-                "type": "function",
-                "name": "ask_hermes",
-                "description": "Use Hermes memory and tools to answer or perform the request.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"request": {"type": "string"}},
-                    "required": ["request"],
-                    "additionalProperties": False,
-                },
-            }
-        ]
-        if camera_enabled:
-            realtime_tools.append(
-                {
-                    "type": "function",
-                    "name": "capture_reachy_camera",
-                    "description": (
-                        "Capture exactly one current still image from Reachy's camera. Call only when the user "
-                        "explicitly asks you to look, see, read, identify, inspect, or otherwise answer from "
-                        "the robot's current view. Never call for monitoring or speculatively."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "purpose": {
-                                "type": "string",
-                                "description": "Short reason the current camera frame is needed.",
-                            }
-                        },
-                        "required": ["purpose"],
-                        "additionalProperties": False,
-                    },
-                }
-            )
+        robot_tools_enabled = config.get("robot_tools_enabled") is True
+        realtime_tools = _build_realtime_tools(camera_enabled, robot_tools_enabled)
         camera_instruction = (
             "The camera is still-image-only. When the user explicitly asks you to look, see, read, identify, "
             "inspect, or answer from Reachy's current view, call capture_reachy_camera before answering and "
             "describe only that fresh frame. Never capture speculatively, repeatedly, or for monitoring. "
             if camera_enabled
             else "Do not claim to see the physical environment because camera access is disabled. "
+        )
+        robot_instruction = (
+            "You can physically embody responses with move_reachy_head, express_reachy_emotion, and dance_reachy. "
+            "Use them when the user asks, or sparingly when one subtle gesture adds meaning. Never overact, never "
+            "chain dances, and prefer the short dance unless the user explicitly asks for a longer performance. "
+            if robot_tools_enabled
+            else "Do not claim to perform physical robot actions because robot tools are disabled. "
         )
         instructions = (
             "You are Hermes, speaking through a Reachy Mini robot. Be concise, natural, and conversational. "
@@ -359,6 +475,7 @@ class Bridge:
             "action, call ask_hermes and faithfully speak its result. Never claim an action "
             "succeeded without that tool. "
             + camera_instruction
+            + robot_instruction
             + system_prompt
         )
         upstream_headers = {"Authorization": f"Bearer {openai_key}"}
@@ -403,6 +520,8 @@ class Bridge:
                         }
                     )
 
+                    handled_hermes_call_ids: set[str] = set()
+
                     async def client_to_openai() -> None:
                         async for message in client:
                             if message.type == web.WSMsgType.TEXT:
@@ -420,13 +539,11 @@ class Bridge:
                                     return
                                 continue
                             event = json.loads(message.data)
-                            is_hermes_call = (
-                                event.get("type") == "response.function_call_arguments.done"
-                                and event.get("name") == "ask_hermes"
-                            )
-                            if is_hermes_call:
+                            hermes_call = _completed_hermes_call(str(event.get("type") or ""), event)
+                            if hermes_call is not None and hermes_call[0] not in handled_hermes_call_ids:
+                                call_id, arguments = hermes_call
+                                handled_hermes_call_ids.add(call_id)
                                 try:
-                                    arguments = json.loads(event.get("arguments") or "{}")
                                     answer = await self._hermes_answer(
                                         str(arguments.get("request") or ""),
                                         model=agent_model,
@@ -441,7 +558,7 @@ class Bridge:
                                         "type": "conversation.item.create",
                                         "item": {
                                             "type": "function_call_output",
-                                            "call_id": event.get("call_id"),
+                                            "call_id": call_id,
                                             "output": answer,
                                         },
                                     }

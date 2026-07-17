@@ -28,10 +28,19 @@ class VoiceMotion:
         self.robot = robot
         self.enabled = enabled
         self._wobbling = False
+        self._suspended = False
+
+    def suspend(self) -> None:
+        """Yield the head to an explicit robot action while preserving voice audio."""
+        self._set_wobbling(False)
+        self._suspended = True
+
+    def resume(self) -> None:
+        self._suspended = False
 
     def _set_wobbling(self, enabled: bool) -> None:
         """Toggle Reachy's subtle audio-reactive speaking motion."""
-        if not self.enabled or enabled == self._wobbling:
+        if not self.enabled or self._suspended or enabled == self._wobbling:
             return
         try:
             if enabled:
@@ -52,7 +61,7 @@ class VoiceMotion:
         left_antenna: float = 0.0,
         duration: float = 0.35,
     ) -> None:
-        if not self.enabled:
+        if not self.enabled or self._suspended:
             return
         try:
             head = create_head_pose(pitch=pitch, roll=roll, yaw=yaw, degrees=True)
@@ -64,6 +73,11 @@ class VoiceMotion:
     def listening(self) -> None:
         self._set_wobbling(False)
         self._pose(pitch=-5.0, yaw=5.0, right_antenna=18.0, left_antenna=-18.0)
+
+    def orient_to_sound(self, yaw_degrees: float) -> None:
+        """Briefly turn toward the locally measured wake-phrase direction."""
+        self._set_wobbling(False)
+        self._pose(yaw=yaw_degrees, right_antenna=12.0, left_antenna=-12.0, duration=0.5)
 
     def thinking(self) -> None:
         self._set_wobbling(False)

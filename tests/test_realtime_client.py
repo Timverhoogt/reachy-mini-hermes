@@ -68,3 +68,26 @@ def test_camera_frame_creates_image_and_tool_output() -> None:
     assert image_part["detail"] == "high"
     assert base64.b64decode(image_part["image_url"].split(",", 1)[1]) == b"jpeg-data"
     assert events[2] == {"type": "response.create"}
+
+
+def test_robot_tool_result_completes_call_and_continues_response() -> None:
+    class Socket:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def send(self, message: str) -> None:
+            self.messages.append(message)
+
+    session = RealtimeBridgeSession.__new__(RealtimeBridgeSession)
+    socket = Socket()
+    session._socket = socket  # type: ignore[assignment]
+
+    session.send_tool_result("robot-call", {"ok": True, "queued": "look_left"})
+
+    events = [json.loads(message) for message in socket.messages]
+    assert events[0]["item"] == {
+        "type": "function_call_output",
+        "call_id": "robot-call",
+        "output": '{"ok": true, "queued": "look_left"}',
+    }
+    assert events[1] == {"type": "response.create"}

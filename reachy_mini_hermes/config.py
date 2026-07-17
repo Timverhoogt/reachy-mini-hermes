@@ -53,6 +53,10 @@ class AppConfig:
     motion_enabled: bool = True
     barge_in_enabled: bool = True
     camera_enabled: bool = False
+    face_tracking_enabled: bool = False
+    face_tracking_weight: float = 0.65
+    doa_enabled: bool = False
+    robot_tools_enabled: bool = True
     realtime_model: str = "gpt-realtime-2.1"
     realtime_voice: str = "marin"
     realtime_reasoning_effort: str = "low"
@@ -90,6 +94,8 @@ class AppConfig:
             raise ValueError("initial_speech_timeout_seconds must be between 1 and 30")
         if not 0.001 <= float(self.vad_min_rms) <= 0.5:
             raise ValueError("vad_min_rms must be between 0.001 and 0.5")
+        if not 0.0 <= float(self.face_tracking_weight) <= 1.0:
+            raise ValueError("face_tracking_weight must be between 0 and 1")
         if self.stt_provider not in {"configured", "local", "elevenlabs"}:
             raise ValueError("Unsupported STT provider")
         if self.tts_provider not in {"configured", "elevenlabs"}:
