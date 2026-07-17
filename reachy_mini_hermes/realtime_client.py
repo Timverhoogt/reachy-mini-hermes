@@ -159,20 +159,26 @@ class RealtimeBridgeSession:
             {
                 "type": "conversation.item.create",
                 "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": "Current on-demand Reachy camera frame."},
-                        {"type": "input_image", "image_url": image_url},
-                    ],
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": '{"ok":true,"image_attached":true,"capture_count":1}',
                 },
             },
             {
                 "type": "conversation.item.create",
                 "item": {
-                    "type": "function_call_output",
-                    "call_id": call_id,
-                    "output": "A fresh Reachy camera frame was attached for visual analysis.",
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "This is the single current Reachy camera frame requested by the user. "
+                                "Use it to answer the latest visual question."
+                            ),
+                        },
+                        {"type": "input_image", "image_url": image_url, "detail": "high"},
+                    ],
                 },
             },
             {"type": "response.create"},

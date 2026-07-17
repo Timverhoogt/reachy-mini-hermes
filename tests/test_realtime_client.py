@@ -61,9 +61,10 @@ def test_camera_frame_creates_image_and_tool_output() -> None:
     session.send_camera_frame("camera-call", b"jpeg-data")
 
     events = [json.loads(message) for message in socket.messages]
-    image_part = events[0]["item"]["content"][1]
+    assert events[0]["item"]["type"] == "function_call_output"
+    assert events[0]["item"]["call_id"] == "camera-call"
+    image_part = events[1]["item"]["content"][1]
     assert image_part["type"] == "input_image"
+    assert image_part["detail"] == "high"
     assert base64.b64decode(image_part["image_url"].split(",", 1)[1]) == b"jpeg-data"
-    assert events[1]["item"]["type"] == "function_call_output"
-    assert events[1]["item"]["call_id"] == "camera-call"
     assert events[2] == {"type": "response.create"}

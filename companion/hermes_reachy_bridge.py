@@ -328,8 +328,9 @@ class Bridge:
                     "type": "function",
                     "name": "capture_reachy_camera",
                     "description": (
-                        "Capture one fresh frame from Reachy's camera. Use this whenever the user asks "
-                        "what you see, shows an object, asks you to inspect the room, or needs visual grounding."
+                        "Capture exactly one current still image from Reachy's camera. Call only when the user "
+                        "explicitly asks you to look, see, read, identify, inspect, or otherwise answer from "
+                        "the robot's current view. Never call for monitoring or speculatively."
                     ),
                     "parameters": {
                         "type": "object",
@@ -345,8 +346,9 @@ class Bridge:
                 }
             )
         camera_instruction = (
-            "When a request depends on what is physically in front of Reachy, call capture_reachy_camera "
-            "before answering and describe only the returned fresh frame. "
+            "The camera is still-image-only. When the user explicitly asks you to look, see, read, identify, "
+            "inspect, or answer from Reachy's current view, call capture_reachy_camera before answering and "
+            "describe only that fresh frame. Never capture speculatively, repeatedly, or for monitoring. "
             if camera_enabled
             else "Do not claim to see the physical environment because camera access is disabled. "
         )

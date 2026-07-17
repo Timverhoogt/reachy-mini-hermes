@@ -89,6 +89,22 @@ class RealtimePlayback:
         self.duration_seconds = 0.0
 
 
+def completed_camera_call_id(kind: str, payload: dict[str, object]) -> str:
+    """Return a completed camera tool call ID, never an in-progress/cancelled one."""
+    if kind != "response.output_item.done":
+        return ""
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return ""
+    if (
+        item.get("type") != "function_call"
+        or item.get("name") != "capture_reachy_camera"
+        or item.get("status") != "completed"
+    ):
+        return ""
+    return str(item.get("call_id") or "")
+
+
 class HermesVoiceRuntime:
     """Own microphone capture and serialize voice turns through Hermes."""
 
@@ -362,6 +378,7 @@ class HermesVoiceRuntime:
         speaking = False
         generation_done = False
         playback = RealtimePlayback()
+        handled_camera_call_ids: set[str] = set()
         self._play_asset("listening.wav")
         self._discard_audio(0.34)
         self._set_status(
@@ -431,17 +448,17 @@ class HermesVoiceRuntime:
                                 transcript="".join(transcript_parts).strip(),
                                 stt_provider="openai-realtime",
                             )
-                    elif (
-                        kind == "response.function_call_arguments.done"
-                        and payload.get("name") == "capture_reachy_camera"
-                    ):
-                        call_id = str(payload.get("call_id") or "")
+                    camera_call_id = completed_camera_call_id(kind, payload)
+                    if camera_call_id and camera_call_id not in handled_camera_call_ids:
+                        handled_camera_call_ids.add(camera_call_id)
                         self._set_status("looking", "Capturing one on-demand camera frame")
                         try:
                             if not config.camera_enabled:
                                 raise RuntimeError("Camera access is disabled in Reachy settings")
+                            if self._effective_power_mode() in {"meeting", "sleep"}:
+                                raise RuntimeError("Camera capture is blocked in the current privacy mode")
                             jpeg = self._capture_camera_jpeg()
-                            session.send_camera_frame(call_id, jpeg)
+                            session.send_camera_frame(camera_call_id, jpeg)
                             with self._status_lock:
                                 self._status.camera_captures += 1
                                 self._status.camera_last_error = ""
@@ -452,7 +469,7 @@ class HermesVoiceRuntime:
                             _LOGGER.exception("Could not provide Reachy camera frame")
                             with self._status_lock:
                                 self._status.camera_last_error = message
-                            session.send_camera_error(call_id, message)
+                            session.send_camera_error(camera_call_id, message)
                             self._set_status("thinking", "Camera capture failed; Hermes is responding")
                     elif kind == "response.created":
                         last_activity = time.monotonic()

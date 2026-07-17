@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import threading
 
-from reachy_mini_hermes.runtime import HermesVoiceRuntime, RealtimePlayback
+from reachy_mini_hermes.runtime import (
+    HermesVoiceRuntime,
+    RealtimePlayback,
+    completed_camera_call_id,
+)
 
 
 class FakeMedia:
@@ -79,3 +83,26 @@ def test_camera_test_captures_locally_without_returning_image() -> None:
 
     assert result == {"bytes": 9, "content_type": "image/jpeg"}
     assert runtime.status()["camera_captures"] == 1
+
+
+def test_camera_capture_requires_completed_output_item() -> None:
+    completed: dict[str, object] = {
+        "item": {
+            "type": "function_call",
+            "name": "capture_reachy_camera",
+            "status": "completed",
+            "call_id": "call-camera",
+        }
+    }
+    cancelled: dict[str, object] = {
+        "item": {
+            "type": "function_call",
+            "name": "capture_reachy_camera",
+            "status": "incomplete",
+            "call_id": "call-camera",
+        }
+    }
+
+    assert completed_camera_call_id("response.output_item.done", completed) == "call-camera"
+    assert completed_camera_call_id("response.function_call_arguments.done", completed) == ""
+    assert completed_camera_call_id("response.output_item.done", cancelled) == ""
