@@ -62,6 +62,19 @@ def test_meeting_mode_has_bounded_timer() -> None:
     assert 59 <= remaining <= 60
 
 
+def test_awake_runs_physical_wake_motion() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    calls: list[tuple[bool, bool]] = []
+    runtime._set_motor_mode = (  # type: ignore[method-assign]
+        lambda enabled, wake=False: calls.append((enabled, wake))
+    )
+
+    status = runtime.set_power_mode("awake")
+
+    assert status["power_mode"] == "awake"
+    assert calls[-1] == (True, True)
+
+
 def test_realtime_playback_remains_audible_after_generation_finishes() -> None:
     playback = RealtimePlayback(item_id="item-123")
     playback.add(now=10.0, duration_seconds=2.0)

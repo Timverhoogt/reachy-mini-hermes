@@ -193,7 +193,7 @@ class HermesVoiceRuntime:
                 meeting_seconds_remaining=0,
             )
         else:
-            self._set_motor_mode(True, wake=False)
+            self._set_motor_mode(True, wake=True)
             self._set_status(
                 "waiting_for_wake_word",
                 "Say “Hey Hermes”",
