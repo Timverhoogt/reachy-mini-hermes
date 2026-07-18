@@ -30,7 +30,7 @@
         </div>
         <div class="proof" aria-label="Project facts">
           <span><strong>Local</strong> pre-wake audio</span>
-          <span><strong>51</strong> automated tests</span>
+          <span><strong>53</strong> automated tests</span>
           <span><strong>Apache-2.0</strong> licensed</span>
         </div>
       </div>
@@ -156,7 +156,7 @@
         <div class="state-row" role="row"><strong>Meeting</strong><span class="off">Stopped</span><span class="off">Disabled</span><span class="off">Disabled</span><span>Released</span></div>
         <div class="state-row" role="row"><strong>Sleep</strong><span class="off">Stopped</span><span class="off">Disabled</span><span class="off">Disabled</span><span>Released</span></div>
       </div>
-      <p class="privacy-note">Face tracking and wake-direction sensing stay local to Reachy. Explicit voice commands can select Standby, Awake, timed Meeting, or Sleep. Meeting and Sleep stop microphone capture and tracking, cancel physical actions, clear playback, and disable wake detection. Sleep uses Reachy's native motion to fold the head gently before releasing motor torque, and requires the settings UI or a physical control to wake again.</p>
+      <p class="privacy-note">Face tracking and wake-direction sensing stay local to Reachy. Explicit voice commands can select Standby, Awake, timed Meeting, or Sleep. Meeting and Sleep stop microphone capture and tracking, cancel physical actions, clear playback, and disable wake detection. Before any transition releases motor torque, Reachy checks its pose and folds the head gently when needed. Sleep requires the settings UI or a physical control to wake again.</p>
     </section>
 
     <section class="install section" id="install">

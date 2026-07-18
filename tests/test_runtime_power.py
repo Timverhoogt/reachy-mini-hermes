@@ -82,6 +82,33 @@ def test_sleep_stops_microphone_and_standby_restores_local_wake() -> None:
     assert motor_modes[-1] is False
 
 
+def test_standby_folds_head_before_releasing_motor_torque() -> None:
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    motor_modes: list[bool] = []
+    runtime._set_motor_mode = lambda enabled, wake=False: motor_modes.append(enabled)  # type: ignore[method-assign]
+
+    status = runtime.set_power_mode("standby")
+
+    assert status["power_mode"] == "standby"
+    assert robot.sleep_calls == 1
+    assert motor_modes == [True, False]
+    assert runtime._head_safely_folded is True
+
+
+def test_already_folded_standby_does_not_replay_sleep_motion() -> None:
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    runtime._head_safely_folded = True
+    motor_modes: list[bool] = []
+    runtime._set_motor_mode = lambda enabled, wake=False: motor_modes.append(enabled)  # type: ignore[method-assign]
+
+    runtime.set_power_mode("standby")
+
+    assert robot.sleep_calls == 0
+    assert motor_modes == [False]
+
+
 def test_sleep_motion_failure_keeps_torque_enabled_instead_of_dropping_head() -> None:
     class FailingSleepRobot(FakeRobot):
         def goto_sleep(self) -> None:
