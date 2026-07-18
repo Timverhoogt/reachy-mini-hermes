@@ -62,8 +62,6 @@ class RealtimeBridgeSession:
                         "reasoning_effort": self.config.realtime_reasoning_effort,
                         "camera_enabled": self.config.camera_enabled,
                         "robot_tools_enabled": self.config.robot_tools_enabled,
-                        "agent_tools_enabled": self.config.agent_tools_enabled,
-                        "power_tools_enabled": self.config.power_tools_enabled,
                         "agent_model": self.config.model,
                         "session_id": f"reachy-realtime-{self.config.instance_id}",
                         "system_prompt": self.config.system_prompt,

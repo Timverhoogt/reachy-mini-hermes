@@ -58,11 +58,6 @@ class AppConfig:
     face_tracking_weight: float = 0.65
     doa_enabled: bool = False
     robot_tools_enabled: bool = True
-    agent_tools_enabled: bool = True
-    power_tools_enabled: bool = True
-    kids_parent_pin_hash: str = ""
-    kids_mode_enabled: bool = False
-    kids_session_id: str = ""
     realtime_model: str = "gpt-realtime-2.1"
     realtime_voice: str = "marin"
     realtime_reasoning_effort: str = "low"
@@ -82,8 +77,6 @@ class AppConfig:
         self.realtime_model = self.realtime_model.strip() or "gpt-realtime-2.1"
         self.realtime_voice = self.realtime_voice.strip() or "marin"
         self.realtime_reasoning_effort = self.realtime_reasoning_effort.strip().lower() or "low"
-        self.kids_parent_pin_hash = self.kids_parent_pin_hash.strip()
-        self.kids_session_id = self.kids_session_id.strip()
         if not self.instance_id:
             self.instance_id = uuid.uuid4().hex
         self.validate()
@@ -121,10 +114,6 @@ class AppConfig:
         payload = asdict(self)
         payload["api_key"] = "********" if self.api_key else ""
         payload["api_key_configured"] = bool(self.api_key)
-        payload.pop("kids_parent_pin_hash", None)
-        payload.pop("kids_session_id", None)
-        payload.pop("kids_mode_enabled", None)
-        payload["kids_parent_pin_configured"] = bool(self.kids_parent_pin_hash)
         return payload
 
 

@@ -1,4 +1,4 @@
-"""Open-vocabulary local keyword spotting for Reachy Mini Hermes."""
+"""Open-vocabulary `HEY HERMES` keyword spotting."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def ensure_kws_model(cache_directory: Path | None = None) -> Path:
     with tempfile.TemporaryDirectory(prefix="reachy-hermes-kws-", dir=cache) as temporary_directory:
         temporary = Path(temporary_directory)
         archive = temporary / "model.tar.bz2"
-        _LOGGER.info("Downloading the local keyword-spotting model from %s", _MODEL_URL)
+        _LOGGER.info("Downloading Hey Hermes keyword model from %s", _MODEL_URL)
         with httpx.stream("GET", _MODEL_URL, follow_redirects=True, timeout=120.0) as response:
             response.raise_for_status()
             with archive.open("wb") as output:
@@ -94,7 +94,7 @@ def ensure_kws_model(cache_directory: Path | None = None) -> Path:
 
 
 class HeyHermesSpotter:
-    """Streaming sherpa-onnx spotter for every app-bundled local wake phrase."""
+    """Streaming sherpa-onnx keyword spotter with an app-bundled keyword graph."""
 
     def __init__(
         self,
@@ -107,7 +107,7 @@ class HeyHermesSpotter:
         try:
             import sherpa_onnx
         except ImportError as exc:
-            raise RuntimeError("sherpa-onnx is required for local wake-word detection") from exc
+            raise RuntimeError("sherpa-onnx is required for Hey Hermes detection") from exc
 
         self._spotter = sherpa_onnx.KeywordSpotter(
             tokens=str(model_directory / "tokens.txt"),

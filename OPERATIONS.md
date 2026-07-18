@@ -89,12 +89,6 @@ For Realtime mode, require:
 - `realtime_available: true`;
 - `realtime_model: gpt-realtime-2.1`.
 
-For Kids Mode, additionally require:
-
-- `kids_chat_available: true`;
-- `kids_tts_streaming_available: true`;
-- successful authenticated `/v1/kids/chat` moderation/chat and `/v1/kids/speech/stream` PCM probes.
-
 ## Health checks
 
 ### Reachy app
@@ -212,15 +206,14 @@ After installing or changing a heatsink/fan:
 ## Human audio acceptance
 
 1. Leave Reachy in Standby and confirm motors are relaxed.
-2. Say **“Hey Hermes”** once at normal speaking volume and distance; repeat the initial-wake check with **“Okay Nabu”** and **“Hey Reachy.”**
+2. Say **“Hey Hermes”** once at normal speaking volume and distance.
 3. Ask a simple social question; verify the native Realtime response begins promptly.
-4. Interrupt Reachy naturally while it is speaking; verify playback clears and the new turn is heard. In pipeline mode, confirm each configured wake phrase can also interrupt playback.
+4. Interrupt Reachy naturally while it is speaking; verify playback clears and the new turn is heard.
 5. Ask a non-consequential Hermes tool question, such as checking a sensor state.
 6. With on-demand camera enabled, ask **“What do you see?”** and verify one camera capture is logged.
-7. Start a supervised Kids Mode session, verify the parent lock, one moderated child turn, Flash PCM streaming, parent stop, safe fold, and continued transcript/status redaction.
-8. Verify the final answers match the fresh image or Hermes tool result rather than an unverified claim.
-9. Exercise Meeting, Standby, and Sleep from the UI.
-10. Review logs for tracebacks and record temperature after the test.
+7. Verify the final answers match the fresh image or Hermes tool result rather than an unverified claim.
+8. Exercise Meeting, Standby, and Sleep from the UI.
+9. Review logs for tracebacks and record temperature after the test.
 
 ## Soak test
 

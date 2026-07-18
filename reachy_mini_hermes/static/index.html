@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=18" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
   <main>
@@ -36,7 +36,6 @@
 
     <nav class="tabs" role="tablist" aria-label="Reachy Hermes controls">
       <button type="button" class="tab-button active" id="tab-dashboard" role="tab" aria-selected="true" aria-controls="panel-dashboard" data-tab="dashboard">Dashboard</button>
-      <button type="button" class="tab-button" id="tab-kids" role="tab" aria-selected="false" aria-controls="panel-kids" data-tab="kids">Kids</button>
       <button type="button" class="tab-button" id="tab-announce" role="tab" aria-selected="false" aria-controls="panel-announce" data-tab="announce">Announce</button>
       <button type="button" class="tab-button" id="tab-robot" role="tab" aria-selected="false" aria-controls="panel-robot" data-tab="robot">Robot</button>
       <button type="button" class="tab-button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Settings</button>
@@ -77,87 +76,6 @@
           <summary>Manual Android installation</summary>
           <p class="muted">In Chrome, open the ⋮ menu and choose <strong>Add to Home screen</strong>. Full app installation requires a trusted HTTPS address; this direct LAN page can still be saved as a shortcut.</p>
         </details>
-      </section>
-    </div>
-
-    <div id="panel-kids" class="tab-panel kids-panel" role="tabpanel" aria-labelledby="tab-kids" data-panel="kids" hidden>
-      <section class="card kids-hero" aria-live="polite">
-        <div class="kids-hero-copy">
-          <p class="label">Supervised play</p>
-          <h2>Kids Mode</h2>
-          <p class="kids-lead">A time-boxed, age-aware voice space for stories, learning, riddles, calm moments, and friendly chat.</p>
-          <div class="kids-status-line">
-            <span id="kids-status-badge" class="badge">Off</span>
-            <strong id="kids-timer">Choose an activity below</strong>
-          </div>
-          <div class="kids-progress" role="progressbar" aria-label="Kids Mode time remaining" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="kids-progress-bar"></span></div>
-          <p id="kids-session-detail" class="muted compact-note">Camera, personal Hermes memory, smart-home control, messaging, purchases, and power controls are unavailable to the child session.</p>
-        </div>
-        <div class="kids-mascot" aria-hidden="true"><span class="kids-eye"></span><span class="kids-eye"></span><i></i></div>
-      </section>
-
-      <section class="card kids-activity-card">
-        <div class="section-heading">
-          <div><p class="label">1 · Pick an activity</p><h2>What should Reachy do?</h2></div>
-          <span id="kids-activity-badge" class="badge">Buddy chat</span>
-        </div>
-        <div class="kids-activities" role="radiogroup" aria-label="Kids Mode activity">
-          <button type="button" class="kids-activity selected" role="radio" aria-checked="true" data-kids-activity="buddy"><span class="kids-activity-icon" aria-hidden="true">☀</span><strong>Buddy chat</strong><small>Talk, wonder, and laugh</small></button>
-          <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="story"><span class="kids-activity-icon" aria-hidden="true">✦</span><strong>Story maker</strong><small>Choose what happens next</small></button>
-          <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="quiz"><span class="kids-activity-icon" aria-hidden="true">?</span><strong>Quiz quest</strong><small>Learn with kind hints</small></button>
-          <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="riddles"><span class="kids-activity-icon" aria-hidden="true">◇</span><strong>Riddle box</strong><small>Guess, hint, reveal</small></button>
-          <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="calm"><span class="kids-activity-icon" aria-hidden="true">≈</span><strong>Calm corner</strong><small>Breathe and slow down</small></button>
-        </div>
-      </section>
-
-      <section class="card kids-setup-card">
-        <div class="section-heading">
-          <div><p class="label">2 · Parent setup</p><h2>Shape this session</h2></div>
-          <span class="badge parent-badge">Grown-up</span>
-        </div>
-        <div class="grid-two kids-profile-grid">
-          <label>Nickname <input id="kids-nickname" maxlength="32" autocomplete="off" placeholder="Optional first name or nickname" /></label>
-          <label>Age range
-            <select id="kids-age-band"><option value="4-6">4–6 years</option><option value="7-9" selected>7–9 years</option><option value="10-12">10–12 years</option></select>
-          </label>
-          <label>Session length
-            <select id="kids-duration"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option></select>
-          </label>
-          <label>Speaking language
-            <select id="kids-language"><option value="en">English</option><option value="nl">Nederlands</option></select>
-          </label>
-        </div>
-        <div class="kids-parent-auth">
-          <label>Parent PIN
-            <input id="kids-parent-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" placeholder="4–8 digits · never stored in this browser" />
-          </label>
-          <button type="button" id="kids-pin-setup-button" class="secondary">Set parent PIN</button>
-          <button type="button" id="kids-parent-unlock-button" class="secondary" hidden>Unlock parent controls</button>
-          <small id="kids-pin-help" class="muted">Create a PIN before the first session. Only a salted scrypt verifier is stored on Reachy.</small>
-        </div>
-        <label class="toggle-row kids-motion-toggle"><span><strong>Gentle robot motion</strong><small>Allow occasional bounded head and antenna gestures; no camera and no wide dance</small></span><input id="kids-motion-enabled" type="checkbox" checked /></label>
-        <div class="kids-safety-grid" aria-label="Kids Mode safeguards">
-          <span><strong>No camera</strong><small>Reachy cannot see the child</small></span>
-          <span><strong>No private tools</strong><small>No files, memory, messages, or devices</small></span>
-          <span><strong>Time limit</strong><small>Ends and folds automatically</small></span>
-          <span><strong>Age-aware</strong><small>Short, activity-specific replies</small></span>
-        </div>
-        <div class="actions kids-actions">
-          <button type="button" id="kids-start-button">Start Kids Mode</button>
-          <button type="button" id="kids-stop-button" class="danger" disabled>End now &amp; fold safely</button>
-        </div>
-        <p id="kids-message" class="message" role="status" aria-live="polite"></p>
-      </section>
-
-      <section class="card kids-guide-card">
-        <div class="section-heading"><div><p class="label">For families</p><h2>Use Kids Mode together</h2></div><span class="badge">Beta</span></div>
-        <div class="kids-guide-grid">
-          <div><strong>How to talk</strong><p class="muted">After Reachy's greeting, say <b>Hey Hermes</b>, <b>Okay Nabu</b>, or <b>Hey Reachy</b>. Kids can interrupt with any wake phrase.</p></div>
-          <div><strong>Adult supervision</strong><p class="muted">Generative AI can still make mistakes. Keep a grown-up nearby, especially for younger children or sensitive topics.</p></div>
-          <div><strong>Fast child voice</strong><p class="muted">Replies use ElevenLabs Flash v2.5 and begin playing from streamed PCM as soon as audio arrives.</p></div>
-          <div><strong>Emergency boundary</strong><p class="muted">Reachy is not an emergency service, therapist, or babysitter. In danger, contact a trusted adult and local emergency services.</p></div>
-          <div><strong>Stop always wins</strong><p class="muted">End now cancels voice and motion, clears queued speech, then uses Reachy's verified safe fold before torque release.</p></div>
-        </div>
       </section>
     </div>
 
@@ -468,7 +386,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=18"></script>
-  <script src="/static/main.js?v=18"></script>
+  <script src="/static/camera.js?v=14"></script>
+  <script src="/static/main.js?v=14"></script>
 </body>
 </html>

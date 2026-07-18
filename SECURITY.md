@@ -33,14 +33,6 @@ The OpenAI Realtime session receives post-wake audio and the configured system i
 
 The model can call `ask_hermes`. That tool forwards a request to the local Hermes API Server, where enabled Hermes tools determine the possible impact. Apply least privilege to the API Server platform toolset and disable unrelated MCP servers for the voice route where practical.
 
-## Kids Mode trust boundary
-
-Kids Mode does not use the normal Hermes agent or Realtime tool session. A fresh random child session is routed through authenticated `/v1/kids/chat` requests with bounded input, output, system-prompt, and short ephemeral-history limits. Camera, agent/delegation, power, Home Assistant, messaging, files, purchases, and explicit robot-action tools are not advertised or accepted. Both child input and complete model output are moderated before approved text can reach speech.
-
-Child speech uses the authenticated fixed-policy `/v1/kids/speech/stream` route. The bridge—not the browser or child model—selects ElevenLabs Flash v2.5, the configured child voice, and 24 kHz PCM. Complete post-moderated text is required before synthesis starts; raw or unmoderated LLM tokens are never streamed directly to the speaker. Parent stop, privacy, timeout, and app shutdown clear queued audio and interrupt network streaming.
-
-Parent management requires a 4–8 digit numeric PIN. Only a salted `scrypt` verifier is stored; plaintext PINs must not enter browser storage, public status, logs, or public configuration responses. Public transcript, response preview, nickname, and internal child-session identifiers stay redacted while the child lock is active. The server uses a monotonic authoritative deadline, and stopping a child session does not automatically unlock parent management.
-
 Do not claim that local wake-word processing makes the entire conversation local: after wake-up, pipeline STT/TTS or Realtime audio may be sent to configured cloud providers. When on-demand camera is enabled, a fresh frame may also be sent to the Realtime provider only after a visual tool call; continuous camera streaming is not used.
 
 Optional face following is separate from cloud vision. It runs in the Reachy daemon only during an active post-wake conversation and is disabled when the conversation ends or Meeting/Sleep begins. Tracking frames are not forwarded to Hermes or OpenAI. Optional DOA reads one local microphone-array direction estimate after wake detection and uses it only to orient the head.

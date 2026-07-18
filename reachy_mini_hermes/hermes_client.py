@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Iterator
 from dataclasses import dataclass
 
 import httpx
@@ -38,7 +37,6 @@ class HermesBridgeClient:
         self._last_turn_at = 0.0
         self.last_stt_provider = ""
         self.last_tts_provider = ""
-        self._kids_history: list[dict[str, str]] = []
 
     def close(self) -> None:
         if self._owns_client:
@@ -116,8 +114,6 @@ class HermesBridgeClient:
         return [item for item in data if isinstance(item, dict) and item.get("id")]
 
     def chat(self, transcript: str) -> str:
-        if self.config.kids_mode_enabled:
-            return self._kids_chat(transcript)
         self._rotate_session_if_stale()
         response = self._client.post(
             f"{self.config.bridge_url}/v1/chat/completions",
@@ -140,68 +136,6 @@ class HermesBridgeClient:
         if not text:
             raise HermesBridgeError("Hermes returned an empty response")
         return text
-
-    def _kids_chat(self, transcript: str) -> str:
-        """Use the dedicated no-agent child route with ephemeral in-process context only."""
-        clean = transcript.strip()
-        if not clean:
-            raise HermesBridgeError("Kids Mode received an empty transcript")
-        response = self._client.post(
-            f"{self.config.bridge_url}/v1/kids/chat",
-            headers={"Authorization": f"Bearer {self.config.api_key}"},
-            json={
-                "input": clean,
-                "system_prompt": self.config.system_prompt,
-                "session_id": self.config.kids_session_id,
-                "history": self._kids_history[-8:],
-            },
-        )
-        self._raise_for_error(response, "Kids Mode response")
-        payload = response.json()
-        text = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
-        if not text:
-            raise HermesBridgeError("Kids Mode returned an empty response")
-        self._kids_history.extend(
-            [
-                {"role": "user", "content": clean[:2_000]},
-                {"role": "assistant", "content": text[:1_200]},
-            ]
-        )
-        self._kids_history = self._kids_history[-8:]
-        return text
-
-    def iter_kids_speech(self, text: str) -> Iterator[bytes]:
-        """Yield low-latency 24 kHz PCM from the bridge's fixed child TTS route."""
-        clean = text.strip()
-        if not self.config.kids_mode_enabled:
-            raise HermesBridgeError("Kids streaming speech is only available in Kids Mode")
-        if not clean:
-            raise HermesBridgeError("Kids Mode received an empty speech response")
-        with self._client.stream(
-            "POST",
-            f"{self.config.bridge_url}/v1/kids/speech/stream",
-            headers={"Authorization": f"Bearer {self.config.api_key}"},
-            json={"input": clean},
-        ) as response:
-            if not response.is_success:
-                response.read()
-                self._raise_for_error(response, "Kids Mode streaming speech synthesis")
-            content_type = response.headers.get("content-type", "").split(";", 1)[0]
-            rate = response.headers.get("x-reachy-audio-rate", "")
-            if content_type != "audio/pcm" or rate != "24000":
-                response.read()
-                raise HermesBridgeError("Kids Mode TTS returned an unsupported audio stream")
-            self.last_tts_provider = response.headers.get(
-                "x-reachy-tts-provider",
-                "elevenlabs-flash-stream",
-            )
-            received = False
-            for chunk in response.iter_bytes(chunk_size=8 * 1024):
-                if chunk:
-                    received = True
-                    yield chunk
-            if not received:
-                raise HermesBridgeError("Kids Mode TTS returned no streaming audio")
 
     def synthesize(self, text: str) -> SpeechAudio:
         response = self._client.post(
