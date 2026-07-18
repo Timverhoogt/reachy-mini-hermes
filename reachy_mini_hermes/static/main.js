@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 const fields = [
   "bridge_url", "api_key", "model", "conversation_mode", "language", "stt_provider", "stt_model",
   "tts_provider", "tts_model", "tts_voice", "continuous_conversation",
-  "motion_enabled", "barge_in_enabled", "camera_enabled", "face_tracking_enabled", "face_tracking_weight",
+  "motion_enabled", "barge_in_enabled", "camera_enabled", "camera_feed_enabled", "face_tracking_enabled", "face_tracking_weight",
   "doa_enabled", "robot_tools_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
   "end_silence_seconds", "max_utterance_seconds", "vad_min_rms", "vad_noise_multiplier",
   "wake_keyword_threshold", "wake_keyword_score",
@@ -23,6 +23,9 @@ function activateTab(name, focus = false, recordHistory = false) {
     button.setAttribute("aria-selected", String(active));
     button.tabIndex = active ? 0 : -1;
   });
+  if (target.dataset.tab !== "robot" && window.ReachyCamera?.isActive()) {
+    window.ReachyCamera.stop("Camera stopped when leaving the Robot tab.");
+  }
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== target.dataset.tab;
   });
@@ -191,6 +194,10 @@ function updateStatus(payload) {
   if (["error", "configuration_error"].includes(state)) dot.classList.add("error");
   fillConfig(payload.config);
   currentConfig = payload.config || currentConfig;
+  window.ReachyCamera?.setPolicy({
+    enabled: Boolean(payload.config?.camera_feed_enabled),
+    powerMode,
+  });
 }
 
 function modelLabel(model) {
@@ -296,6 +303,9 @@ async function refreshStatus() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     updateStatus(await response.json());
   } catch (error) {
+    if (window.ReachyCamera?.isActive()) {
+      window.ReachyCamera.stop("Camera stopped because Hermes status is unavailable.");
+    }
     $("runtime-state").textContent = "Disconnected";
     $("runtime-detail").textContent = String(error);
     $("status-dot").className = "status-dot error";
@@ -446,6 +456,9 @@ $("robot-stop-button").addEventListener("click", async () => {
 
 async function setPowerMode(mode, durationMinutes = 60) {
   const message = $("power-message");
+  if (mode !== "awake" && window.ReachyCamera?.isActive()) {
+    window.ReachyCamera.stop(`Camera stopped before switching to ${mode}.`);
+  }
   message.textContent = `Switching to ${mode}…`;
   try {
     const response = await fetch("/api/power", {
@@ -470,6 +483,9 @@ document.querySelectorAll("[data-power]").forEach((button) => {
 
 $("app-off-button").addEventListener("click", async () => {
   if (!window.confirm("Stop the voice app? Restart it later from Reachy Control.")) return;
+  if (window.ReachyCamera?.isActive()) {
+    window.ReachyCamera.stop("Camera stopped before stopping the voice app.");
+  }
   await fetch("/api/app-off", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: "off" }),
   });

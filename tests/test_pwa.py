@@ -37,6 +37,8 @@ def test_service_worker_caches_only_the_app_shell_and_bypasses_api() -> None:
     assert 'request.method !== "GET"' in worker
     assert 'caches.match("/")' in worker
     assert "/static/main.js" in worker
+    assert "/static/camera.js" in worker
+    assert "/static/gstwebrtc-api.js" in worker
     assert "/static/style.css" in worker
 
 

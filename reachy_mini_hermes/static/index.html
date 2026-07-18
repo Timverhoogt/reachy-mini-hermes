@@ -134,14 +134,27 @@
         <p class="muted action-status">Last action: <strong id="last-robot-action">—</strong><span id="robot-action-error"></span></p>
       </section>
 
-      <section class="card">
-        <p class="label">Private diagnostic</p>
-        <h2>Camera</h2>
-        <p class="muted">Capture one frame locally to verify the camera. The image is not returned to this page or sent to Hermes.</p>
-        <div class="actions left-actions">
+      <section class="card camera-card">
+        <div class="section-heading">
+          <div><p class="label">Private local viewer</p><h2>Reachy camera</h2></div>
+          <span id="camera-live-status" class="badge">Off</span>
+        </div>
+        <p class="muted">Connect directly to the same local WebRTC camera feed used by Reachy Mini Control. Video remains between this browser and Reachy; it is never sent to Hermes or OpenAI.</p>
+        <div id="camera-viewer" class="camera-viewer">
+          <video id="reachy-camera-video" autoplay playsinline muted aria-label="Live Reachy camera feed"></video>
+          <div class="camera-placeholder" aria-hidden="true">
+            <span class="camera-placeholder-icon">●</span>
+            <span>Camera off</span>
+          </div>
+        </div>
+        <div class="actions camera-actions">
+          <button type="button" id="camera-live-start">Start live camera</button>
+          <button type="button" id="camera-live-stop" class="secondary" disabled>Stop camera</button>
+          <button type="button" id="camera-live-fullscreen" class="secondary" disabled>Fullscreen</button>
           <button type="button" id="camera-test-button" class="secondary">Capture one local test frame</button>
         </div>
-        <p id="camera-message" class="message" role="status"></p>
+        <p class="muted compact-note">The live viewer is opt-in, works only while Reachy is Awake, and stops when you leave this tab, background the app, enter Meeting, or enter Sleep.</p>
+        <p id="camera-message" class="message" role="status" aria-live="polite"></p>
       </section>
     </div>
 
@@ -203,6 +216,7 @@
               <label class="toggle-row"><span><strong>Turn toward wake phrase</strong><small>Use one local microphone-array direction estimate after wake</small></span><input id="doa_enabled" name="doa_enabled" type="checkbox" /></label>
               <label class="toggle-row"><span><strong>Interruption</strong><small>Pipeline wake-phrase interruption or natural Realtime barge-in</small></span><input id="barge_in_enabled" name="barge_in_enabled" type="checkbox" checked /></label>
               <label class="toggle-row"><span><strong>On-demand camera</strong><small>Realtime captures one frame only for an explicit visual request</small></span><input id="camera_enabled" name="camera_enabled" type="checkbox" /></label>
+              <label class="toggle-row"><span><strong>Local live camera</strong><small>Allow this UI to connect directly to Reachy's local WebRTC video while Awake</small></span><input id="camera_feed_enabled" name="camera_feed_enabled" type="checkbox" /></label>
             </div>
           </details>
 
@@ -236,6 +250,8 @@
       </section>
     </div>
   </main>
+  <script src="/static/gstwebrtc-api.js"></script>
+  <script src="/static/camera.js"></script>
   <script src="/static/main.js"></script>
 </body>
 </html>

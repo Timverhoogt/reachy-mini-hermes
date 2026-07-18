@@ -70,7 +70,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Curated Realtime embodiment tools for looking, emotions, and authentic recorded Reachy dances.
 - Optional daemon-local face following, active only after the wake phrase for the current conversation.
 - Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
-- Privacy-preserving on-demand camera: one JPEG is captured only when a visual request needs it.
+- Privacy-preserving cameras: one JPEG is captured only when a visual request needs it, while an independent opt-in UI viewer connects directly to Reachy's local WebRTC feed.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
 - Stable Hermes memory scope plus rotating conversation sessions after inactivity.
 - Listening, processing, speaking, and error cues with optional voice-state motion.
@@ -202,7 +202,7 @@ Press **Test connection**, save, then say:
 The in-app UI is organized into three keyboard-accessible tabs:
 
 - **Dashboard** — live state, power/privacy modes, app lifecycle, and the latest conversation.
-- **Robot** — safe manual look directions, curated emotions, three recorded dances, stop movement, and a local camera diagnostic.
+- **Robot** — safe manual look directions, curated emotions, three recorded dances, stop movement, and an opt-in local WebRTC camera viewer.
 - **Settings** — Hermes bridge, voice, embodiment, privacy, and advanced timing configuration.
 
 Manual controls use the same serialized semantic action worker as Realtime; the browser cannot submit raw joints, arbitrary move names, shell commands, or host actions. A manual movement from Standby first completes Reachy's native wake motion and leaves it Awake. The server rejects additional taps while an action is active, rechecks privacy immediately before physical execution, and blocks all movement during Meeting/Sleep. **Stop movement** stays available out of band, cancels the active move plus queued work without changing power mode or initiating a new pose, and preserves the voice playback pipeline. The UI is intended only for a trusted LAN/VPN.
@@ -220,7 +220,7 @@ The Dashboard is also a Progressive Web App. Android Chrome exposes an **Install
 
 The settings server stays available in these modes. **Stop voice app** exits the app and releases its resources. **Shut down Pi** requires typing `SHUTDOWN` in the UI before the host power-off command is scheduled.
 
-Camera access is disabled by default. When enabled in Realtime mode, the model can request a single fresh frame for prompts such as “What do you see?” or “Look at this object.” Frames are not streamed continuously and the local camera test reports only JPEG metadata, not image content.
+Camera access is disabled by default and split into two independent controls. **On-demand camera** allows Realtime to request one fresh frame for prompts such as “What do you see?”; it never creates a continuous cloud stream. **Local live camera** enables an explicit Start button in the Robot tab. That viewer uses the same daemon-local WebRTC producer as Reachy Mini Control, disables the remote audio track, uses no public STUN service, and sends video directly from Reachy to the current browser—not through Hermes or OpenAI. It is available only while Reachy is Awake and disconnects when the Robot tab is left, the page is backgrounded, or power enters Standby, Meeting, or Sleep. The local camera test still reports only JPEG metadata, not image content.
 
 Local face following is a separate opt-in. It uses Reachy SDK 1.9 daemon-side tracking only after **Hey Hermes** and stops when that conversation ends or Meeting/Sleep begins. Tracking frames are not forwarded to Hermes or OpenAI. Optional DOA uses the microphone array's local angle estimate once after wake detection, then discards it after orienting the head.
 
@@ -297,7 +297,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **64 tests**.
+Current automated suite: **70 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

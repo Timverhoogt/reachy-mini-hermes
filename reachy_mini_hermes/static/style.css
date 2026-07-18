@@ -79,6 +79,16 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
 .readiness { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--accent2); border-radius: 8px; color: #d8d2ff; background: #7b61ff16; font-size: .88rem; font-weight: 700; }
 .compact-note { margin: -4px 0 12px; font-size: .82rem; }
 .danger-zone { border-color: #ff5d6c55; }
+.camera-card { overflow: hidden; }
+.camera-viewer { position: relative; aspect-ratio: 16 / 9; margin-top: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: #020203; }
+.camera-viewer video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; opacity: 0; transition: opacity .2s ease; }
+.camera-viewer.live video { opacity: 1; }
+.camera-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; }
+.camera-viewer.live .camera-placeholder { display: none; }
+.camera-placeholder-icon { width: 46px; height: 46px; display: grid; place-content: center; border: 1px solid var(--line); border-radius: 50%; color: #7b61ff; box-shadow: 0 0 28px #7b61ff44; }
+.camera-actions { margin-top: 16px; }
+.camera-viewer:fullscreen { border: 0; border-radius: 0; background: #000; }
+.camera-viewer:fullscreen video { object-fit: contain; }
 .install-card { border-color: #7b61ff66; background: linear-gradient(135deg, #17142aee, #191821e8); }
 .install-card .actions { margin-top: 16px; }
 .install-card details { margin-top: 14px; }

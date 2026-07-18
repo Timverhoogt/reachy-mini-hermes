@@ -42,6 +42,8 @@ The local `set_reachy_power_mode` Realtime tool can select only Standby, Awake, 
 
 The snapshot API returns image bytes only after bearer-token authentication and explicit confirmation, and sets `Cache-Control: no-store`. The unauthenticated local camera test returns metadata only.
 
+The optional local live viewer does not create a Hermes camera endpoint. After an explicit user action while Reachy is Awake, the browser connects directly to the daemon's existing GStreamer WebRTC producer on port 8443—the same feed used by Reachy Mini Control. The UI disables the audio track, uses no public STUN service, and closes its session on tab exit, page backgrounding, Standby, Meeting, or Sleep. The `camera_feed_enabled` setting controls this UI, but it does not disable Reachy's upstream daemon producer or prevent another authorized Reachy Control client from connecting; network access to the daemon and signaling port remains the real trust boundary.
+
 ## Operational controls
 
 - Keep `security.redact_secrets` enabled in Hermes.

@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
 - Optional on-demand Reachy camera tool with local diagnostics and Realtime image input.
 - Authenticated, non-cacheable one-frame snapshot route for explicit image sharing.
+- Opt-in Robot-tab live viewer for the daemon's existing local WebRTC camera feed, with explicit Awake-only policy, muted audio, no public STUN dependency, and automatic disconnect on privacy/background transitions.
 - Privacy-controlled daemon-local face following that runs only during an active post-wake conversation.
 - Optional wake-time DOA orientation using Reachy's local microphone-array direction estimate.
 - Curated Realtime robot tools for look direction, authentic recorded emotions, and three recorded dance styles.
@@ -49,7 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - App-off no longer waits on the daemon response from inside the process being stopped, removing a ten-second shutdown cycle and traceback.
 - Realtime interruption tracks locally buffered audio after server generation finishes, immediately flushes Reachy playback, and truncates the unplayed OpenAI conversation audio.
 - Camera access defaults to off and captures only one fresh JPEG per explicit Realtime visual-tool call.
-- Camera capture waits for a completed tool item, deduplicates call IDs, and remains blocked in Meeting/Sleep.
+- Camera capture waits for a completed tool item, deduplicates call IDs, and remains blocked in Meeting/Sleep; authenticated snapshots and local diagnostics now enforce and recheck the same privacy boundary while waiting for a frame.
+- The local viewer closes both media sessions and signaling sockets, accepts only Reachy's named camera producer, and fails closed when runtime status disappears or the voice app stops.
 - Awake now runs Reachy's physical wake-up motion instead of only enabling motor torque.
 - Meeting and Sleep stop active playback and microphone capture before disabling motors.
 - Meeting/Sleep action cancellation now restarts Reachy's playback backend when returning to Standby/Awake.
@@ -64,7 +66,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff passes and 64 automated tests pass.
+- Ruff passes and 70 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

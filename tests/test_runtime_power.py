@@ -357,6 +357,36 @@ def test_camera_test_captures_locally_without_returning_image() -> None:
     assert runtime.status()["camera_captures"] == 1
 
 
+@pytest.mark.parametrize("mode", ["meeting", "sleep"])
+def test_local_camera_capture_is_blocked_in_privacy_modes(mode: str) -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._power_mode = mode
+    runtime._meeting_until = float("inf") if mode == "meeting" else 0.0
+    runtime._privacy_requested.set()
+
+    with pytest.raises(RuntimeError, match="privacy"):
+        runtime.camera_snapshot()
+
+    assert runtime.status()["camera_captures"] == 0
+
+
+def test_camera_capture_rechecks_privacy_after_frame_arrives() -> None:
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+
+    def enter_sleep_during_capture() -> bytes:
+        runtime._power_mode = "sleep"
+        runtime._privacy_requested.set()
+        return b"late-frame"
+
+    robot.media.get_frame_jpeg = enter_sleep_during_capture  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="privacy"):
+        runtime.camera_snapshot()
+
+    assert runtime.status()["camera_captures"] == 0
+
+
 def test_camera_capture_requires_completed_output_item() -> None:
     completed: dict[str, object] = {
         "item": {

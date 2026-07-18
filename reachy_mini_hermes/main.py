@@ -50,6 +50,7 @@ class SettingsUpdate(BaseModel):
     motion_enabled: bool | None = None
     barge_in_enabled: bool | None = None
     camera_enabled: bool | None = None
+    camera_feed_enabled: bool | None = None
     face_tracking_enabled: bool | None = None
     face_tracking_weight: float | None = Field(default=None, ge=0, le=1)
     doa_enabled: bool | None = None

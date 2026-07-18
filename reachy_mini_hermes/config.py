@@ -53,6 +53,7 @@ class AppConfig:
     motion_enabled: bool = True
     barge_in_enabled: bool = True
     camera_enabled: bool = False
+    camera_feed_enabled: bool = False
     face_tracking_enabled: bool = False
     face_tracking_weight: float = 0.65
     doa_enabled: bool = False

@@ -431,8 +431,13 @@ class HermesVoiceRuntime:
         jpeg = self.camera_snapshot()
         return {"bytes": len(jpeg), "content_type": "image/jpeg"}
 
+    def _assert_camera_allowed(self) -> None:
+        if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
+            raise RuntimeError("Camera capture is blocked in the current privacy mode")
+
     def camera_snapshot(self) -> bytes:
         """Capture one bounded JPEG for an explicitly authenticated request."""
+        self._assert_camera_allowed()
         jpeg = self._capture_camera_jpeg()
         with self._status_lock:
             self._status.camera_captures += 1
@@ -446,8 +451,10 @@ class HermesVoiceRuntime:
             raise RuntimeError("Reachy camera capture is unavailable")
         with self._camera_lock:
             for _ in range(20):
+                self._assert_camera_allowed()
                 frame = capture()
                 if frame:
+                    self._assert_camera_allowed()
                     if not isinstance(frame, (bytes, bytearray, memoryview)):
                         raise RuntimeError("Reachy camera returned an unsupported JPEG payload")
                     jpeg = bytes(frame)
