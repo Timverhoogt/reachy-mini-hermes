@@ -249,6 +249,30 @@ class HermesVoiceRuntime:
                 self._privacy_requested.clear()
             return self._power_mode
 
+    def _fold_head_for_sleep(self) -> tuple[bool, str]:
+        """Run Reachy's native sleep movement before releasing motor torque."""
+        if self._playback_stopped_for_privacy:
+            start_playing = getattr(self.robot.media, "start_playing", None)
+            if callable(start_playing):
+                start_playing()
+            self._playback_stopped_for_privacy = False
+        self._set_motor_mode(True)
+        goto_sleep = getattr(self.robot, "goto_sleep", None)
+        if not callable(goto_sleep):
+            message = "Reachy SDK sleep movement is unavailable; motors remain enabled to prevent a head drop"
+            _LOGGER.error(message)
+            return False, message
+        try:
+            goto_sleep()
+        except Exception as exc:
+            message = f"Reachy sleep movement failed; motors remain enabled to prevent a head drop: {exc}"
+            _LOGGER.exception("Could not run Reachy's native sleep movement")
+            self._set_motor_mode(True)
+            return False, message
+        self._set_motor_mode(False)
+        _LOGGER.info("Reachy completed its native sleep movement before torque release")
+        return True, ""
+
     def _apply_power_mode(self) -> None:
         mode = self._effective_power_mode()
         remaining = 0
@@ -272,12 +296,23 @@ class HermesVoiceRuntime:
                     self.robot.media.stop_recording()
                 finally:
                     self._recording = False
-            self._set_motor_mode(False)
+            if mode == "sleep":
+                sleep_folded, sleep_error = self._fold_head_for_sleep()
+                detail = (
+                    "Voice is disabled; Reachy is folded safely into Sleep"
+                    if sleep_folded
+                    else "Voice is disabled; sleep motion failed and motor torque remains enabled"
+                )
+            else:
+                sleep_error = ""
+                self._set_motor_mode(False)
+                detail = "Voice and motion are disabled"
             self._set_status(
                 mode,
-                "Voice and motion are disabled",
+                detail,
                 power_mode=mode,
                 meeting_seconds_remaining=remaining,
+                last_error=sleep_error,
             )
             return
         if self._playback_stopped_for_privacy:
@@ -297,6 +332,7 @@ class HermesVoiceRuntime:
                 "Local wake detection only",
                 power_mode=mode,
                 meeting_seconds_remaining=0,
+                last_error="",
             )
         else:
             self._set_motor_mode(True, wake=True)
@@ -305,6 +341,7 @@ class HermesVoiceRuntime:
                 "Say “Hey Hermes”",
                 power_mode=mode,
                 meeting_seconds_remaining=0,
+                last_error="",
             )
 
     def status(self) -> dict[str, object]:
@@ -634,8 +671,11 @@ class HermesVoiceRuntime:
             }
         else:
             duration_seconds = float((duration_minutes or 30) * 60) if mode == "meeting" else 0.0
-            self.set_power_mode(mode, duration_seconds=duration_seconds)
-            result = {"ok": True, "mode": mode}
+            status = self.set_power_mode(mode, duration_seconds=duration_seconds)
+            transition_error = str(status.get("last_error") or "")
+            result = {"ok": not transition_error, "mode": mode}
+            if transition_error:
+                result["error"] = transition_error
             if mode == "meeting":
                 result["duration_minutes"] = duration_minutes or 30
         session.send_tool_result(

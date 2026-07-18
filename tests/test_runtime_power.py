@@ -50,6 +50,10 @@ class FakeRobot:
         self.media = FakeMedia()
         self.tracking_started: list[float] = []
         self.tracking_stops = 0
+        self.sleep_calls = 0
+
+    def goto_sleep(self) -> None:
+        self.sleep_calls += 1
 
     def start_head_tracking(self, weight: float = 1.0) -> None:
         self.tracking_started.append(weight)
@@ -69,12 +73,29 @@ def test_sleep_stops_microphone_and_standby_restores_local_wake() -> None:
     sleep = runtime.set_power_mode("sleep")
     assert sleep["power_mode"] == "sleep"
     assert robot.media.recording is False
-    assert motor_modes[-1] is False
+    assert robot.sleep_calls == 1
+    assert motor_modes[-2:] == [True, False]
 
     standby = runtime.set_power_mode("standby")
     assert standby["power_mode"] == "standby"
     assert robot.media.recording is True
     assert motor_modes[-1] is False
+
+
+def test_sleep_motion_failure_keeps_torque_enabled_instead_of_dropping_head() -> None:
+    class FailingSleepRobot(FakeRobot):
+        def goto_sleep(self) -> None:
+            raise RuntimeError("movement blocked")
+
+    runtime = HermesVoiceRuntime(FailingSleepRobot(), threading.Event())
+    motor_modes: list[bool] = []
+    runtime._set_motor_mode = lambda enabled, wake=False: motor_modes.append(enabled)  # type: ignore[method-assign]
+
+    status = runtime.set_power_mode("sleep")
+
+    assert motor_modes == [True, True]
+    assert "motors remain enabled" in str(status["last_error"])
+    assert status["power_mode"] == "sleep"
 
 
 def test_meeting_mode_has_bounded_timer() -> None:
