@@ -9,6 +9,7 @@ from reachy_mini_hermes.runtime import (
     RealtimePlayback,
     completed_camera_call_id,
     doa_yaw_degrees,
+    realtime_audio_item_id,
 )
 
 
@@ -110,6 +111,33 @@ def test_realtime_playback_remains_audible_after_generation_finishes() -> None:
     playback.reset()
     assert playback.item_id == ""
     assert playback.played_ms(15.0) == 0
+
+
+def test_realtime_audio_item_tracking_ignores_function_calls() -> None:
+    function_call = {
+        "item": {
+            "id": "item-function",
+            "type": "function_call",
+            "name": "express_reachy_emotion",
+        }
+    }
+    assistant_message = {
+        "item": {
+            "id": "item-message",
+            "type": "message",
+            "role": "assistant",
+        }
+    }
+
+    assert realtime_audio_item_id("response.output_item.added", function_call) == ""
+    assert realtime_audio_item_id("response.output_item.added", assistant_message) == "item-message"
+    assert (
+        realtime_audio_item_id(
+            "response.output_audio.delta",
+            {"item_id": "item-audio", "delta": "ignored"},
+        )
+        == "item-audio"
+    )
 
 
 def test_camera_test_captures_locally_without_returning_image() -> None:

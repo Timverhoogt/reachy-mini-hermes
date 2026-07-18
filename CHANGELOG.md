@@ -53,10 +53,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ask_hermes` now executes only for completed, deduplicated Realtime function-call items.
 - Robot function-call output now reports the actual physical execution result instead of queue acceptance.
 - DOA orientation accepts only a recent speech-validated, finite microphone-array estimate.
+- Realtime barge-in now tracks only assistant audio-message item IDs, so function calls cannot make `conversation.item.truncate` target a non-audio item and terminate the session.
+- A rejected truncation remains non-fatal after the local playback queue has already been cleared.
 
 ### Verified
 
-- Ruff passes and 45 automated tests pass.
+- Ruff passes and 46 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

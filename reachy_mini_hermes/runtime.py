@@ -97,6 +97,20 @@ class RealtimePlayback:
         self.duration_seconds = 0.0
 
 
+def realtime_audio_item_id(kind: str, payload: dict[str, object]) -> str:
+    """Return only an assistant message ID that can legally be audio-truncated."""
+    if kind in {"response.output_audio.delta", "response.audio.delta"}:
+        return str(payload.get("item_id") or "")
+    if kind != "response.output_item.added":
+        return ""
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return ""
+    if item.get("type") != "message" or item.get("role") != "assistant":
+        return ""
+    return str(item.get("id") or "")
+
+
 def completed_camera_call_id(kind: str, payload: dict[str, object]) -> str:
     """Return a completed camera tool call ID, never an in-progress/cancelled one."""
     if kind != "response.output_item.done":
@@ -590,11 +604,21 @@ class HermesVoiceRuntime:
                 for event in session.events():
                     kind = event.type
                     payload = event.payload
+                    audio_item_id = realtime_audio_item_id(kind, payload)
+                    if audio_item_id:
+                        playback.item_id = audio_item_id
                     if kind in {"bridge.error", "error"}:
                         error = payload.get("error")
                         if isinstance(error, dict):
                             error = error.get("message") or error
-                        raise RealtimeBridgeError(str(error or "Realtime session failed"))
+                        message = str(error or "Realtime session failed")
+                        if "Only model output audio messages can be truncated" in message:
+                            _LOGGER.warning(
+                                "Realtime audio truncation was rejected after local queue clear: %s",
+                                message,
+                            )
+                            continue
+                        raise RealtimeBridgeError(message)
                     if kind == "input_audio_buffer.speech_started":
                         now = time.monotonic()
                         last_activity = now
@@ -697,9 +721,6 @@ class HermesVoiceRuntime:
                         if self._motion is not None:
                             self._motion.thinking()
                     elif kind == "response.output_item.added":
-                        item = payload.get("item")
-                        if isinstance(item, dict):
-                            playback.item_id = str(item.get("id") or "")
                         last_activity = time.monotonic()
                         self._set_status("thinking", "Hermes is responding")
                     elif kind in {"response.output_audio.delta", "response.audio.delta"}:
