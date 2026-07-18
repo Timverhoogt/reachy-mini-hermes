@@ -17,7 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Realtime natural interruption and streamed-output flushing.
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.
 - Motor torque and microphone lifecycle management for privacy/power states.
-- Tabbed settings UI with Dashboard, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
+- Tabbed settings UI with Dashboard, Announce, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
+- Full announcement console with exact-text TTS, provider/model/voice overrides, quick templates, repeat/pause controls, a bounded serialized queue, independent Stop/clear, session-scoped browser draft preservation, and voice-only, wake-and-return, or stay-awake behavior.
 - Manual semantic robot controls for confirmed motor/fold state, safe wake/fold power actions, nine-way bounded head direction, curated expressions, footprint-labelled dances, and cooperative movement cancellation, routed through the same serialized safety layer as voice actions.
 - Priority Stop behavior, privacy revalidation at execution time, busy-request rejection, persistent action state, and mobile-safe controls prevent delayed or post-privacy motion.
 - Installable Android PWA metadata, branded icons, a root-scoped service worker, Dashboard install UX, and an HTTP Add-to-Home-Screen fallback.

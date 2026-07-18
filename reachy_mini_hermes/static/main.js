@@ -16,9 +16,17 @@ let statusRefreshPending = false;
 let currentPowerMode = "unknown";
 let lastMotorAnnouncement = "";
 let deferredInstallPrompt = null;
+let announcementRequestPending = false;
+let lastAnnouncementLiveText = "";
+
+const announcementText = $("announcement-text");
+announcementText.value = window.sessionStorage.getItem("reachy-hermes-announcement-draft") || "";
+$("announcement-count").textContent = `${announcementText.value.length.toLocaleString()} / 15,000`;
 
 document.querySelectorAll(".manual-control, [data-power]").forEach((button) => { button.disabled = true; });
 $("emotion-select").disabled = true;
+$("announcement-send").disabled = true;
+$("announcement-stop").disabled = true;
 
 function activateTab(name, focus = false, recordHistory = false) {
   const target = document.querySelector(`[data-tab="${name}"]`) || document.querySelector("[data-tab]");
@@ -241,6 +249,25 @@ function updateStatus(payload) {
     enabled: Boolean(payload.config?.camera_feed_enabled),
     powerMode,
   });
+  const announcementBusy = Boolean(runtime.announcement_busy);
+  const announcementQueueDepth = Number(runtime.announcement_queue_depth || 0);
+  const announcementBlocked = ["meeting", "sleep"].includes(powerMode);
+  $("announcement-badge").textContent = announcementBusy ? "Speaking" : announcementQueueDepth ? "Queued" : "Ready";
+  $("announcement-queue-badge").textContent = `${announcementQueueDepth} queued`;
+  $("announcement-current").textContent = runtime.announcement_current_preview || "—";
+  $("announcement-last").textContent = runtime.announcement_last_text || "—";
+  $("announcement-error").textContent = runtime.announcement_last_error || "";
+  const announcementLiveText = announcementBusy
+    ? `Reachy is speaking. ${announcementQueueDepth} announcements remain queued.`
+    : announcementQueueDepth
+      ? `${announcementQueueDepth} announcements queued.`
+      : "Announcement playback is ready.";
+  if (announcementLiveText !== lastAnnouncementLiveText) {
+    $("announcement-live").textContent = announcementLiveText;
+    lastAnnouncementLiveText = announcementLiveText;
+  }
+  $("announcement-send").disabled = announcementBlocked || announcementRequestPending;
+  $("announcement-stop").disabled = !announcementBusy && announcementQueueDepth === 0;
 }
 
 function modelLabel(model) {
@@ -311,6 +338,26 @@ function refreshSpeechControls() {
   );
 }
 
+function refreshAnnouncementSpeechControls() {
+  const providerSelect = $("announcement-provider");
+  const selectedProvider = providerSelect.value;
+  providerSelect.replaceChildren(new Option("Use app voice setting", ""));
+  (voiceOptions.tts || []).forEach((item) => providerSelect.add(new Option(item.label, item.id)));
+  providerSelect.value = [...providerSelect.options].some((option) => option.value === selectedProvider)
+    ? selectedProvider : "";
+  const provider = voiceOptions.tts.find((item) => item.id === providerSelect.value) || {};
+  const modelSelect = $("announcement-model");
+  const voiceSelect = $("announcement-voice");
+  const selectedModel = modelSelect.value;
+  const selectedVoice = voiceSelect.value;
+  modelSelect.replaceChildren(new Option("Use app model", ""));
+  (provider.models || []).forEach((model) => modelSelect.add(new Option(model, model)));
+  voiceSelect.replaceChildren(new Option("Use app voice", ""));
+  (provider.voices || []).forEach((voice) => voiceSelect.add(new Option(`${voice.name} — ${voice.id}`, voice.id)));
+  if ([...modelSelect.options].some((option) => option.value === selectedModel)) modelSelect.value = selectedModel;
+  if ([...voiceSelect.options].some((option) => option.value === selectedVoice)) voiceSelect.value = selectedVoice;
+}
+
 async function loadVoiceOptions() {
   try {
     const response = await fetch("/api/voice-options", { cache: "no-store" });
@@ -324,6 +371,7 @@ async function loadVoiceOptions() {
       $("tts_provider"), body.tts || [], currentConfig?.tts_provider || "configured", (item) => item.label,
     );
     refreshSpeechControls();
+    refreshAnnouncementSpeechControls();
     $("voice-provider").textContent = "Wake detection stays local. Selected STT and TTS run through the authenticated Hermes-host bridge.";
     toggleModePanels();
   } catch (error) {
@@ -365,6 +413,9 @@ async function refreshStatus() {
     }
     document.querySelectorAll(".manual-control, [data-power]").forEach((button) => { button.disabled = true; });
     $("emotion-select").disabled = true;
+    $("announcement-send").disabled = true;
+    $("announcement-stop").disabled = true;
+    $("announcement-badge").textContent = "Offline";
   } finally {
     statusRefreshPending = false;
   }
@@ -422,6 +473,93 @@ $("test-button").addEventListener("click", async () => {
     setMessage(String(error), "error");
   } finally {
     button.disabled = false;
+  }
+});
+
+$("announcement-provider").addEventListener("change", refreshAnnouncementSpeechControls);
+announcementText.addEventListener("input", () => {
+  $("announcement-count").textContent = `${announcementText.value.length.toLocaleString()} / 15,000`;
+  window.sessionStorage.setItem("reachy-hermes-announcement-draft", announcementText.value);
+});
+announcementText.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    event.preventDefault();
+    $("announcement-send").click();
+  }
+});
+document.querySelectorAll(".announcement-template").forEach((button) => {
+  button.addEventListener("click", () => {
+    announcementText.value = button.dataset.announcementTemplate || "";
+    announcementText.dispatchEvent(new Event("input"));
+    announcementText.focus();
+  });
+});
+
+$("announcement-send").addEventListener("click", async () => {
+  const text = announcementText.value.trim();
+  const message = $("announcement-message");
+  if (!text) {
+    message.textContent = "Enter announcement text first.";
+    message.className = "message error";
+    announcementText.focus();
+    return;
+  }
+  announcementRequestPending = true;
+  $("announcement-send").disabled = true;
+  message.textContent = "Adding announcement to Reachy's playback queue…";
+  message.className = "message";
+  try {
+    const response = await fetch("/api/announcements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        provider: $("announcement-provider").value,
+        model: $("announcement-model").value,
+        voice: $("announcement-voice").value,
+        behavior: $("announcement-behavior").value,
+        repeat: Number($("announcement-repeat").value),
+        pause_seconds: Number($("announcement-pause").value),
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = body.queue_depth > 1
+      ? `Queued behind ${body.queue_depth - 1} announcement${body.queue_depth === 2 ? "" : "s"}.`
+      : "Announcement accepted. Reachy is preparing to speak.";
+    message.className = "message ok";
+    announcementText.value = "";
+    announcementText.dispatchEvent(new Event("input"));
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    announcementRequestPending = false;
+    await refreshStatus();
+  }
+});
+
+$("announcement-stop").addEventListener("click", async () => {
+  const button = $("announcement-stop");
+  const message = $("announcement-message");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/announcements/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clear_queue: true }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = body.active_cancelled
+      ? `Announcement stopped${body.queued_cleared ? ` and ${body.queued_cleared} queued cleared` : ""}.`
+      : `${body.queued_cleared} queued announcement${body.queued_cleared === 1 ? "" : "s"} cleared.`;
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    await refreshStatus();
   }
 });
 

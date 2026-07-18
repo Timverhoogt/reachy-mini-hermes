@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <link rel="stylesheet" href="/static/style.css?v=12" />
 </head>
 <body>
   <main>
@@ -36,6 +36,7 @@
 
     <nav class="tabs" role="tablist" aria-label="Reachy Hermes controls">
       <button type="button" class="tab-button active" id="tab-dashboard" role="tab" aria-selected="true" aria-controls="panel-dashboard" data-tab="dashboard">Dashboard</button>
+      <button type="button" class="tab-button" id="tab-announce" role="tab" aria-selected="false" aria-controls="panel-announce" data-tab="announce">Announce</button>
       <button type="button" class="tab-button" id="tab-robot" role="tab" aria-selected="false" aria-controls="panel-robot" data-tab="robot">Robot</button>
       <button type="button" class="tab-button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Settings</button>
     </nav>
@@ -75,6 +76,71 @@
           <summary>Manual Android installation</summary>
           <p class="muted">In Chrome, open the ⋮ menu and choose <strong>Add to Home screen</strong>. Full app installation requires a trusted HTTPS address; this direct LAN page can still be saved as a shortcut.</p>
         </details>
+      </section>
+    </div>
+
+    <div id="panel-announce" class="tab-panel" role="tabpanel" aria-labelledby="tab-announce" data-panel="announce" hidden>
+      <section class="card announcement-card">
+        <div class="section-heading">
+          <div><p class="label">Text to speech</p><h2>Reachy announcements</h2></div>
+          <span id="announcement-badge" class="badge">Ready</span>
+        </div>
+        <p class="muted">Type exactly what Reachy should say. Speech is synthesized through the private Hermes bridge; provider credentials never enter this app.</p>
+
+        <label for="announcement-text">Announcement text</label>
+        <textarea id="announcement-text" maxlength="15000" rows="6" placeholder="Dinner is ready. Please come downstairs."></textarea>
+        <div class="announcement-meta"><span id="announcement-count">0 / 15,000</span><span>Ctrl/⌘ + Enter to announce</span></div>
+
+        <div class="quick-announcements" role="group" aria-label="Quick announcement templates">
+          <button type="button" class="secondary announcement-template" data-announcement-template="Dinner is ready. Please come downstairs.">Dinner ready</button>
+          <button type="button" class="secondary announcement-template" data-announcement-template="We are leaving in five minutes. Please get ready.">Leaving soon</button>
+          <button type="button" class="secondary announcement-template" data-announcement-template="Could everyone please come to the living room?">Come here</button>
+          <button type="button" class="secondary announcement-template" data-announcement-template="This is a test announcement from Reachy Mini Hermes.">Test</button>
+        </div>
+
+        <div class="grid-two announcement-options">
+          <label>TTS provider
+            <select id="announcement-provider"><option value="">Use app voice setting</option></select>
+          </label>
+          <label>TTS model
+            <select id="announcement-model"><option value="">Use app model</option></select>
+          </label>
+          <label>Voice
+            <select id="announcement-voice"><option value="">Use app voice</option></select>
+          </label>
+          <label>Physical behavior
+            <select id="announcement-behavior">
+              <option value="wake_and_return">Wake, speak, then fold to Standby</option>
+              <option value="voice_only">Voice only · do not change power state</option>
+              <option value="wake_and_stay">Wake, speak, and remain Awake</option>
+            </select>
+          </label>
+          <label>Repeat
+            <input id="announcement-repeat" type="number" min="1" max="10" step="1" value="1" />
+          </label>
+          <label>Pause between repeats (seconds)
+            <input id="announcement-pause" type="number" min="0" max="60" step="0.5" value="1" />
+          </label>
+        </div>
+
+        <div class="actions announcement-actions">
+          <button type="button" id="announcement-send">Announce now</button>
+          <button type="button" id="announcement-stop" class="danger">Stop &amp; clear queue</button>
+        </div>
+        <p id="announcement-message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card announcement-status-card">
+        <div class="section-heading">
+          <div><p class="label">Playback queue</p><h2>Announcement status</h2></div>
+          <span id="announcement-queue-badge" class="badge">0 queued</span>
+          <span id="announcement-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
+        </div>
+        <div class="announcement-status-grid">
+          <div><span class="label">Now</span><p id="announcement-current" class="quote">—</p></div>
+          <div><span class="label">Last completed</span><p id="announcement-last" class="quote">—</p></div>
+        </div>
+        <p id="announcement-error" class="message error" role="alert" aria-live="assertive"></p>
       </section>
     </div>
 
@@ -270,7 +336,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=10"></script>
-  <script src="/static/main.js?v=10"></script>
+  <script src="/static/camera.js?v=12"></script>
+  <script src="/static/main.js?v=12"></script>
 </body>
 </html>

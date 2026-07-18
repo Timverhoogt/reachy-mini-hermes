@@ -72,6 +72,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
 - Privacy-preserving cameras: one JPEG is captured only when a visual request needs it, while an independent opt-in UI viewer connects directly to Reachy's local WebRTC feed.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
+- Full announcement console with typed TTS, per-announcement provider/model/voice overrides, quick templates, repeat/pause controls, a bounded queue, independent Stop, and voice-only or safe wake/fold behavior.
 - Stable Hermes memory scope plus rotating conversation sessions after inactivity.
 - Listening, processing, speaking, and error cues with optional voice-state motion.
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.

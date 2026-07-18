@@ -74,6 +74,20 @@ class ConfirmationRequest(BaseModel):
     confirm: str
 
 
+class AnnouncementRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=15_000)
+    provider: str = Field(default="", max_length=32)
+    model: str = Field(default="", max_length=120)
+    voice: str = Field(default="", max_length=120)
+    behavior: str = Field(default="wake_and_return", max_length=32)
+    repeat: int = Field(default=1, ge=1, le=10)
+    pause_seconds: float = Field(default=1.0, ge=0, le=60)
+
+
+class AnnouncementStopRequest(BaseModel):
+    clear_queue: bool = True
+
+
 class ReachyMiniHermes(ReachyMiniApp):
     """Embodied voice frontend for a user's own Hermes Agent."""
 
@@ -211,6 +225,31 @@ class ReachyMiniHermes(ReachyMiniApp):
                 media_type="image/jpeg",
                 headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
             )
+
+        @self.settings_app.post("/api/announcements")
+        def create_announcement(request: AnnouncementRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.queue_announcement(
+                    request.text,
+                    provider=request.provider,
+                    model=request.model,
+                    voice=request.voice,
+                    behavior=request.behavior,
+                    repeat=request.repeat,
+                    pause_seconds=request.pause_seconds,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/announcements/stop")
+        def stop_announcements(request: AnnouncementStopRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            return self._runtime.stop_announcements(clear_queue=request.clear_queue)
 
         @self.settings_app.get("/api/robot/options")
         def robot_options() -> dict[str, object]:
