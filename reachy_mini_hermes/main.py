@@ -7,8 +7,10 @@ import secrets
 import socket
 import subprocess
 import threading
+from pathlib import Path
 
 from fastapi import Header, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from reachy_mini import ReachyMini, ReachyMiniApp
 
@@ -18,6 +20,7 @@ from .robot_tools import robot_control_options
 from .runtime import HermesVoiceRuntime
 
 _LOGGER = logging.getLogger(__name__)
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class SettingsUpdate(BaseModel):
@@ -84,6 +87,22 @@ class ReachyMiniHermes(ReachyMiniApp):
     def _register_settings_routes(self) -> None:
         if self.settings_app is None:
             return
+
+        @self.settings_app.get("/manifest.webmanifest", include_in_schema=False)
+        def web_manifest() -> FileResponse:
+            return FileResponse(
+                _STATIC_DIR / "manifest.webmanifest",
+                media_type="application/manifest+json",
+                headers={"Cache-Control": "no-cache"},
+            )
+
+        @self.settings_app.get("/service-worker.js", include_in_schema=False)
+        def service_worker() -> FileResponse:
+            return FileResponse(
+                _STATIC_DIR / "service-worker.js",
+                media_type="application/javascript",
+                headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+            )
 
         @self.settings_app.get("/api/status")
         def status() -> dict[str, object]:

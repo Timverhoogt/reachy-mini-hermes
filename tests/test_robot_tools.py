@@ -13,7 +13,10 @@ from reachy_mini_hermes.robot_tools import (
 
 
 class FakeMove:
-    duration = 1.0
+    duration = 0.04
+
+    def evaluate(self, elapsed: float) -> tuple[dict[str, float], list[float], float]:
+        return {"elapsed": elapsed}, [elapsed, -elapsed], elapsed
 
 
 class FakeLibrary:
@@ -28,14 +31,25 @@ class FakeLibrary:
 class FakeRobot:
     def __init__(self) -> None:
         self.targets: list[dict[str, object]] = []
-        self.moves: list[tuple[object, bool]] = []
+        self.head_samples: list[object] = []
+        self.body_samples: list[float] = []
+        self.antenna_samples: list[list[float]] = []
         self.cancellations = 0
+
+    def get_current_head_pose(self) -> dict[str, bool]:
+        return {"current": True}
 
     def goto_target(self, **kwargs: object) -> None:
         self.targets.append(kwargs)
 
-    def play_move(self, move: object, **kwargs: object) -> None:
-        self.moves.append((move, bool(kwargs.get("sound"))))
+    def set_target_head_pose(self, head: object) -> None:
+        self.head_samples.append(head)
+
+    def set_target_body_yaw(self, body_yaw: float) -> None:
+        self.body_samples.append(body_yaw)
+
+    def set_target_antenna_joint_positions(self, positions: list[float]) -> None:
+        self.antenna_samples.append(positions)
 
     def cancel_move(self) -> None:
         self.cancellations += 1
@@ -92,7 +106,10 @@ def test_robot_actions_use_safe_curated_moves_without_move_audio(monkeypatch) ->
 
     assert robot.targets[0]["body_yaw"] is None
     assert library.requested == ["laughing2", "dance1"]
-    assert [sound for _, sound in robot.moves] == [False, False]
+    assert robot.head_samples
+    assert robot.body_samples
+    assert robot.antenna_samples
+    assert robot.cancellations == 0
 
 
 def test_unknown_or_unapproved_robot_action_is_rejected() -> None:
@@ -123,6 +140,67 @@ def test_worker_completes_tool_with_actual_execution_result(monkeypatch) -> None
     assert accepted == {"accepted": True, "queued": "move_reachy_head"}
     assert completed.wait(2)
     assert results == [{"ok": True, "action": "move_reachy_head", "direction": "left"}]
+    actions.close()
+
+
+def test_manual_actions_reject_surprising_queueing_when_robot_is_busy() -> None:
+    actions = ReachyRobotActions(FakeRobot(), threading.Event(), library_factory=FakeLibrary)
+
+    first = actions.enqueue("dance_reachy", {"style": "short"}, reject_if_busy=True)
+    second = actions.enqueue("move_reachy_head", {"direction": "left"}, reject_if_busy=True)
+
+    assert first["accepted"] is True
+    assert second == {"ok": False, "error": "Robot is busy", "code": "robot_busy"}
+    assert actions.pending_count == 1
+    assert actions.cancel() is False
+    assert actions.pending_count == 0
+
+
+def test_manual_stop_uses_cooperative_move_flag_without_stopping_media() -> None:
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+    actions._busy.set()
+
+    assert actions.cancel(stop_media=False) is True
+    assert actions._cancel_requested.is_set()
+    assert robot.head_samples[-1] == {"current": True}
+    assert robot.cancellations == 0
+
+
+def test_manual_stop_interrupts_recorded_move_without_sdk_media_cancel() -> None:
+    class LongMove(FakeMove):
+        duration = 2.0
+
+    class LongLibrary(FakeLibrary):
+        def get(self, name: str) -> LongMove:
+            self.requested.append(name)
+            return LongMove()
+
+    robot = FakeRobot()
+    completed = threading.Event()
+    results: list[dict[str, object]] = []
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=LongLibrary)
+    actions.start()
+
+    def on_complete(result: dict[str, object]) -> None:
+        results.append(result)
+        completed.set()
+
+    actions.enqueue(
+        "dance_reachy",
+        {"style": "energetic"},
+        on_complete=on_complete,
+    )
+    for _ in range(100):
+        if robot.head_samples:
+            break
+        threading.Event().wait(0.01)
+
+    assert actions.cancel(stop_media=False) is True
+    assert completed.wait(1)
+    assert results == [{"ok": False, "error": "Robot action was cancelled", "action": "dance_reachy"}]
+    assert robot.cancellations == 0
+    assert actions.wait_idle(1)
     actions.close()
 
 
@@ -165,7 +243,13 @@ def test_cancel_generation_blocks_dequeued_action_before_execution(monkeypatch) 
         results.append(result)
         completed.set()
 
-    actions = ReachyRobotActions(robot, threading.Event(), before_action=before_action)
+    lifecycle: list[str] = []
+    actions = ReachyRobotActions(
+        robot,
+        threading.Event(),
+        before_action=before_action,
+        after_action=lambda: lifecycle.append("after"),
+    )
     actions.start()
     actions.enqueue(
         "move_reachy_head",
@@ -180,4 +264,5 @@ def test_cancel_generation_blocks_dequeued_action_before_execution(monkeypatch) 
     assert results[0]["ok"] is False
     assert robot.targets == []
     assert robot.cancellations == 1
+    assert lifecycle == []
     actions.close()

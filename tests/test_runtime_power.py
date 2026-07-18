@@ -255,10 +255,14 @@ def test_power_mode_tool_applies_meeting_before_ending_realtime_session() -> Non
     assert session.results == [("call-meeting", result, False)]
 
 
-def test_manual_robot_action_auto_wakes_and_manual_stop_restores_playback() -> None:
+def test_manual_robot_action_auto_wakes_and_manual_stop_preserves_audio_pipeline() -> None:
     class Actions:
         def __init__(self) -> None:
             self.queued: list[tuple[str, dict[str, object], bool]] = []
+
+        @property
+        def pending_count(self) -> int:
+            return 1
 
         def enqueue(
             self,
@@ -266,11 +270,17 @@ def test_manual_robot_action_auto_wakes_and_manual_stop_restores_playback() -> N
             arguments: dict[str, object],
             *,
             hold_pose: bool = False,
+            reject_if_busy: bool = False,
         ) -> dict[str, object]:
             self.queued.append((name, arguments, hold_pose))
+            assert reject_if_busy is True
             return {"accepted": True, "queued": name}
 
-        def cancel(self) -> bool:
+        def cancel(self, *, stop_media: bool = True) -> bool:
+            assert stop_media is False
+            return True
+
+        def wait_idle(self, timeout: float = 5.0) -> bool:
             return True
 
     robot = FakeRobot()
@@ -287,13 +297,20 @@ def test_manual_robot_action_auto_wakes_and_manual_stop_restores_playback() -> N
     assert runtime.status()["power_mode"] == "awake"
 
     stopped = runtime.stop_manual_robot_action()
-    assert stopped == {"ok": True, "active_move_cancelled": True, "queue_cleared": True}
-    assert robot.media.playing_starts == 1
+    assert stopped == {
+        "ok": True,
+        "robot_stopped": True,
+        "active_cancelled": True,
+        "queued_cancelled": 0,
+    }
+    assert robot.media.playing_starts == 0
 
 
 def test_manual_robot_action_is_blocked_in_privacy_modes() -> None:
     class Actions:
-        def cancel(self) -> bool:
+        pending_count = 0
+
+        def cancel(self, *, stop_media: bool = True) -> bool:
             return False
 
     runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
@@ -303,6 +320,32 @@ def test_manual_robot_action_is_blocked_in_privacy_modes() -> None:
 
     with pytest.raises(RuntimeError, match="blocked"):
         runtime.queue_manual_robot_action("dance", "short")
+
+
+def test_manual_stop_does_not_restore_playback_or_motion_in_privacy_mode() -> None:
+    class Actions:
+        pending_count = 1
+
+        def cancel(self, *, stop_media: bool = True) -> bool:
+            assert stop_media is False
+            return True
+
+        def wait_idle(self, timeout: float = 5.0) -> bool:
+            return True
+
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    runtime._actions = Actions()  # type: ignore[assignment]
+    runtime._power_mode = "sleep"
+    runtime._privacy_requested.set()
+
+    stopped = runtime.stop_manual_robot_action()
+
+    assert stopped["active_cancelled"] is True
+    assert robot.media.playing_starts == 0
+    assert runtime._playback_stopped_for_privacy is False
+    with pytest.raises(RuntimeError, match="privacy"):
+        runtime._before_robot_action()
 
 
 def test_camera_test_captures_locally_without_returning_image() -> None:
@@ -358,7 +401,12 @@ def test_doa_angle_is_converted_to_reachy_yaw_with_deadband_and_clamp() -> None:
 
 def test_privacy_action_cancel_restarts_playback_on_standby() -> None:
     class Actions:
-        def cancel(self) -> bool:
+        pending_count = 0
+
+        def cancel(self, *, stop_media: bool = True) -> bool:
+            return True
+
+        def wait_idle(self, timeout: float = 5.0) -> bool:
             return True
 
     robot = FakeRobot()

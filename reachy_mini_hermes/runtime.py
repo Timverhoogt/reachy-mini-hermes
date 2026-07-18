@@ -370,7 +370,9 @@ class HermesVoiceRuntime:
 
     def status(self) -> dict[str, object]:
         with self._status_lock:
-            return asdict(self._status)
+            payload = asdict(self._status)
+        payload["robot_action_busy"] = bool(self._actions and self._actions.pending_count)
+        return payload
 
     def queue_manual_robot_action(self, action: str, value: str) -> dict[str, object]:
         """Queue one allow-listed UI action, waking Reachy locally when needed."""
@@ -385,7 +387,12 @@ class HermesVoiceRuntime:
             transition_error = str(status.get("last_error") or "")
             if transition_error:
                 raise RuntimeError(transition_error)
-        result = self._actions.enqueue(name, arguments, hold_pose=action.strip().lower() == "look")
+        result = self._actions.enqueue(
+            name,
+            arguments,
+            hold_pose=action.strip().lower() == "look",
+            reject_if_busy=True,
+        )
         if not result.get("accepted"):
             raise RuntimeError(str(result.get("error") or "Robot action could not be queued"))
         _LOGGER.info("Manual robot control queued: %s %s", action, value)
@@ -398,18 +405,26 @@ class HermesVoiceRuntime:
         }
 
     def stop_manual_robot_action(self) -> dict[str, object]:
-        """Cancel active and queued UI motions while preserving future audio playback."""
+        """Cancel physical movement without changing power mode or starting new motion."""
         if self._actions is None:
             raise RuntimeError("Robot action controller is not ready")
-        active_cancelled = self._actions.cancel()
-        if active_cancelled:
-            start_playing = getattr(self.robot.media, "start_playing", None)
-            if callable(start_playing):
-                start_playing()
-            self._playback_stopped_for_privacy = False
-        self._after_robot_action()
-        _LOGGER.info("Manual robot control stopped; active_cancelled=%s", active_cancelled)
-        return {"ok": True, "active_move_cancelled": active_cancelled, "queue_cleared": True}
+        pending_before = self._actions.pending_count
+        active_cancelled = self._actions.cancel(stop_media=False)
+        queued_cancelled = max(0, pending_before - int(active_cancelled))
+        robot_stopped = self._actions.wait_idle(timeout=5.0)
+        if self._motion is not None:
+            self._motion.resume()
+        _LOGGER.info(
+            "Manual robot control stopped; active_cancelled=%s queued_cancelled=%s",
+            active_cancelled,
+            queued_cancelled,
+        )
+        return {
+            "ok": True,
+            "robot_stopped": robot_stopped,
+            "active_cancelled": active_cancelled,
+            "queued_cancelled": queued_cancelled,
+        }
 
     def test_camera(self) -> dict[str, object]:
         """Capture one frame locally for setup diagnostics without returning it."""
@@ -510,6 +525,8 @@ class HermesVoiceRuntime:
             _LOGGER.warning("Could not orient to local wake DOA: %s", exc)
 
     def _before_robot_action(self) -> None:
+        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            raise RuntimeError("Robot action was blocked by privacy mode")
         self._head_safely_folded = False
         self._set_face_tracking(False)
         if self._motion is not None:

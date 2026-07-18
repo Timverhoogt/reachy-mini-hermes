@@ -11,8 +11,10 @@ let loaded = false;
 let currentConfig = null;
 let voiceOptions = { stt: [], tts: [] };
 let manualActionPending = false;
+let currentPowerMode = "unknown";
+let deferredInstallPrompt = null;
 
-function activateTab(name, focus = false) {
+function activateTab(name, focus = false, recordHistory = false) {
   const target = document.querySelector(`[data-tab="${name}"]`) || document.querySelector("[data-tab]");
   if (!target) return;
   document.querySelectorAll("[data-tab]").forEach((button) => {
@@ -25,12 +27,15 @@ function activateTab(name, focus = false) {
     panel.hidden = panel.dataset.panel !== target.dataset.tab;
   });
   window.localStorage.setItem("reachy-hermes-tab", target.dataset.tab);
+  if (recordHistory && window.location.hash !== `#${target.dataset.tab}`) {
+    window.history.pushState(null, "", `#${target.dataset.tab}`);
+  }
   if (focus) target.focus();
 }
 
 const tabButtons = [...document.querySelectorAll("[data-tab]")];
 tabButtons.forEach((button, index) => {
-  button.addEventListener("click", () => activateTab(button.dataset.tab));
+  button.addEventListener("click", () => activateTab(button.dataset.tab, false, true));
   button.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -39,10 +44,86 @@ tabButtons.forEach((button, index) => {
     if (event.key === "ArrowRight") next = (index + 1) % tabButtons.length;
     if (event.key === "Home") next = 0;
     if (event.key === "End") next = tabButtons.length - 1;
-    activateTab(tabButtons[next].dataset.tab, true);
+    activateTab(tabButtons[next].dataset.tab, true, true);
   });
 });
-activateTab(window.localStorage.getItem("reachy-hermes-tab") || "dashboard");
+const initialTab = window.location.hash.slice(1) || window.localStorage.getItem("reachy-hermes-tab") || "dashboard";
+activateTab(initialTab);
+window.addEventListener("popstate", () => activateTab(window.location.hash.slice(1) || "dashboard"));
+
+function runningStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function updateInstallUi() {
+  const button = $("install-button");
+  const status = $("install-status");
+  const message = $("install-message");
+  const help = $("install-help");
+  if (runningStandalone()) {
+    button.hidden = true;
+    status.textContent = "Installed";
+    message.textContent = "Running as the Reachy Hermes home-screen app.";
+    message.className = "message ok";
+    help.hidden = true;
+    return;
+  }
+  help.hidden = false;
+  if (deferredInstallPrompt) {
+    button.hidden = false;
+    status.textContent = "Ready";
+    message.textContent = "Chrome is ready to install the standalone app.";
+    message.className = "message ok";
+    return;
+  }
+  button.hidden = true;
+  status.textContent = window.isSecureContext ? "Web app" : "Shortcut";
+  message.textContent = window.isSecureContext
+    ? "Chrome will enable Install app when its PWA checks are complete."
+    : "This LAN address uses HTTP. Use Chrome's ⋮ menu and Add to Home screen, or open the dashboard through trusted HTTPS for full app installation.";
+  message.className = "message";
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  updateInstallUi();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  updateInstallUi();
+});
+
+$("install-button").addEventListener("click", async () => {
+  if (!deferredInstallPrompt) return;
+  const prompt = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  await prompt.prompt();
+  const choice = await prompt.userChoice;
+  if (choice.outcome === "accepted") {
+    $("install-button").hidden = true;
+    $("install-status").textContent = "Installing";
+    $("install-help").hidden = true;
+    $("install-message").textContent = "Installation accepted. Reachy Hermes is being added to your home screen.";
+    $("install-message").className = "message ok";
+  } else {
+    updateInstallUi();
+    $("install-message").textContent = "Installation dismissed. You can try again from Chrome's menu.";
+  }
+});
+
+async function registerPwa() {
+  updateInstallUi();
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+  try {
+    await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+  } catch (error) {
+    $("install-message").textContent = `App installation support could not start: ${String(error)}`;
+    $("install-message").className = "message error";
+  }
+}
+registerPwa();
 
 function setMessage(text, kind = "") {
   const el = $("form-message");
@@ -80,18 +161,30 @@ function updateStatus(payload) {
   $("last-transcript").textContent = runtime.transcript || "—";
   $("last-response").textContent = runtime.response_preview || "—";
   const powerMode = runtime.power_mode || "unknown";
+  currentPowerMode = powerMode;
+  const robotBusy = Boolean(runtime.robot_action_busy);
   $("power-mode-badge").textContent = powerMode;
-  $("robot-mode-badge").textContent = powerMode;
+  $("robot-mode-badge").textContent = robotBusy ? "moving" : powerMode;
   $("last-robot-action").textContent = runtime.last_robot_action || "—";
   $("robot-action-error").textContent = runtime.robot_action_last_error
     ? ` · ${runtime.robot_action_last_error}`
     : "";
   const manualBlocked = ["meeting", "sleep"].includes(powerMode);
   document.querySelectorAll(".manual-control").forEach((button) => {
-    button.disabled = manualBlocked || manualActionPending;
+    button.disabled = manualBlocked || robotBusy || manualActionPending;
   });
-  $("emotion-select").disabled = manualBlocked || manualActionPending;
-  $("robot-stop-button").disabled = manualActionPending;
+  $("emotion-select").disabled = manualBlocked || robotBusy || manualActionPending;
+  $("robot-stop-button").disabled = false;
+  $("robot-readiness").textContent = robotBusy
+    ? "Moving — press Stop movement to cancel"
+    : powerMode === "standby"
+      ? "Standby — movement will wake Reachy"
+      : powerMode === "awake"
+        ? "Awake — movement enabled; voice still waits for Hey Hermes"
+        : `${powerMode} — manual movement unavailable`;
+  document.querySelectorAll("[data-power]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.power === powerMode));
+  });
   const dot = $("status-dot");
   dot.className = "status-dot";
   if (["waiting_for_wake_word", "listening", "looking", "thinking", "speaking"].includes(state)) dot.classList.add("ready");
@@ -291,7 +384,9 @@ $("camera-test-button").addEventListener("click", async () => {
 async function sendManualRobotAction(action, value) {
   const message = $("robot-message");
   manualActionPending = true;
-  message.textContent = `Sending ${action}: ${value}…`;
+  message.textContent = currentPowerMode === "standby"
+    ? `Waking Reachy before ${action}: ${value}…`
+    : `Starting ${action}: ${value}…`;
   message.className = "message";
   document.querySelectorAll(".manual-control").forEach((button) => { button.disabled = true; });
   $("emotion-select").disabled = true;
@@ -303,7 +398,7 @@ async function sendManualRobotAction(action, value) {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
-    message.textContent = `${action === "look" ? "Look" : action} ${value} queued · Reachy is ${body.power_mode}`;
+    message.textContent = `${action === "look" ? "Look" : action} ${value} started · Reachy is ${body.power_mode}`;
     message.className = "message ok";
   } catch (error) {
     message.textContent = String(error);
@@ -332,7 +427,13 @@ $("robot-stop-button").addEventListener("click", async () => {
     const response = await fetch("/api/robot/stop", { method: "POST" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
-    message.textContent = body.active_move_cancelled ? "Movement stopped" : "Movement queue cleared";
+    message.textContent = !body.robot_stopped
+      ? "Stop requested — Reachy is still settling"
+      : body.active_cancelled
+        ? "Movement stopped"
+        : body.queued_cancelled
+          ? `Cleared ${body.queued_cancelled} queued movement${body.queued_cancelled === 1 ? "" : "s"}`
+          : "Robot is already stopped";
     message.className = "message ok";
   } catch (error) {
     message.textContent = String(error);

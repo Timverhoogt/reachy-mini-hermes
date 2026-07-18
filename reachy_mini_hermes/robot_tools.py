@@ -6,9 +6,10 @@ import json
 import logging
 import queue
 import threading
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,9 +78,15 @@ def robot_control_options() -> dict[str, list[str]]:
 
 
 class RobotLike(Protocol):
+    def get_current_head_pose(self) -> object: ...
+
     def goto_target(self, **kwargs: object) -> object: ...
 
-    def play_move(self, move: object, **kwargs: object) -> object: ...
+    def set_target_head_pose(self, head: object) -> object: ...
+
+    def set_target_body_yaw(self, body_yaw: float) -> object: ...
+
+    def set_target_antenna_joint_positions(self, positions: list[float]) -> object: ...
 
     def cancel_move(self) -> None: ...
 
@@ -163,12 +170,31 @@ class ReachyRobotActions:
         self._thread: threading.Thread | None = None
         self._closed = threading.Event()
         self._busy = threading.Event()
+        self._cancel_requested = threading.Event()
         self._state_lock = threading.Lock()
         self._generation = 0
+        self._pending_actions = 0
 
     @property
     def busy(self) -> bool:
         return self._busy.is_set()
+
+    @property
+    def pending_count(self) -> int:
+        with self._state_lock:
+            return self._pending_actions
+
+    def _mark_finished(self) -> None:
+        with self._state_lock:
+            self._pending_actions = max(0, self._pending_actions - 1)
+
+    def wait_idle(self, timeout: float = 5.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.pending_count == 0 and not self.busy:
+                return True
+            time.sleep(0.02)
+        return self.pending_count == 0 and not self.busy
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -183,19 +209,23 @@ class ReachyRobotActions:
         *,
         on_complete: Callable[[dict[str, object]], None] | None = None,
         hold_pose: bool = False,
+        reject_if_busy: bool = False,
     ) -> dict[str, object]:
         if name not in ROBOT_TOOL_NAMES:
             return {"ok": False, "error": "Robot action is not allow-listed"}
         if self._closed.is_set() or self.stop_event.is_set():
             return {"ok": False, "error": "Robot action controller is stopping"}
         with self._state_lock:
+            if reject_if_busy and self._pending_actions:
+                return {"ok": False, "error": "Robot is busy", "code": "robot_busy"}
             generation = self._generation
-        try:
-            self._queue.put_nowait(
-                QueuedRobotAction(name, dict(arguments), generation, on_complete, hold_pose)
-            )
-        except queue.Full:
-            return {"ok": False, "error": "Robot action queue is full"}
+            try:
+                self._queue.put_nowait(
+                    QueuedRobotAction(name, dict(arguments), generation, on_complete, hold_pose)
+                )
+            except queue.Full:
+                return {"ok": False, "error": "Robot action queue is full", "code": "robot_busy"}
+            self._pending_actions += 1
         return {"accepted": True, "queued": name}
 
     def _generation_matches(self, generation: int) -> bool:
@@ -218,7 +248,8 @@ class ReachyRobotActions:
             move_name = _EMOTION_MOVES.get(emotion)
             if move_name is None:
                 return {"ok": False, "error": "Unknown emotion"}
-            self._play_recorded_move(move_name)
+            if not self._play_recorded_move(move_name):
+                return {"ok": False, "error": "Robot action was cancelled", "action": name}
             return {"ok": True, "action": name, "emotion": emotion, "move": move_name}
 
         if name == "dance_reachy":
@@ -226,26 +257,51 @@ class ReachyRobotActions:
             move_name = _DANCE_MOVES.get(style)
             if move_name is None:
                 return {"ok": False, "error": "Unknown dance style"}
-            self._play_recorded_move(move_name)
+            if not self._play_recorded_move(move_name):
+                return {"ok": False, "error": "Robot action was cancelled", "action": name}
             return {"ok": True, "action": name, "style": style, "move": move_name}
 
         return {"ok": False, "error": "Robot action is not allow-listed"}
 
-    def _play_recorded_move(self, move_name: str) -> None:
+    def _play_recorded_move(self, move_name: str) -> bool:
         if self._library is None:
             self._library = self._library_factory()
         get_move = getattr(self._library, "get", None)
         if not callable(get_move):
             raise RuntimeError("Reachy recorded-move library is unavailable")
         move = get_move(move_name)
-        # Recorded emotion audio would compete with Hermes speech. Keep the
-        # authentic Reachy motion while Realtime remains the sole voice source.
-        self.robot.play_move(
-            move,
-            play_frequency=50.0,
-            initial_goto_duration=0.25,
-            sound=False,
+        evaluate = getattr(move, "evaluate", None)
+        duration = float(getattr(move, "duration", 0.0))
+        if not callable(evaluate) or duration <= 0:
+            raise RuntimeError("Reachy recorded move is invalid")
+
+        start_head, start_antennas, start_body_yaw = cast(
+            tuple[object | None, object | None, float | None], evaluate(0.0)
         )
+        self.robot.goto_target(
+            head=start_head,
+            antennas=start_antennas,
+            body_yaw=start_body_yaw,
+            duration=0.25,
+        )
+        started = time.monotonic()
+        period = 1.0 / 50.0
+        while time.monotonic() - started < duration:
+            if self._cancel_requested.is_set() or self.stop_event.is_set() or self._closed.is_set():
+                return False
+            elapsed = time.monotonic() - started
+            head, antennas, body_yaw = cast(
+                tuple[object | None, object | None, float | None], evaluate(min(elapsed, duration - 0.01))
+            )
+            if head is not None:
+                self.robot.set_target_head_pose(head)
+            if body_yaw is not None:
+                self.robot.set_target_body_yaw(float(body_yaw))
+            if antennas is not None:
+                self.robot.set_target_antenna_joint_positions(list(cast(Iterable[float], antennas)))
+            if self._cancel_requested.wait(period):
+                return False
+        return True
 
     def _run(self) -> None:
         while not self._closed.is_set() and not self.stop_event.is_set():
@@ -259,13 +315,19 @@ class ReachyRobotActions:
             if not self._generation_matches(action.generation):
                 result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
                 self._queue.task_done()
+                self._mark_finished()
                 if action.on_complete is not None:
                     action.on_complete(result)
                 if self._on_result is not None:
                     self._on_result(action.name, result)
                 continue
+            self._cancel_requested.clear()
             self._busy.set()
-            result: dict[str, object]
+            result: dict[str, object] = {
+                "ok": False,
+                "error": "Robot action did not complete",
+                "action": action.name,
+            }
             try:
                 if self._before_action is not None:
                     self._before_action()
@@ -282,24 +344,32 @@ class ReachyRobotActions:
                 result = {"ok": False, "error": str(exc), "action": action.name}
             finally:
                 try:
-                    if self._after_action is not None and not action.hold_pose:
+                    cancelled = result.get("error") == "Robot action was cancelled"
+                    if self._after_action is not None and not action.hold_pose and not cancelled:
                         self._after_action()
                 finally:
                     self._busy.clear()
                     self._queue.task_done()
+                    self._mark_finished()
             if self._on_result is not None:
                 self._on_result(action.name, result)
             if action.on_complete is not None:
                 action.on_complete(result)
 
-    def cancel(self) -> bool:
+    def cancel(self, *, stop_media: bool = True) -> bool:
         """Stop the active move and discard queued actions for privacy/power transitions."""
         with self._state_lock:
             self._generation += 1
         cancelled_active = self._busy.is_set()
+        self._cancel_requested.set()
         if cancelled_active:
             try:
-                self.robot.cancel_move()
+                if stop_media:
+                    self.robot.cancel_move()
+                else:
+                    # Freeze the current head target while the cooperative worker
+                    # exits, without touching the shared voice playback pipeline.
+                    self.robot.set_target_head_pose(self.robot.get_current_head_pose())
             except Exception:
                 _LOGGER.debug("No active Reachy move to cancel", exc_info=True)
         while True:
@@ -311,6 +381,7 @@ class ReachyRobotActions:
                 self._queue.task_done()
                 if pending is None:
                     break
+                self._mark_finished()
                 result = {"ok": False, "error": "Robot action was cancelled", "action": pending.name}
                 if pending.on_complete is not None:
                     pending.on_complete(result)

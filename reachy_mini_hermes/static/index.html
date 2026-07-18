@@ -3,7 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#17121f" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Reachy Hermes" />
   <title>Reachy Mini Hermes</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
+  <link rel="apple-touch-icon" href="/static/icon-192.png" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -17,7 +25,7 @@
       </div>
     </header>
 
-    <section class="card status-card" aria-live="polite">
+    <section class="card status-card">
       <div>
         <p class="label">Current state</p>
         <h2 id="runtime-state">Connecting…</h2>
@@ -45,16 +53,28 @@
           <button type="button" data-power="meeting" data-minutes="60" class="secondary">Meeting · 60 min</button>
           <button type="button" data-power="sleep" class="secondary">Sleep</button>
         </div>
-        <div class="actions danger-actions">
-          <button type="button" id="app-off-button" class="secondary">Stop voice app</button>
-          <button type="button" id="shutdown-button" class="danger">Shut down Pi</button>
-        </div>
         <p id="power-message" class="message" role="status"></p>
       </section>
 
       <section class="card conversation-card">
         <div><p class="label">Last heard</p><p id="last-transcript" class="quote">—</p></div>
         <div><p class="label">Last response</p><p id="last-response" class="quote">—</p></div>
+      </section>
+
+      <section id="install-card" class="card install-card">
+        <div class="section-heading">
+          <div><p class="label">Android home screen</p><h2>Install Reachy Hermes</h2></div>
+          <span id="install-status" class="badge">Web app</span>
+        </div>
+        <p id="install-description" class="muted">Open Reachy controls in a standalone window from your phone's home screen.</p>
+        <div class="actions left-actions">
+          <button type="button" id="install-button" hidden>Install app</button>
+        </div>
+        <p id="install-message" class="message" role="status" aria-live="polite"></p>
+        <details id="install-help">
+          <summary>Manual Android installation</summary>
+          <p class="muted">In Chrome, open the ⋮ menu and choose <strong>Add to Home screen</strong>. Full app installation requires a trusted HTTPS address; this direct LAN page can still be saved as a shortcut.</p>
+        </details>
       </section>
     </div>
 
@@ -65,6 +85,7 @@
           <span id="robot-mode-badge" class="badge">—</span>
         </div>
         <p class="muted">Controls use the same allow-listed actions as Hermes—never raw joints. A command from Standby wakes Reachy first. Manual movement is blocked in Meeting and Sleep.</p>
+        <p id="robot-readiness" class="readiness">Standby — movement will wake Reachy</p>
 
         <div class="robot-control-grid">
           <div class="control-group">
@@ -101,6 +122,7 @@
 
         <div class="control-group dance-group">
           <h3>Dance</h3>
+          <p class="muted compact-note">Clear space around Reachy first. Energetic uses the largest movement.</p>
           <div class="actions robot-actions">
             <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="short">Short</button>
             <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="groovy">Groovy</button>
@@ -117,7 +139,7 @@
         <h2>Camera</h2>
         <p class="muted">Capture one frame locally to verify the camera. The image is not returned to this page or sent to Hermes.</p>
         <div class="actions left-actions">
-          <button type="button" id="camera-test-button" class="secondary">Test camera locally</button>
+          <button type="button" id="camera-test-button" class="secondary">Capture one local test frame</button>
         </div>
         <p id="camera-message" class="message" role="status"></p>
       </section>
@@ -201,6 +223,16 @@
           </div>
           <p id="form-message" class="message" role="status"></p>
         </form>
+      </section>
+
+      <section class="card danger-zone">
+        <p class="label">Danger zone</p>
+        <h2>App and host lifecycle</h2>
+        <p class="muted">Stopping the app requires Reachy Control to start it again. Shutting down the Pi disconnects this page until Reachy is powered back on.</p>
+        <div class="actions danger-actions">
+          <button type="button" id="app-off-button" class="secondary">Stop voice app</button>
+          <button type="button" id="shutdown-button" class="danger">Shut down Pi</button>
+        </div>
       </section>
     </div>
   </main>

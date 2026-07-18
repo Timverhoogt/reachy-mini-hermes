@@ -205,7 +205,9 @@ The in-app UI is organized into three keyboard-accessible tabs:
 - **Robot** — safe manual look directions, curated emotions, three recorded dances, stop movement, and a local camera diagnostic.
 - **Settings** — Hermes bridge, voice, embodiment, privacy, and advanced timing configuration.
 
-Manual controls use the same serialized semantic action worker as Realtime; the browser cannot submit raw joints, arbitrary move names, shell commands, or host actions. A manual movement from Standby first runs Reachy's native wake motion and leaves it Awake. Movement is rejected during Meeting and Sleep, while **Stop movement** remains available to cancel an active or queued action. The UI is intended only for a trusted LAN/VPN.
+Manual controls use the same serialized semantic action worker as Realtime; the browser cannot submit raw joints, arbitrary move names, shell commands, or host actions. A manual movement from Standby first completes Reachy's native wake motion and leaves it Awake. The server rejects additional taps while an action is active, rechecks privacy immediately before physical execution, and blocks all movement during Meeting/Sleep. **Stop movement** stays available out of band, cancels the active move plus queued work without changing power mode or initiating a new pose, and preserves the voice playback pipeline. The UI is intended only for a trusted LAN/VPN.
+
+The Dashboard is also a Progressive Web App. Android Chrome exposes an **Install app** button when the page is served from a trusted HTTPS origin; the manifest, standalone display mode, icons, root-scoped service worker, and Android shortcuts are bundled with the app. The service worker caches only the static application shell and never intercepts `/api/` requests. On the direct `http://<reachy-address>:8042` LAN URL, use Chrome's **⋮ → Add to Home screen** fallback; robot controls still require a live connection to Reachy. Use a trusted HTTPS reverse proxy or Tailscale HTTPS for Chrome's full native installation prompt.
 
 ## Power and privacy states
 
@@ -295,7 +297,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **57 tests**.
+Current automated suite: **64 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

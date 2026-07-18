@@ -20,7 +20,7 @@ body {
   background: radial-gradient(circle at 20% -10%, #34234d 0, transparent 35%),
               radial-gradient(circle at 100% 20%, #4b251a 0, transparent 30%), var(--bg);
 }
-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 72px; }
+main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: calc(42px + env(safe-area-inset-top)) 0 calc(72px + env(safe-area-inset-bottom)); }
 header { display: flex; align-items: center; gap: 24px; margin-bottom: 28px; }
 .eyebrow, .label { margin: 0 0 7px; color: var(--accent); font-size: .73rem; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
 h1 { margin: 0; font-size: clamp(2.3rem, 8vw, 4.8rem); line-height: .95; letter-spacing: -.055em; }
@@ -41,6 +41,7 @@ h3 { margin: 0 0 12px; font-size: 1rem; }
 .tab-button { min-height: 42px; border-radius: 11px; padding: 0 12px; color: var(--muted); background: transparent; font-weight: 800; }
 .tab-button:hover { color: var(--text); background: #ffffff0b; }
 .tab-button.active { color: var(--text); background: linear-gradient(135deg, #7b61ff55, #ff7a4538); box-shadow: inset 0 0 0 1px #ffffff10; }
+button[aria-pressed="true"] { box-shadow: inset 0 0 0 2px #9a89ff; }
 .tab-panel { animation: panel-in .18s ease-out; }
 form { display: grid; gap: 16px; margin-top: 20px; }
 label { display: grid; gap: 8px; font-size: .9rem; font-weight: 650; }
@@ -75,6 +76,12 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
 .direction-right { grid-area: 2 / 3; }
 .direction-down { grid-area: 3 / 2; }
 .action-status { margin: 10px 0 0; font-size: .85rem; }
+.readiness { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--accent2); border-radius: 8px; color: #d8d2ff; background: #7b61ff16; font-size: .88rem; font-weight: 700; }
+.compact-note { margin: -4px 0 12px; font-size: .82rem; }
+.danger-zone { border-color: #ff5d6c55; }
+.install-card { border-color: #7b61ff66; background: linear-gradient(135deg, #17142aee, #191821e8); }
+.install-card .actions { margin-top: 16px; }
+.install-card details { margin-top: 14px; }
 #robot-action-error { color: #ff8b96; }
 .message { min-height: 1.3em; margin: 12px 0 0; color: var(--muted); }
 .message.ok { color: #55dda8; }
@@ -87,16 +94,18 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
 @keyframes panel-in { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 650px) {
-  main { width: min(100% - 22px, 960px); padding-top: 26px; }
+  main { width: min(100% - 22px, 960px); padding-top: calc(26px + env(safe-area-inset-top)); }
   header { align-items: flex-start; gap: 16px; }
   .orb { width: 68px; height: 68px; }
   .card { padding: 19px; border-radius: 18px; }
-  .tabs { top: 6px; }
+  .tabs { top: calc(6px + env(safe-area-inset-top)); overflow-x: auto; }
   .tab-button { min-height: 44px; padding: 0 8px; font-size: .86rem; }
   .grid-two, .conversation-card, .robot-control-grid { grid-template-columns: 1fr; }
-  .actions:not(.power-actions):not(.robot-actions):not(.left-actions) { flex-direction: column-reverse; }
+  input, select { font-size: 16px; }
+  .actions:not(.power-actions):not(.robot-actions):not(.left-actions) { flex-direction: column; }
   .actions:not(.power-actions):not(.robot-actions):not(.left-actions) button { width: 100%; }
   .power-actions button { flex: 1 1 calc(50% - 12px); }
   .robot-actions button { flex: 1 1 calc(50% - 12px); }
+  #robot-stop-button { position: sticky; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 10; flex-basis: 100%; width: 100%; box-shadow: 0 8px 24px #0008; }
   .section-heading { align-items: flex-start; }
 }

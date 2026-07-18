@@ -1,0 +1,47 @@
+{
+  "id": "/",
+  "name": "Reachy Mini Hermes",
+  "short_name": "Reachy Hermes",
+  "description": "Voice, privacy, and physical control for your embodied Hermes Agent.",
+  "start_url": "/#dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#100d16",
+  "theme_color": "#17121f",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/#dashboard",
+      "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"}]
+    },
+    {
+      "name": "Robot controls",
+      "short_name": "Robot",
+      "url": "/#robot",
+      "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"}]
+    }
+  ]
+}
