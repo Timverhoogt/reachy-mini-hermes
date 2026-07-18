@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reachy_mini_hermes"
-version = "0.1.0"
-description = "Talk to your Hermes Agent through Reachy Mini with the Hey Hermes wake phrase"
+version = "0.2.0"
+description = "Embodied Hermes Agent for Reachy Mini with local wake phrases, voice, tools, and supervised Kids Mode"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -19,7 +19,7 @@ dependencies = [
     "sherpa-onnx>=1.13.4,<2",
     "websockets>=15,<17",
 ]
-keywords = ["reachy-mini-app", "hermes-agent", "voice-assistant", "robotics"]
+keywords = ["reachy-mini-app", "hermes-agent", "voice-assistant", "robotics", "kids-mode"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",

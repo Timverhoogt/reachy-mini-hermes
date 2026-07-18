@@ -2,18 +2,19 @@
 
 ## Goal
 
-Create a public Reachy Mini Python app that wakes on **“Hey Hermes”**, supports natural low-latency conversation, and preserves access to the user's Hermes identity, memory, skills, tools, and Home Assistant environment.
+Ship a public Reachy Mini Python app that wakes locally on **“Hey Hermes”**, **“Okay Nabu”**, or **“Hey Reachy”**, supports low-latency embodied conversation, preserves the user's Hermes identity and tools in normal mode, and provides a separate supervised Kids Mode with materially reduced capabilities.
 
 ## Product principles
 
-- Wake-word processing remains local.
+- Wake-phrase processing remains local; cloud audio starts only after local detection.
 - Provider credentials remain on the Hermes host.
-- Reachy receives one bridge URL and one private bearer token.
-- Ordinary conversation should be fast; tool-using requests may delegate to the full Hermes agent.
-- Cloud audio starts only after wake detection.
-- Voice and power states must be visible and reversible.
-- Motor torque is disabled when physical movement is unnecessary.
-- No LLM receives direct motor-control primitives in v0.1.
+- Reachy stores only a private bridge URL and bearer token.
+- Ordinary conversation stays fast; tool-using normal requests may delegate to Hermes.
+- Kids Mode is a backend-enforced child pipeline, not a visual theme.
+- Camera, private memory, files, messaging, devices, purchases, power, and explicit robot actions are unavailable to the child model.
+- Voice, privacy, child-lock, timer, and physical power states remain visible and reversible.
+- Every torque release is preceded by a verified safe fold when motor power is available.
+- Browser and model actions use allow-listed semantic movement rather than raw motor primitives.
 
 ## Implemented architecture
 
@@ -21,123 +22,143 @@ Create a public Reachy Mini Python app that wakes on **“Hey Hermes”**, suppo
 
 ```text
 Reachy local KWS
-  → private companion WebSocket
+  → authenticated private companion WebSocket
   → OpenAI gpt-realtime-2.1
-      ↳ ask_hermes function
-          → Hermes API Server
-          → memory, tools, Home Assistant, files, current information
-  → streamed audio + Reachy motion
+      ↳ ask_hermes → Hermes memory, tools, Home Assistant, files, current information
+      ↳ one-frame camera request when explicitly enabled
+      ↳ allow-listed local look, emotion, dance, and power-mode tools
+  → streamed audio + serialized Reachy motion
 ```
 
 Implemented:
 
-- OpenAI GA Realtime WebSocket protocol;
-- 24 kHz PCM transport and device-rate resampling;
-- semantic VAD and interruption handling;
-- Marin and Cedar voices;
-- minimal through extra-high reasoning effort;
-- streamed transcript, audio, and status events;
-- `ask_hermes` function-call round trip;
-- on-demand `capture_reachy_camera` tool and Realtime image input;
+- OpenAI GA Realtime protocol with 24 kHz PCM and device-rate resampling;
+- semantic VAD, local playback accounting, queue flushing, and interruption;
+- configurable voice and reasoning effort;
+- completed/deduplicated tool-call handling;
+- optional one-frame vision, local face following, and wake-time DOA;
 - credentials isolated to the Hermes host.
 
-### Pipeline mode
+### Normal Hermes pipeline
 
 ```text
 Reachy local KWS
-  → local endpointing
+  → adaptive local endpointing
   → selected STT
   → Hermes API Server agent
   → selected TTS
-  → Reachy playback + motion
+  → Reachy playback + serialized motion
 ```
 
 Implemented:
 
 - configured and ElevenLabs STT/TTS selection;
 - model and account-voice discovery;
-- configurable Hermes agent routes;
+- stable Hermes memory scope with rotating conversation IDs;
 - continued conversation;
-- wake-phrase interruption during playback;
-- stable memory scope and rotating conversation IDs.
+- playback interruption with any configured local wake phrase.
 
-### Power lifecycle
+### Supervised Kids Mode
 
-Implemented states:
+```text
+Reachy local KWS
+  → adaptive local endpointing
+  → configured STT
+  → authenticated /v1/kids/chat
+      ↳ bounded ephemeral child history
+      ↳ input and complete-output moderation
+      ↳ no normal Hermes session, memory, or tools
+  → authenticated /v1/kids/speech/stream
+      ↳ ElevenLabs Flash v2.5
+      ↳ fixed 24 kHz PCM
+  → interruptible Reachy playback + optional gentle voice-state motion
+```
 
-- **Standby:** local wake processing, motors disabled;
-- **Awake:** local wake processing, motors enabled;
-- **Meeting:** timed microphone stop and motors disabled;
-- **Sleep:** indefinite microphone stop and motors disabled;
-- **App off:** asynchronous clean app stop;
-- **Pi shutdown:** explicit confirmation and graceful local power-off.
+Implemented:
+
+- five activities: Buddy chat, Story maker, Quiz quest, Riddle box, and Calm corner;
+- age bands 4–6, 7–9, and 10–12 in English or Dutch;
+- parent-selected 15/30/45/60-minute sessions with a monotonic authoritative deadline and five-minute warning;
+- 4–8 digit parent PIN stored only as a salted `scrypt` verifier;
+- public transcript, response-preview, nickname, and child-session-ID redaction while locked;
+- camera, robot, agent/delegation, Home Assistant, messaging, files, purchases, and power tools blocked;
+- complete-answer moderation before any child speech starts;
+- fixed-policy Flash streaming, prompt cancellation, queue clearing, parent stop, expiry, safe fold, and torque release.
+
+### Local dashboard and physical lifecycle
+
+Implemented:
+
+- five keyboard-accessible tabs: Dashboard, Kids, Announce, Robot, and Settings;
+- exact-text announcement queue with provider/model/voice overrides and physical behavior policy;
+- bounded manual look, expression, dance, precision Cartesian/head/base controls, live pose, independent centering, and priority Stop;
+- installable Android PWA with synchronized cache versioning;
+- Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown;
+- private Tailscale-compatible HTTPS/WSS camera deployment;
+- serialized movement, privacy rechecks, safe-fold interlocks, and motor/microphone lifecycle management.
 
 ## Current verification status
 
-Automated:
+Automated and packaging:
 
-- Ruff passes.
-- 23 pytest tests pass.
-- Wheel builds successfully.
-- No provider-key prefix is present in repository files.
+- Ruff, Python compilation, JavaScript syntax, and `git diff --check` pass.
+- **123 pytest tests pass** in Reachy's SDK environment.
+- Wheel and source distributions build successfully.
+- Tracked and untracked publication files pass provider-key/token-prefix scanning.
 
-Live bridge:
+Live bridge and cloud providers:
 
-- OpenAI authentication succeeds.
-- `gpt-realtime-2.1` is visible.
-- Realtime `session.created` and `session.updated` succeed.
-- Configured reasoning effort is reflected by the server.
-- Native audio response and `ask_hermes` tool delegation succeed.
-- ElevenLabs TTS and STT round trip succeeds.
+- OpenAI Realtime session creation, audio response, reasoning configuration, and Hermes tool delegation succeed.
+- OpenAI moderation and the dedicated child chat route succeed.
+- ElevenLabs TTS/STT succeed.
+- Kids Flash v2.5 streaming returns fixed 24 kHz PCM; the reference Reachy received its first chunk in approximately 375 ms.
 
 Physical Reachy deployment:
 
-- app installs and starts through the Reachy daemon;
-- settings UI and model/voice discovery work;
-- local camera capture returns a valid bounded JPEG without exposing it through the settings API;
-- microphone frames stop and resume in the correct power modes;
-- motor mode follows Standby/Awake/Meeting/Sleep;
-- app-off exits cleanly and restarts successfully;
-- daemon control loop reports zero errors;
-- status endpoints pass repeated-request soak tests;
-- network test reports zero packet loss.
+- the app installs and starts through the Reachy daemon;
+- the deployed five-tab UI and PWA v18 load without browser-console errors;
+- one supervised Dutch Kids session completed STT, moderated child chat, synthesis, parent stop, safe fold, torque release, and Standby;
+- `Hey Hermes` is verified with live microphone input;
+- `Okay Nabu` and `Hey Reachy` are verified against generated acceptance audio and load in the live three-phrase keyword graph;
+- camera, motor, power, app restart, bridge, daemon, and watchdog checks have passed on the reference Reachy Mini Lite;
+- the green GPIO17 button is electrically verified with one debounced falling edge on press and one rising edge on release. GPIO behavior is not yet integrated into the app.
 
 Human acceptance still required per hardware/audio environment:
 
-- real spoken **“Hey Hermes”** detection;
-- natural Realtime turn-taking;
-- acoustic barge-in while Reachy is speaking;
-- microphone/speaker quality after physical enclosure or cooling changes.
+- real spoken initial-wake checks for all three wake phrases;
+- natural Realtime turn-taking and acoustic interruption at normal room distance;
+- microphone/speaker quality after enclosure, cooling, or wiring changes;
+- caregiver review of Kids Mode outputs appropriate to the intended age and activity.
 
 ## Performance observations
 
-Reference deployment measurements:
-
-| Path | Observed result |
+| Path | Reference observation |
 |---|---:|
 | Native Realtime short response | ~1.2 s |
 | ElevenLabs TTS | ~0.6 s |
+| Kids Flash PCM first chunk | ~0.375 s |
 | ElevenLabs STT | ~1.1 s |
 | Full Hermes pipeline agent request | ~14 s |
 | Realtime request invoking `ask_hermes` | ~23 s in validation |
 
-Hermes pipeline latency is dominated by per-request agent/context preparation rather than STT or TTS. Realtime provides the low-latency conversational path while retaining conditional Hermes delegation.
+These are deployment observations, not service-level guarantees. Hermes pipeline latency is dominated by agent/context preparation; Realtime is the low-latency normal conversational path, while Kids Mode prioritizes moderation and capability reduction before streamed speech.
 
 ## Packaging and release scope
 
-- Package and entry point: `reachy_mini_hermes` / `ReachyMiniHermes`.
+- Package and app entry point: `reachy_mini_hermes` / `ReachyMiniHermes`.
+- Current release line: **0.2.x early alpha**.
 - Reachy settings UI: port `8042`.
 - Companion bridge: port `8643`, loopback by default.
-- Apache-2.0 project license.
-- Publishable through `reachy-mini-app-assistant publish` only after explicit user approval and Hugging Face authentication.
-- Third-party KWS model is downloaded, checksum-verified, and retains its upstream notice.
+- License: Apache-2.0 with retained third-party notices.
+- GitHub is the source/release surface; the Hugging Face static Space is the public app page and mirrored app-discovery repository.
 
 ## Deferred work
 
-- Acoustic echo cancellation tuned for raw WebSocket Realtime audio.
-- Camera frames and robot-specific Hermes tools.
-- Local offline STT/TTS fallback on Reachy Wireless.
-- Per-user wake-model personalization.
-- Authenticated/TLS Reachy settings server for untrusted networks.
-- Route-specific warm Hermes agent reuse with session serialization, cache signatures, lifecycle controls, and usage accounting.
-- Broader simulated robot integration tests beyond the current unit and live hardware checks.
+- Integrate the green/red Raspberry Pi buttons through `libgpiod` with pull-ups, debounce, short/long-press semantics, startup ownership, and safe failure behavior.
+- Persist parent lock/session recovery policy across process restarts if the deployment requires crash continuity.
+- Add phrase-specific real-room acoustic acceptance recordings and tune per-keyword score/threshold only from measured false-positive/false-negative data.
+- Downgrade empty STT/silence from an error to a normal no-speech turn.
+- Replace the raw watchdog TCP media probe with a WebSocket-aware check to remove benign handshake warnings.
+- Add local offline STT/TTS fallback for deployments that require operation without cloud providers.
+- Add route-specific warm Hermes-agent reuse with session serialization, cache signatures, lifecycle controls, and usage accounting.
+- Expand simulated robot integration tests and establish a reproducible CI environment for Reachy SDK/GStreamer imports.

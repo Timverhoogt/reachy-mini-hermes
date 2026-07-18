@@ -7,6 +7,7 @@ import logging
 import math
 import queue
 import re
+import secrets
 import tempfile
 import threading
 import time
@@ -27,6 +28,7 @@ from .audio import (
 )
 from .config import AppConfig, load_config
 from .hermes_client import HermesBridgeClient, HermesBridgeError, SpeechAudio
+from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
 from .robot_tools import (
@@ -43,13 +45,15 @@ _MEDIA_TAG = re.compile(r"(?m)^\s*(?:\[\[audio_as_voice\]\]\s*)?MEDIA:\S+\s*$")
 _MARKDOWN = re.compile(r"[`*_#>|]+")
 _ANNOUNCEMENT_BEHAVIORS = frozenset({"voice_only", "wake_and_return", "wake_and_stay"})
 _ANNOUNCEMENT_QUEUE_LIMIT = 20
+_WAKE_PHRASES_TEXT = "Hey Hermes · Okay Nabu · Hey Reachy"
+_WAKE_PROMPT = "Say “Hey Hermes”, “Okay Nabu”, or “Hey Reachy”"
 
 
 @dataclass(slots=True)
 class RuntimeStatus:
     state: str = "starting"
     detail: str = ""
-    wake_word: str = "Hey Hermes"
+    wake_word: str = _WAKE_PHRASES_TEXT
     transcript: str = ""
     response_preview: str = ""
     last_error: str = ""
@@ -260,6 +264,18 @@ class HermesVoiceRuntime:
         self._announcement_playing = threading.Event()
         self._announcement_worker: threading.Thread | None = None
         self._audio_ready = False
+        self._kids_lock = threading.RLock()
+        self._kids_active = False
+        self._kids_locked = False
+        self._kids_profile: KidsProfile | None = None
+        self._kids_started_at = 0.0
+        self._kids_ends_at = 0.0
+        self._kids_session_id = ""
+        self._kids_turns_at_start = 0
+        self._kids_timer: threading.Timer | None = None
+        self._kids_warning_timer: threading.Timer | None = None
+        self._kids_generation = 0
+        self._kids_last_end_reason = ""
 
     def set_power_mode(
         self,
@@ -486,7 +502,7 @@ class HermesVoiceRuntime:
                 return
             self._set_status(
                 "waiting_for_wake_word",
-                "Say “Hey Hermes”",
+                _WAKE_PROMPT,
                 power_mode=mode,
                 meeting_seconds_remaining=0,
                 last_error="",
@@ -499,7 +515,195 @@ class HermesVoiceRuntime:
         payload["motors_enabled"] = self._motors_enabled
         payload["head_safely_folded"] = self._head_safely_folded
         payload["announcement_queue_depth"] = self._announcement_queue.qsize()
+        with self._kids_lock:
+            remaining = max(0, int(self._kids_ends_at - time.monotonic())) if self._kids_active else 0
+            payload["kids_mode"] = {
+                "active": self._kids_active,
+                "locked": self._kids_locked,
+                "remaining_seconds": remaining,
+                "profile": self._kids_profile.public_dict() if self._kids_profile else None,
+                "turns_completed": (
+                    max(0, int(payload["turns_completed"]) - self._kids_turns_at_start)
+                    if self._kids_active
+                    else 0
+                ),
+                "last_end_reason": self._kids_last_end_reason,
+                "tool_policy": (
+                    "voice-state-motion-only"
+                    if self._kids_active and self._kids_profile and self._kids_profile.motion_enabled
+                    else "no-tools"
+                ),
+                "camera_enabled": False,
+            }
+            if self._kids_locked:
+                payload["transcript"] = ""
+                payload["response_preview"] = ""
         return payload
+
+    @property
+    def kids_controls_locked(self) -> bool:
+        with self._kids_lock:
+            return self._kids_locked
+
+    def unlock_kids_controls(self) -> dict[str, object]:
+        """Release the child-facing UI lock after parent authentication."""
+        with self._kids_lock:
+            if self._kids_active:
+                raise RuntimeError("End the active Kids Mode session before unlocking parent controls")
+            self._kids_locked = False
+            self._kids_profile = None
+        with self._status_lock:
+            self._status.transcript = ""
+            self._status.response_preview = ""
+        return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
+
+    def start_kids_mode(self, profile: KidsProfile, *, greet: bool = True) -> dict[str, object]:
+        """Start one time-bounded, camera-free, private-tool-free Realtime session."""
+        if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
+            raise RuntimeError("Kids Mode is blocked in Meeting and Sleep")
+        if not self._audio_ready:
+            raise RuntimeError("Kids Mode audio is not ready")
+        with self._kids_lock:
+            previous = self._kids_timer
+            previous_warning = self._kids_warning_timer
+            if previous is not None:
+                previous.cancel()
+            if previous_warning is not None:
+                previous_warning.cancel()
+            self._kids_generation += 1
+            generation = self._kids_generation
+            self._kids_active = True
+            self._kids_locked = True
+            self._kids_profile = profile
+            self._kids_started_at = time.monotonic()
+            self._kids_ends_at = self._kids_started_at + profile.duration_minutes * 60.0
+            self._kids_session_id = "kids-" + secrets.token_urlsafe(18)
+            with self._status_lock:
+                self._kids_turns_at_start = self._status.turns_completed
+            self._kids_last_end_reason = ""
+            timer = threading.Timer(profile.duration_minutes * 60.0, self._expire_kids_mode, args=(generation,))
+            timer.daemon = True
+            self._kids_timer = timer
+            warning = threading.Timer(
+                max(1.0, profile.duration_minutes * 60.0 - 300.0),
+                self._warn_kids_mode,
+                args=(generation,),
+            )
+            warning.daemon = True
+            self._kids_warning_timer = warning
+            timer.start()
+            warning.start()
+        self._conversation_stop_requested.set()
+        with self._status_lock:
+            self._status.transcript = ""
+            self._status.response_preview = ""
+        if self._motion is not None:
+            self._motion.enabled = profile.motion_enabled
+        if greet:
+            try:
+                self.queue_announcement(
+                    kids_greeting(profile),
+                    behavior="wake_and_stay",
+                    provider="elevenlabs",
+                    model="eleven_flash_v2_5",
+                    voice="cgSgspJ2msm6clMCkdW9",
+                )
+            except Exception:
+                self.stop_kids_mode(reason="start_failed", fold=False)
+                raise
+        _LOGGER.info(
+            "Kids Mode started (age=%s activity=%s duration=%sm motion=%s)",
+            profile.age_band,
+            profile.activity,
+            profile.duration_minutes,
+            profile.motion_enabled,
+        )
+        return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
+
+    def _warn_kids_mode(self, generation: int) -> None:
+        with self._kids_lock:
+            if not self._kids_active or generation != self._kids_generation:
+                return
+        try:
+            self._conversation_stop_requested.set()
+            self._clear_streamed_audio()
+            self.queue_announcement(
+                text="Five minutes left in Kids Mode. Let's finish this activity soon.",
+                repeat=1,
+                pause_seconds=0.0,
+                behavior="voice_only",
+                provider="elevenlabs",
+                model="eleven_flash_v2_5",
+                voice="cgSgspJ2msm6clMCkdW9",
+            )
+        except Exception:
+            _LOGGER.exception("Could not play the Kids Mode five-minute warning")
+
+    def _expire_kids_mode(self, generation: int) -> None:
+        with self._kids_lock:
+            if not self._kids_active or generation != self._kids_generation:
+                return
+        try:
+            self.stop_kids_mode(reason="time_limit", fold=True)
+        except Exception:
+            _LOGGER.exception("Kids Mode expiry could not complete the safe fold")
+
+    def stop_kids_mode(self, *, reason: str = "parent", fold: bool = True) -> dict[str, object]:
+        """End Kids Mode immediately, cancel its voice/motion, and optionally fold safely."""
+        with self._kids_lock:
+            was_active = self._kids_active
+            timer, self._kids_timer = self._kids_timer, None
+            warning, self._kids_warning_timer = self._kids_warning_timer, None
+            if timer is not None and timer is not threading.current_thread():
+                timer.cancel()
+            if warning is not None and warning is not threading.current_thread():
+                warning.cancel()
+            self._kids_generation += 1
+            self._kids_active = False
+            self._kids_ends_at = 0.0
+            self._kids_session_id = ""
+            self._kids_last_end_reason = reason[:40]
+        self._conversation_stop_requested.set()
+        self._cancel_announcements(clear_queue=True)
+        self._clear_streamed_audio()
+        with self._status_lock:
+            self._status.transcript = ""
+            self._status.response_preview = ""
+        if self._motion is not None:
+            try:
+                self._motion.enabled = self.config_loader().motion_enabled
+            except Exception:
+                self._motion.enabled = False
+        if self._actions is not None:
+            self._actions.cancel(stop_media=False)
+        if fold and self._effective_power_mode() not in {"meeting", "sleep"}:
+            self.set_power_mode("standby", cancel_announcements=False)
+        _LOGGER.info("Kids Mode ended (reason=%s, was_active=%s)", reason, was_active)
+        return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
+
+    def _kids_voice_config(self, base: AppConfig) -> AppConfig:
+        with self._kids_lock:
+            if not self._kids_active or self._kids_profile is None:
+                return base
+            profile = self._kids_profile
+            remaining = max(30.0, self._kids_ends_at - time.monotonic())
+        return replace(
+            base,
+            conversation_mode="pipeline",
+            kids_mode_enabled=True,
+            kids_session_id=self._kids_session_id,
+            language=profile.language,
+            system_prompt=build_kids_prompt(profile),
+            continuous_conversation=True,
+            conversation_timeout_seconds=min(base.conversation_timeout_seconds, remaining),
+            camera_enabled=False,
+            camera_feed_enabled=False,
+            face_tracking_enabled=False,
+            doa_enabled=False,
+            robot_tools_enabled=False,
+            agent_tools_enabled=False,
+            power_tools_enabled=False,
+        )
 
     def queue_announcement(
         self,
@@ -600,6 +804,9 @@ class HermesVoiceRuntime:
     def queue_manual_robot_action(self, action: str, value: str) -> dict[str, object]:
         """Queue one allow-listed UI action only after a serialized, confirmed wake."""
         name, arguments = manual_robot_action(action, value)
+        with self._kids_lock:
+            if self._kids_active:
+                raise RuntimeError("Manual robot controls are blocked while Kids Mode is active")
         with self._motor_transition_lock:
             mode = self._effective_power_mode()
             if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
@@ -667,6 +874,9 @@ class HermesVoiceRuntime:
 
     def queue_precision_robot_action(self, axis: str, delta: float) -> dict[str, object]:
         """Queue one bounded Cartesian nudge after confirmed motor wake."""
+        with self._kids_lock:
+            if self._kids_active:
+                raise RuntimeError("Precision robot controls are blocked while Kids Mode is active")
         with self._motor_transition_lock:
             mode = self._effective_power_mode()
             if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
@@ -728,6 +938,9 @@ class HermesVoiceRuntime:
         return {"bytes": len(jpeg), "content_type": "image/jpeg"}
 
     def _assert_camera_allowed(self) -> None:
+        with self._kids_lock:
+            if self._kids_active:
+                raise RuntimeError("Camera capture is blocked while Kids Mode is active")
         if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
             raise RuntimeError("Camera capture is blocked in the current privacy mode")
 
@@ -873,7 +1086,7 @@ class HermesVoiceRuntime:
                     setattr(self._status, key, value)
 
     def run(self) -> None:
-        self._set_status("starting", "Preparing the Hey Hermes wake-word model")
+        self._set_status("starting", "Preparing the local wake-word model")
         config = self.config_loader()
         self._motion = VoiceMotion(self.robot, enabled=config.motion_enabled)
         self._actions = ReachyRobotActions(
@@ -923,6 +1136,11 @@ class HermesVoiceRuntime:
             self._listen_for_wake_word()
         finally:
             self._set_status("stopping")
+            with self._kids_lock:
+                kids_timer, self._kids_timer = self._kids_timer, None
+                self._kids_active = False
+            if kids_timer is not None:
+                kids_timer.cancel()
             self._audio_ready = False
             self._cancel_announcements(clear_queue=True)
             worker = self._announcement_worker
@@ -977,7 +1195,7 @@ class HermesVoiceRuntime:
         assert self._spotter is not None
         while not self.stop_event.is_set():
             try:
-                config = self.config_loader()
+                config = self._kids_voice_config(self.config_loader())
             except Exception as exc:
                 self._set_status("configuration_error", str(exc), last_error=str(exc))
                 self.stop_event.wait(1.0)
@@ -1014,7 +1232,7 @@ class HermesVoiceRuntime:
                 self.stop_event.wait(1.0)
                 continue
 
-            detail = "Local wake detection only" if mode == "standby" else "Say “Hey Hermes”"
+            detail = "Local wake detection only" if mode == "standby" else _WAKE_PROMPT
             self._set_status("waiting_for_wake_word", detail)
             frame = self._read_16k_frame()
             if frame is None:
@@ -1235,7 +1453,13 @@ class HermesVoiceRuntime:
                     power_call = completed_power_mode_call(kind, payload)
                     if power_call is not None and power_call.call_id not in handled_power_call_ids:
                         handled_power_call_ids.add(power_call.call_id)
-                        self._handle_power_mode_call(session, power_call)
+                        if config.power_tools_enabled:
+                            self._handle_power_mode_call(session, power_call)
+                        else:
+                            session.send_tool_result(
+                                power_call.call_id,
+                                {"ok": False, "error": "Power tools are disabled for this session"},
+                            )
                     elif camera_call_id and camera_call_id not in handled_camera_call_ids:
                         handled_camera_call_ids.add(camera_call_id)
                         self._set_status("looking", "Capturing one on-demand camera frame")
@@ -1556,9 +1780,13 @@ class HermesVoiceRuntime:
                     self._motion.thinking()
                 self._set_status("transcribing", "Command received; transcribing")
                 transcript = client.transcribe(encode_wav(endpoint.samples, 16000))
-                if self._effective_power_mode() in {"meeting", "sleep"}:
+                if (
+                    self._conversation_stop_requested.is_set()
+                    or self._privacy_requested.is_set()
+                    or self._effective_power_mode() in {"meeting", "sleep"}
+                ):
                     break
-                _LOGGER.info("Transcript: %s", transcript)
+                _LOGGER.info("Transcript accepted (%s characters)", len(transcript))
                 self._set_status(
                     "thinking",
                     "Hermes is working",
@@ -1567,7 +1795,11 @@ class HermesVoiceRuntime:
                 )
 
                 response_text = client.chat(transcript)
-                if self._effective_power_mode() in {"meeting", "sleep"}:
+                if (
+                    self._conversation_stop_requested.is_set()
+                    or self._privacy_requested.is_set()
+                    or self._effective_power_mode() in {"meeting", "sleep"}
+                ):
                     break
                 spoken_text = self._speech_friendly(response_text)
                 self._set_status(
@@ -1575,12 +1807,50 @@ class HermesVoiceRuntime:
                     "Generating speech",
                     response_preview=response_text[:240],
                 )
-                speech = client.synthesize(spoken_text)
-                if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
-                    break
-                self._set_status("speaking", "Reachy is speaking", tts_provider=speech.provider)
-                interrupted = self._play_response(speech, spoken_text, barge_in=config.barge_in_enabled)
-                if self._effective_power_mode() in {"meeting", "sleep"}:
+                if client.config.kids_mode_enabled:
+                    try:
+                        self._set_status(
+                            "speaking",
+                            "Streaming ElevenLabs Flash speech",
+                            tts_provider="elevenlabs-flash-stream",
+                        )
+                        interrupted = self._play_kids_stream(
+                            client,
+                            spoken_text,
+                            barge_in=config.barge_in_enabled,
+                        )
+                    except HermesBridgeError:
+                        _LOGGER.warning(
+                            "Kids low-latency speech stream failed; using configured TTS fallback",
+                            exc_info=True,
+                        )
+                        self._clear_streamed_audio()
+                        speech = client.synthesize(spoken_text)
+                        self._set_status(
+                            "speaking",
+                            "Reachy is speaking with fallback audio",
+                            tts_provider=speech.provider,
+                        )
+                        interrupted = self._play_response(
+                            speech,
+                            spoken_text,
+                            barge_in=config.barge_in_enabled,
+                        )
+                else:
+                    speech = client.synthesize(spoken_text)
+                    if (
+                        self._conversation_stop_requested.is_set()
+                        or self._privacy_requested.is_set()
+                        or self._effective_power_mode() in {"meeting", "sleep"}
+                    ):
+                        break
+                    self._set_status("speaking", "Reachy is speaking", tts_provider=speech.provider)
+                    interrupted = self._play_response(
+                        speech,
+                        spoken_text,
+                        barge_in=config.barge_in_enabled,
+                    )
+                if self._conversation_stop_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
                     break
                 with self._status_lock:
                     self._status.turns_completed += 1
@@ -1642,8 +1912,97 @@ class HermesVoiceRuntime:
         if self._motion is not None:
             self._motion.error()
 
+    def _play_kids_stream(
+        self,
+        client: HermesBridgeClient,
+        text: str,
+        *,
+        barge_in: bool = True,
+    ) -> bool:
+        """Push ElevenLabs Flash PCM to Reachy as soon as the first bytes arrive."""
+        if (
+            self._conversation_stop_requested.is_set()
+            or self._privacy_requested.is_set()
+            or self._effective_power_mode() in {"meeting", "sleep"}
+        ):
+            return False
+        if self._motion is not None:
+            self._motion.speaking()
+        if self._spotter is not None:
+            self._spotter.reset()
+
+        first_audio_at: float | None = None
+        queued_samples = 0
+        remainder = b""
+        try:
+            for chunk in client.iter_kids_speech(text):
+                if (
+                    self.stop_event.is_set()
+                    or self._conversation_stop_requested.is_set()
+                    or self._privacy_requested.is_set()
+                    or self._effective_power_mode() in {"meeting", "sleep"}
+                ):
+                    self._clear_streamed_audio()
+                    return False
+                raw = remainder + chunk
+                usable = len(raw) - (len(raw) % 2)
+                remainder = raw[usable:]
+                if not usable:
+                    continue
+                audio = np.frombuffer(raw[:usable], dtype="<i2").astype(np.float32) / 32768.0
+                output = resample_linear(audio, 24000, self._output_sample_rate)
+                if not output.size:
+                    continue
+                if first_audio_at is None:
+                    first_audio_at = time.monotonic()
+                queued_samples += int(output.size)
+                if queued_samples > self._output_sample_rate * 120:
+                    raise HermesBridgeError("Kids Mode streaming speech exceeded the playback limit")
+                self.robot.media.push_audio_sample(output)
+        except Exception:
+            self._clear_streamed_audio()
+            raise
+
+        if first_audio_at is None or queued_samples == 0:
+            raise HermesBridgeError("Kids Mode streaming speech returned no playable audio")
+        _LOGGER.info(
+            "Kids streaming speech queued %.2fs of PCM using %s",
+            queued_samples / self._output_sample_rate,
+            client.last_tts_provider,
+        )
+        deadline = first_audio_at + queued_samples / self._output_sample_rate + 0.15
+        interrupted = False
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            if (
+                self._conversation_stop_requested.is_set()
+                or self._privacy_requested.is_set()
+                or self._effective_power_mode() in {"meeting", "sleep"}
+            ):
+                self._clear_streamed_audio()
+                break
+            if not barge_in or self._spotter is None:
+                time.sleep(0.02)
+                continue
+            frame = self._read_16k_frame()
+            if frame is None:
+                continue
+            keyword = self._spotter.accept(frame, 16000)
+            if not keyword:
+                continue
+            interrupted = True
+            self._clear_streamed_audio()
+            self._spotter.reset()
+            with self._status_lock:
+                self._status.interruptions += 1
+            self._set_status("listening", "Response interrupted; listening")
+            if self._motion is not None:
+                self._motion.listening()
+            _LOGGER.info("Streaming playback interrupted by local wake phrase: %s", keyword)
+            break
+        return interrupted
+
     def _play_response(self, speech: SpeechAudio, text: str, *, barge_in: bool = True) -> bool:
-        """Play a response and allow a local “Hey Hermes” barge-in.
+        """Play a response and allow a local wake-phrase barge-in.
 
         Pipeline mode cannot safely use open-mic RMS detection because Reachy's
         speaker is audible to its microphone. Reusing the local wake spotter
@@ -1655,7 +2014,11 @@ class HermesVoiceRuntime:
             path = Path(output.name)
         interrupted = False
         try:
-            if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            if (
+                self._conversation_stop_requested.is_set()
+                or self._privacy_requested.is_set()
+                or self._effective_power_mode() in {"meeting", "sleep"}
+            ):
                 return False
             duration = self._audio_duration(path, fallback_text=text)
             self._set_status("speaking", "Hermes is speaking")
@@ -1666,7 +2029,8 @@ class HermesVoiceRuntime:
             self.robot.media.play_sound(str(path))
             deadline = time.monotonic() + duration + 0.15
             while time.monotonic() < deadline and not self.stop_event.is_set():
-                if self._effective_power_mode() in {"meeting", "sleep"}:
+                if self._conversation_stop_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                    self._clear_streamed_audio()
                     break
                 if not barge_in or self._spotter is None:
                     time.sleep(0.02)

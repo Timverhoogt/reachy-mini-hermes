@@ -19,6 +19,16 @@ let lastMotorAnnouncement = "";
 let deferredInstallPrompt = null;
 let announcementRequestPending = false;
 let lastAnnouncementLiveText = "";
+let kidsRequestPending = false;
+let selectedKidsActivity = "buddy";
+
+const kidsActivityLabels = {
+  buddy: "Buddy chat",
+  story: "Story maker",
+  quiz: "Quiz quest",
+  riddles: "Riddle box",
+  calm: "Calm corner",
+};
 
 const announcementText = $("announcement-text");
 announcementText.value = window.sessionStorage.getItem("reachy-hermes-announcement-draft") || "";
@@ -28,6 +38,28 @@ document.querySelectorAll(".manual-control, [data-power]").forEach((button) => {
 $("emotion-select").disabled = true;
 $("announcement-send").disabled = true;
 $("announcement-stop").disabled = true;
+$("kids-start-button").disabled = true;
+$("kids-stop-button").disabled = true;
+$("kids-pin-setup-button").disabled = true;
+$("kids-parent-unlock-button").disabled = true;
+
+try {
+  const savedKidsProfile = JSON.parse(window.localStorage.getItem("reachy-hermes-kids-profile") || "{}");
+  if (kidsActivityLabels[savedKidsProfile.activity]) selectedKidsActivity = savedKidsProfile.activity;
+  if (typeof savedKidsProfile.nickname === "string") $("kids-nickname").value = savedKidsProfile.nickname.slice(0, 32);
+  if (["4-6", "7-9", "10-12"].includes(savedKidsProfile.age_band)) $("kids-age-band").value = savedKidsProfile.age_band;
+  if ([15, 30, 45, 60].includes(Number(savedKidsProfile.duration_minutes))) $("kids-duration").value = String(savedKidsProfile.duration_minutes);
+  if (["en", "nl"].includes(savedKidsProfile.language)) $("kids-language").value = savedKidsProfile.language;
+  if (typeof savedKidsProfile.motion_enabled === "boolean") $("kids-motion-enabled").checked = savedKidsProfile.motion_enabled;
+} catch (error) {
+  window.localStorage.removeItem("reachy-hermes-kids-profile");
+}
+document.querySelectorAll("[data-kids-activity]").forEach((button) => {
+  const selected = button.dataset.kidsActivity === selectedKidsActivity;
+  button.classList.toggle("selected", selected);
+  button.setAttribute("aria-checked", String(selected));
+});
+$("kids-activity-badge").textContent = kidsActivityLabels[selectedKidsActivity];
 
 function activateTab(name, focus = false, recordHistory = false) {
   const target = document.querySelector(`[data-tab="${name}"]`) || document.querySelector("[data-tab]");
@@ -181,11 +213,15 @@ function updateStatus(payload) {
   $("last-response").textContent = runtime.response_preview || "—";
   const powerMode = runtime.power_mode || "unknown";
   currentPowerMode = powerMode;
+  const kidsMode = runtime.kids_mode || {};
+  const kidsActive = Boolean(kidsMode.active);
+  const kidsLocked = Boolean(kidsMode.locked);
+  const kidsPinConfigured = Boolean(payload.config?.kids_parent_pin_configured);
   const robotBusy = Boolean(runtime.robot_action_busy);
   const motorsEnabled = runtime.motors_enabled;
   const headSafelyFolded = Boolean(runtime.head_safely_folded);
   const controlsBlocked = ["meeting", "sleep"].includes(powerMode)
-    || robotBusy || manualActionPending || powerTransitionPending;
+    || kidsActive || robotBusy || manualActionPending || powerTransitionPending;
   $("power-mode-badge").textContent = powerMode;
   $("robot-mode-badge").textContent = robotBusy ? "moving" : powerMode;
   const robotActionLabels = {
@@ -240,7 +276,7 @@ function updateStatus(payload) {
   }
   document.querySelectorAll("[data-power]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.power === powerMode));
-    button.disabled = powerTransitionPending || manualActionPending;
+    button.disabled = kidsActive || powerTransitionPending || manualActionPending;
   });
   if (!robotBusy) refreshRobotPose();
   const dot = $("status-dot");
@@ -249,8 +285,47 @@ function updateStatus(payload) {
   if (["error", "configuration_error"].includes(state)) dot.classList.add("error");
   fillConfig(payload.config);
   currentConfig = payload.config || currentConfig;
+  const kidsProfile = kidsMode.profile || {};
+  const remainingSeconds = Math.max(0, Number(kidsMode.remaining_seconds || 0));
+  const totalSeconds = Math.max(1, Number(kidsProfile.duration_minutes || 1) * 60);
+  const remainingPercent = kidsActive ? Math.max(0, Math.min(100, (remainingSeconds / totalSeconds) * 100)) : 0;
+  const remainingMinutes = Math.floor(remainingSeconds / 60);
+  const remainingRemainder = remainingSeconds % 60;
+  $("kids-status-badge").textContent = kidsActive ? "Active" : "Off";
+  $("kids-status-badge").classList.toggle("active", kidsActive);
+  $("kids-timer").textContent = kidsActive
+    ? `${remainingMinutes}:${String(remainingRemainder).padStart(2, "0")} remaining`
+    : kidsMode.last_end_reason === "time_limit"
+      ? "Time is up · Reachy folded safely"
+      : "Choose an activity below";
+  $("kids-progress-bar").style.width = `${remainingPercent}%`;
+  const progress = document.querySelector(".kids-progress");
+  progress.setAttribute("aria-valuenow", String(Math.round(remainingPercent)));
+  $("kids-session-detail").textContent = kidsActive
+    ? `${kidsActivityLabels[kidsProfile.activity] || "Kids activity"} · age ${kidsProfile.age_band} · ${kidsMode.turns_completed || 0} completed turn${kidsMode.turns_completed === 1 ? "" : "s"} · ${kidsMode.tool_policy === "voice-state-motion-only" ? "gentle voice-state motion only" : "no tools"}`
+    : "Camera, personal Hermes memory, smart-home control, messaging, purchases, and power controls are unavailable to the child session.";
+  $("kids-start-button").disabled = kidsActive || kidsLocked || !kidsPinConfigured || kidsRequestPending || ["meeting", "sleep"].includes(powerMode);
+  $("kids-stop-button").disabled = !kidsActive || kidsRequestPending;
+  $("kids-pin-setup-button").hidden = kidsPinConfigured || kidsLocked;
+  $("kids-pin-setup-button").disabled = kidsRequestPending;
+  $("kids-parent-unlock-button").hidden = !kidsLocked;
+  $("kids-parent-unlock-button").disabled = kidsRequestPending;
+  $("kids-pin-help").textContent = kidsLocked
+    ? "Child lock is active. Enter the parent PIN to end any session and restore management controls."
+    : kidsPinConfigured
+      ? "Parent PIN configured. Enter it to start Kids Mode; the PIN is never stored in this browser."
+      : "Create a PIN before the first session. Only a salted scrypt verifier is stored on Reachy.";
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    button.hidden = kidsLocked && button.dataset.tab !== "kids";
+  });
+  if (kidsLocked && document.querySelector('[data-tab="kids"]')?.getAttribute("aria-selected") !== "true") {
+    activateTab("kids");
+  }
+  document.querySelectorAll("[data-kids-activity], #kids-nickname, #kids-age-band, #kids-duration, #kids-language, #kids-motion-enabled").forEach((control) => {
+    control.disabled = kidsActive || kidsRequestPending;
+  });
   window.ReachyCamera?.setPolicy({
-    enabled: Boolean(payload.config?.camera_feed_enabled),
+    enabled: !kidsActive && Boolean(payload.config?.camera_feed_enabled),
     powerMode,
   });
   const announcementBusy = Boolean(runtime.announcement_busy);
@@ -420,6 +495,11 @@ async function refreshStatus() {
     $("announcement-send").disabled = true;
     $("announcement-stop").disabled = true;
     $("announcement-badge").textContent = "Offline";
+    $("kids-start-button").disabled = true;
+    $("kids-stop-button").disabled = true;
+    $("kids-status-badge").textContent = "Offline";
+    $("kids-pin-setup-button").disabled = true;
+    $("kids-parent-unlock-button").disabled = true;
   } finally {
     statusRefreshPending = false;
   }
@@ -477,6 +557,132 @@ $("test-button").addEventListener("click", async () => {
     setMessage(String(error), "error");
   } finally {
     button.disabled = false;
+  }
+});
+
+document.querySelectorAll("[data-kids-activity]").forEach((button) => {
+  button.addEventListener("click", () => {
+    selectedKidsActivity = button.dataset.kidsActivity;
+    document.querySelectorAll("[data-kids-activity]").forEach((candidate) => {
+      const selected = candidate === button;
+      candidate.classList.toggle("selected", selected);
+      candidate.setAttribute("aria-checked", String(selected));
+    });
+    $("kids-activity-badge").textContent = kidsActivityLabels[selectedKidsActivity];
+  });
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const buttons = [...document.querySelectorAll("[data-kids-activity]")];
+    const offset = ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1;
+    buttons[(buttons.indexOf(button) + offset + buttons.length) % buttons.length].focus();
+    buttons[(buttons.indexOf(button) + offset + buttons.length) % buttons.length].click();
+  });
+});
+
+function kidsProfileFromForm() {
+  return {
+    nickname: $("kids-nickname").value.trim(),
+    age_band: $("kids-age-band").value,
+    activity: selectedKidsActivity,
+    language: $("kids-language").value,
+    duration_minutes: Number($("kids-duration").value),
+    motion_enabled: $("kids-motion-enabled").checked,
+  };
+}
+
+async function submitKidsPin(path, successText) {
+  const parentPin = $("kids-parent-pin").value;
+  const message = $("kids-message");
+  if (!/^[0-9]{4,8}$/.test(parentPin)) {
+    message.textContent = "Enter a 4–8 digit parent PIN.";
+    message.className = "message error";
+    $("kids-parent-pin").focus();
+    return;
+  }
+  kidsRequestPending = true;
+  message.textContent = "Checking parent PIN…";
+  message.className = "message";
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent_pin: parentPin }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = successText;
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    $("kids-parent-pin").value = "";
+    kidsRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+$("kids-pin-setup-button").addEventListener("click", () => {
+  submitKidsPin("/api/kids/parent/setup", "Parent PIN configured. Enter it again when starting Kids Mode.");
+});
+
+$("kids-parent-unlock-button").addEventListener("click", () => {
+  submitKidsPin("/api/kids/parent/unlock", "Parent controls unlocked.");
+});
+
+$("kids-start-button").addEventListener("click", async () => {
+  const profile = kidsProfileFromForm();
+  const parentPin = $("kids-parent-pin").value;
+  const message = $("kids-message");
+  if (!/^[0-9]{4,8}$/.test(parentPin)) {
+    message.textContent = "Enter the 4–8 digit parent PIN first.";
+    message.className = "message error";
+    $("kids-parent-pin").focus();
+    return;
+  }
+  kidsRequestPending = true;
+  window.localStorage.setItem("reachy-hermes-kids-profile", JSON.stringify(profile));
+  message.textContent = "Starting the private, time-boxed child session…";
+  message.className = "message";
+  if (window.ReachyCamera?.isActive()) window.ReachyCamera.stop("Camera stopped before Kids Mode.");
+  try {
+    const response = await fetch("/api/kids/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...profile, parent_pin: parentPin }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = "Kids Mode is active. Reachy is giving the child-safe greeting now.";
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    $("kids-parent-pin").value = "";
+    kidsRequestPending = false;
+    await refreshStatus();
+  }
+});
+
+$("kids-stop-button").addEventListener("click", async () => {
+  const message = $("kids-message");
+  kidsRequestPending = true;
+  message.textContent = "Ending voice and motion, then folding Reachy safely…";
+  message.className = "message";
+  try {
+    const response = await fetch("/api/kids/stop", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = "Kids Mode ended. Reachy is safely folded in Standby.";
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    kidsRequestPending = false;
+    await refreshStatus();
   }
 });
 

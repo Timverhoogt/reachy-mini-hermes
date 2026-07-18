@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-18
+
 ### Added
 
 - Dual conversation modes: configurable Hermes pipeline and OpenAI `gpt-realtime-2.1` speech-to-speech.
@@ -14,10 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ask_hermes` function delegation for persistent memory, current information, Home Assistant, files, and consequential actions.
 - ElevenLabs Scribe and TTS provider/model selection with account voice discovery.
 - Pipeline interruption by repeating **“Hey Hermes”** during playback.
+- Additional local **“Okay Nabu”** and **“Hey Reachy”** wake phrases, available for initial wake and pipeline playback interruption.
 - Realtime natural interruption and streamed-output flushing.
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.
 - Motor torque and microphone lifecycle management for privacy/power states.
-- Tabbed settings UI with Dashboard, Announce, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
+- Tabbed settings UI with Dashboard, Kids, Announce, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
+- Supervised Kids Mode with five activity profiles, 4–12 age bands, English/Dutch speech, 15–60 minute monotonic server sessions, salted `scrypt` parent-PIN controls, status/transcript redaction, automatic safe folding, optional gentle voice-state motion, and a dedicated moderated child pipeline with no camera, normal Hermes memory, files, messaging, devices, purchases, power tools, or explicit robot actions.
+- Kids-only ElevenLabs Flash v2.5 low-latency speech streaming with fixed 24 kHz PCM, private bridge credentials, immediate chunk playback, and configured-TTS fallback.
 - Full announcement console with exact-text TTS, provider/model/voice overrides, quick templates, repeat/pause controls, a bounded serialized queue, independent Stop/clear, session-scoped browser draft preservation, and voice-only, wake-and-return, or stay-awake behavior.
 - Manual semantic robot controls now include live Cartesian pose readout and bounded 1/2.5/5/10-unit precision steps for X/Y/Z translation, head roll/pitch/yaw, rotating-base yaw, and independent head/base/all centering, alongside confirmed motor/fold state, safe wake/fold power actions, nine-way head direction, curated expressions, dances, and cooperative movement cancellation.
 - Priority Stop behavior, privacy revalidation at execution time, busy-request rejection, persistent action state, and mobile-safe controls prevent delayed or post-privacy motion. Precision motion uses app-owned 50 Hz interpolation so Stop/Meeting/Sleep can cancel both head and base movement; folding now waits for action-worker idle and re-verifies the physical sleep pose before torque release.
@@ -39,13 +44,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Reachy starts in Standby with motor torque disabled while local wake processing remains active.
 - Provider secrets remain on the Hermes host; Reachy receives only a private bridge bearer token.
-- Companion health output reports Realtime availability and model.
+- Companion health output reports Realtime, moderated Kids chat, and Kids Flash streaming availability.
 - Voice status exposes power mode, Meeting timer, provider state, and interruption count.
 - Documentation now describes the dual-mode architecture and security boundaries.
 - The local camera viewer selects `ws://` on direct LAN HTTP and `wss://` on trusted HTTPS deployments, allowing Tailscale Serve to secure both the PWA and WebRTC signaling.
 - The Robot tab now groups confirmed torque/fold state with Wake, safe Fold, and Stop controls; adds bounded diagonal looks, descriptive expression presets, dance-footprint labels, and clear-space confirmation for wide motion.
 - Power and wake/fold transitions are serialized across clients; daemon, wake-motion, and torque-release failures now return explicit errors, keep the last confirmed motor state visible, and prevent false-success UI messages or post-release action execution.
-- Hugging Face app page now presents the complete voice, interruption, camera, Hermes-tool, and power/privacy architecture.
+- Hugging Face app page now presents wake phrases, supervised Kids Mode, voice, interruption, camera, Hermes-tool, and power/privacy architecture.
 
 ### Fixed
 
@@ -70,7 +75,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff passes and 80 automated tests pass.
+- Ruff passes and 123 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
-- ElevenLabs TTS/STT round trip succeeds.
+- ElevenLabs TTS/STT round trip succeeds; Kids Flash streaming reaches Reachy as 24 kHz PCM with a measured 375 ms first chunk on the reference network.
+- Dedicated moderated Kids chat, parent stop, timer generation guards, status redaction, safe fold, and torque release pass live and automated checks.
+- `Okay Nabu` and `Hey Reachy` detect in synthesized acceptance audio; `Hey Hermes` remains verified with live microphone input.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

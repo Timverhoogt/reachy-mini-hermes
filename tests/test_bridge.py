@@ -42,6 +42,8 @@ def test_create_app_routes_are_present() -> None:
     app = bridge.create_app(api_key="secret", hermes_url="http://127.0.0.1:8642")
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("POST", "/v1/chat/completions") in routes
+    assert ("POST", "/v1/kids/chat") in routes
+    assert ("POST", "/v1/kids/speech/stream") in routes
     assert ("POST", "/v1/audio/transcriptions") in routes
     assert ("POST", "/v1/audio/speech") in routes
     assert ("GET", "/health") in routes
@@ -65,6 +67,12 @@ def test_realtime_robot_tools_are_curated_and_can_be_disabled() -> None:
     assert {tool["name"] for tool in bridge._build_realtime_tools(False, False)} == {
         "ask_hermes",
         "set_reachy_power_mode",
+    }
+    assert bridge._build_realtime_tools(False, False, False, False) == []
+    assert {tool["name"] for tool in bridge._build_realtime_tools(False, True, False, False)} == {
+        "move_reachy_head",
+        "express_reachy_emotion",
+        "dance_reachy",
     }
     power_tool = next(
         tool for tool in bridge._build_realtime_tools(False, False) if tool["name"] == "set_reachy_power_mode"

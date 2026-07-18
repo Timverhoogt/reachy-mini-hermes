@@ -43,7 +43,7 @@ def test_live_camera_is_opt_in_and_stops_for_privacy_transitions() -> None:
     bundled_api = (STATIC / "gstwebrtc-api.js").read_text()[:1000]
 
     assert "camera_feed_enabled: bool = False" in config
-    assert "enabled: Boolean(payload.config?.camera_feed_enabled)" in main
+    assert "enabled: !kidsActive && Boolean(payload.config?.camera_feed_enabled)" in main
     assert 'mode !== "awake" && window.ReachyCamera?.isActive()' in main
     assert "Camera stopped because Hermes status is unavailable" in main
     assert "Camera stopped before stopping the voice app" in main
