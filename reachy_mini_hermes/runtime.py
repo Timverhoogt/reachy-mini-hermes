@@ -28,7 +28,7 @@ from .config import AppConfig, load_config
 from .hermes_client import HermesBridgeClient, HermesBridgeError, SpeechAudio
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
-from .robot_tools import ReachyRobotActions, completed_robot_tool_call
+from .robot_tools import ReachyRobotActions, completed_robot_tool_call, manual_robot_action
 from .wakeword import HeyHermesSpotter, ensure_kws_model
 
 _LOGGER = logging.getLogger(__name__)
@@ -371,6 +371,45 @@ class HermesVoiceRuntime:
     def status(self) -> dict[str, object]:
         with self._status_lock:
             return asdict(self._status)
+
+    def queue_manual_robot_action(self, action: str, value: str) -> dict[str, object]:
+        """Queue one allow-listed UI action, waking Reachy locally when needed."""
+        name, arguments = manual_robot_action(action, value)
+        mode = self._effective_power_mode()
+        if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
+            raise RuntimeError("Manual robot control is blocked in Meeting and Sleep")
+        if self._actions is None:
+            raise RuntimeError("Robot action controller is not ready")
+        if mode == "standby":
+            status = self.set_power_mode("awake")
+            transition_error = str(status.get("last_error") or "")
+            if transition_error:
+                raise RuntimeError(transition_error)
+        result = self._actions.enqueue(name, arguments, hold_pose=action.strip().lower() == "look")
+        if not result.get("accepted"):
+            raise RuntimeError(str(result.get("error") or "Robot action could not be queued"))
+        _LOGGER.info("Manual robot control queued: %s %s", action, value)
+        return {
+            "ok": True,
+            "action": action.strip().lower(),
+            "value": value.strip().lower(),
+            "power_mode": self._effective_power_mode(),
+            **result,
+        }
+
+    def stop_manual_robot_action(self) -> dict[str, object]:
+        """Cancel active and queued UI motions while preserving future audio playback."""
+        if self._actions is None:
+            raise RuntimeError("Robot action controller is not ready")
+        active_cancelled = self._actions.cancel()
+        if active_cancelled:
+            start_playing = getattr(self.robot.media, "start_playing", None)
+            if callable(start_playing):
+                start_playing()
+            self._playback_stopped_for_privacy = False
+        self._after_robot_action()
+        _LOGGER.info("Manual robot control stopped; active_cancelled=%s", active_cancelled)
+        return {"ok": True, "active_move_cancelled": active_cancelled, "queue_cleared": True}
 
     def test_camera(self) -> dict[str, object]:
         """Capture one frame locally for setup diagnostics without returning it."""

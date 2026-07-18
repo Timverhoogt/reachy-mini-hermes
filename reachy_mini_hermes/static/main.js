@@ -10,6 +10,39 @@ const fields = [
 let loaded = false;
 let currentConfig = null;
 let voiceOptions = { stt: [], tts: [] };
+let manualActionPending = false;
+
+function activateTab(name, focus = false) {
+  const target = document.querySelector(`[data-tab="${name}"]`) || document.querySelector("[data-tab]");
+  if (!target) return;
+  document.querySelectorAll("[data-tab]").forEach((button) => {
+    const active = button === target;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll("[data-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.panel !== target.dataset.tab;
+  });
+  window.localStorage.setItem("reachy-hermes-tab", target.dataset.tab);
+  if (focus) target.focus();
+}
+
+const tabButtons = [...document.querySelectorAll("[data-tab]")];
+tabButtons.forEach((button, index) => {
+  button.addEventListener("click", () => activateTab(button.dataset.tab));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    let next = index;
+    if (event.key === "ArrowLeft") next = (index - 1 + tabButtons.length) % tabButtons.length;
+    if (event.key === "ArrowRight") next = (index + 1) % tabButtons.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabButtons.length - 1;
+    activateTab(tabButtons[next].dataset.tab, true);
+  });
+});
+activateTab(window.localStorage.getItem("reachy-hermes-tab") || "dashboard");
 
 function setMessage(text, kind = "") {
   const el = $("form-message");
@@ -46,6 +79,19 @@ function updateStatus(payload) {
   $("runtime-detail").textContent = runtime.detail || "";
   $("last-transcript").textContent = runtime.transcript || "—";
   $("last-response").textContent = runtime.response_preview || "—";
+  const powerMode = runtime.power_mode || "unknown";
+  $("power-mode-badge").textContent = powerMode;
+  $("robot-mode-badge").textContent = powerMode;
+  $("last-robot-action").textContent = runtime.last_robot_action || "—";
+  $("robot-action-error").textContent = runtime.robot_action_last_error
+    ? ` · ${runtime.robot_action_last_error}`
+    : "";
+  const manualBlocked = ["meeting", "sleep"].includes(powerMode);
+  document.querySelectorAll(".manual-control").forEach((button) => {
+    button.disabled = manualBlocked || manualActionPending;
+  });
+  $("emotion-select").disabled = manualBlocked || manualActionPending;
+  $("robot-stop-button").disabled = manualActionPending;
   const dot = $("status-dot");
   dot.className = "status-dot";
   if (["waiting_for_wake_word", "listening", "looking", "thinking", "speaking"].includes(state)) dot.classList.add("ready");
@@ -220,8 +266,10 @@ $("test-button").addEventListener("click", async () => {
 
 $("camera-test-button").addEventListener("click", async () => {
   const button = $("camera-test-button");
+  const message = $("camera-message");
   button.disabled = true;
-  setMessage("Capturing one local camera frame…");
+  message.textContent = "Capturing one local camera frame…";
+  message.className = "message";
   try {
     const response = await fetch("/api/camera/test", {
       method: "POST",
@@ -230,11 +278,68 @@ $("camera-test-button").addEventListener("click", async () => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
-    setMessage(`Camera ready: ${body.bytes} byte JPEG captured locally`, "ok");
+    message.textContent = `Camera ready: ${body.bytes} byte JPEG captured locally`;
+    message.className = "message ok";
   } catch (error) {
-    setMessage(String(error), "error");
+    message.textContent = String(error);
+    message.className = "message error";
   } finally {
     button.disabled = false;
+  }
+});
+
+async function sendManualRobotAction(action, value) {
+  const message = $("robot-message");
+  manualActionPending = true;
+  message.textContent = `Sending ${action}: ${value}…`;
+  message.className = "message";
+  document.querySelectorAll(".manual-control").forEach((button) => { button.disabled = true; });
+  $("emotion-select").disabled = true;
+  try {
+    const response = await fetch("/api/robot/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, value }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = `${action === "look" ? "Look" : action} ${value} queued · Reachy is ${body.power_mode}`;
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    manualActionPending = false;
+    await refreshStatus();
+  }
+}
+
+document.querySelectorAll("[data-robot-action]").forEach((button) => {
+  button.addEventListener("click", () => sendManualRobotAction(button.dataset.robotAction, button.dataset.robotValue));
+});
+
+$("emotion-button").addEventListener("click", () => {
+  sendManualRobotAction("emotion", $("emotion-select").value);
+});
+
+$("robot-stop-button").addEventListener("click", async () => {
+  const button = $("robot-stop-button");
+  const message = $("robot-message");
+  button.disabled = true;
+  message.textContent = "Stopping active and queued movement…";
+  message.className = "message";
+  try {
+    const response = await fetch("/api/robot/stop", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = body.active_move_cancelled ? "Movement stopped" : "Movement queue cleared";
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    button.disabled = false;
+    await refreshStatus();
   }
 });
 
@@ -278,9 +383,30 @@ $("shutdown-button").addEventListener("click", async () => {
   $("power-message").textContent = "Pi is shutting down safely";
 });
 
+async function loadRobotOptions() {
+  try {
+    const response = await fetch("/api/robot/options", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    const emotionSelect = $("emotion-select");
+    const selected = emotionSelect.value || "happy";
+    emotionSelect.replaceChildren();
+    (body.emotion || []).forEach((emotion) => {
+      const option = document.createElement("option");
+      option.value = emotion;
+      option.textContent = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+      emotionSelect.appendChild(option);
+    });
+    if ([...emotionSelect.options].some((option) => option.value === selected)) emotionSelect.value = selected;
+  } catch (error) {
+    $("robot-message").textContent = `Could not load robot controls: ${String(error)}`;
+    $("robot-message").className = "message error";
+  }
+}
+
 async function startUi() {
   await refreshStatus();
-  await Promise.all([loadModels(), loadVoiceOptions()]);
+  await Promise.all([loadModels(), loadVoiceOptions(), loadRobotOptions()]);
 }
 
 startUi();

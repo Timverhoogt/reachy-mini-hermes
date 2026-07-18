@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import threading
 
-from reachy_mini_hermes.robot_tools import ReachyRobotActions, completed_robot_tool_call
+import pytest
+
+from reachy_mini_hermes.robot_tools import (
+    ReachyRobotActions,
+    completed_robot_tool_call,
+    manual_robot_action,
+    robot_control_options,
+)
 
 
 class FakeMove:
@@ -52,6 +59,18 @@ def test_completed_robot_tool_call_requires_completed_output_item() -> None:
     assert call.name == "move_reachy_head"
     assert call.arguments == {"direction": "left"}
     assert completed_robot_tool_call("response.function_call_arguments.done", payload) is None
+
+
+def test_manual_robot_controls_translate_only_curated_values() -> None:
+    assert manual_robot_action("look", "left") == ("move_reachy_head", {"direction": "left"})
+    assert manual_robot_action("emotion", "happy") == (
+        "express_reachy_emotion",
+        {"emotion": "happy"},
+    )
+    assert manual_robot_action("dance", "groovy") == ("dance_reachy", {"style": "groovy"})
+    assert robot_control_options()["look"] == ["left", "right", "up", "down", "center"]
+    with pytest.raises(ValueError):
+        manual_robot_action("joint", "neck=180")
 
 
 def test_robot_actions_use_safe_curated_moves_without_move_audio(monkeypatch) -> None:
@@ -104,6 +123,29 @@ def test_worker_completes_tool_with_actual_execution_result(monkeypatch) -> None
     assert accepted == {"accepted": True, "queued": "move_reachy_head"}
     assert completed.wait(2)
     assert results == [{"ok": True, "action": "move_reachy_head", "direction": "left"}]
+    actions.close()
+
+
+def test_manual_look_can_hold_pose_without_restoring_idle_motion(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    completed = threading.Event()
+    lifecycle: list[str] = []
+    actions = ReachyRobotActions(
+        FakeRobot(),
+        threading.Event(),
+        before_action=lambda: lifecycle.append("before"),
+        after_action=lambda: lifecycle.append("after"),
+    )
+    actions.start()
+    actions.enqueue(
+        "move_reachy_head",
+        {"direction": "left"},
+        hold_pose=True,
+        on_complete=lambda result: completed.set(),
+    )
+
+    assert completed.wait(2)
+    assert lifecycle == ["before"]
     actions.close()
 
 

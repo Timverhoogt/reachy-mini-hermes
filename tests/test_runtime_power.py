@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from reachy_mini_hermes.config import AppConfig
 from reachy_mini_hermes.hermes_client import SpeechAudio
 from reachy_mini_hermes.runtime import (
@@ -251,6 +253,56 @@ def test_power_mode_tool_applies_meeting_before_ending_realtime_session() -> Non
     assert runtime.status()["power_mode"] == "meeting"
     assert runtime._conversation_stop_requested.is_set()
     assert session.results == [("call-meeting", result, False)]
+
+
+def test_manual_robot_action_auto_wakes_and_manual_stop_restores_playback() -> None:
+    class Actions:
+        def __init__(self) -> None:
+            self.queued: list[tuple[str, dict[str, object], bool]] = []
+
+        def enqueue(
+            self,
+            name: str,
+            arguments: dict[str, object],
+            *,
+            hold_pose: bool = False,
+        ) -> dict[str, object]:
+            self.queued.append((name, arguments, hold_pose))
+            return {"accepted": True, "queued": name}
+
+        def cancel(self) -> bool:
+            return True
+
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]
+    actions = Actions()
+    runtime._actions = actions  # type: ignore[assignment]
+
+    result = runtime.queue_manual_robot_action("look", "left")
+
+    assert result["ok"] is True
+    assert result["power_mode"] == "awake"
+    assert actions.queued == [("move_reachy_head", {"direction": "left"}, True)]
+    assert runtime.status()["power_mode"] == "awake"
+
+    stopped = runtime.stop_manual_robot_action()
+    assert stopped == {"ok": True, "active_move_cancelled": True, "queue_cleared": True}
+    assert robot.media.playing_starts == 1
+
+
+def test_manual_robot_action_is_blocked_in_privacy_modes() -> None:
+    class Actions:
+        def cancel(self) -> bool:
+            return False
+
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]
+    runtime._actions = Actions()  # type: ignore[assignment]
+    runtime.set_power_mode("sleep")
+
+    with pytest.raises(RuntimeError, match="blocked"):
+        runtime.queue_manual_robot_action("dance", "short")
 
 
 def test_camera_test_captures_locally_without_returning_image() -> None:

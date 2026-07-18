@@ -197,6 +197,16 @@ Press **Test connection**, save, then say:
 
 > **Hey Hermes**
 
+### Browser controls
+
+The in-app UI is organized into three keyboard-accessible tabs:
+
+- **Dashboard** — live state, power/privacy modes, app lifecycle, and the latest conversation.
+- **Robot** — safe manual look directions, curated emotions, three recorded dances, stop movement, and a local camera diagnostic.
+- **Settings** — Hermes bridge, voice, embodiment, privacy, and advanced timing configuration.
+
+Manual controls use the same serialized semantic action worker as Realtime; the browser cannot submit raw joints, arbitrary move names, shell commands, or host actions. A manual movement from Standby first runs Reachy's native wake motion and leaves it Awake. Movement is rejected during Meeting and Sleep, while **Stop movement** remains available to cancel an active or queued action. The UI is intended only for a trusted LAN/VPN.
+
 ## Power and privacy states
 
 | Mode | Microphone | Wake detection | Local face tracking | Motor torque | Intended use |
@@ -285,7 +295,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **53 tests**.
+Current automated suite: **57 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

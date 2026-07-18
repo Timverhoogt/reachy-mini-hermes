@@ -49,6 +49,32 @@ _DANCE_MOVES: dict[str, str] = {
     "energetic": "dance3",
 }
 
+LOOK_DIRECTIONS = tuple(_LOOK_POSES)
+EMOTIONS = tuple(_EMOTION_MOVES)
+DANCE_STYLES = tuple(_DANCE_MOVES)
+
+
+def manual_robot_action(action: str, value: str) -> tuple[str, dict[str, object]]:
+    """Translate one UI control into an allow-listed semantic robot tool call."""
+    action = action.strip().lower()
+    value = value.strip().lower()
+    if action == "look" and value in _LOOK_POSES:
+        return "move_reachy_head", {"direction": value}
+    if action == "emotion" and value in _EMOTION_MOVES:
+        return "express_reachy_emotion", {"emotion": value}
+    if action == "dance" and value in _DANCE_MOVES:
+        return "dance_reachy", {"style": value}
+    raise ValueError("Unknown or unsupported manual robot action")
+
+
+def robot_control_options() -> dict[str, list[str]]:
+    """Return the UI-safe semantic controls without exposing raw motors or joints."""
+    return {
+        "look": list(LOOK_DIRECTIONS),
+        "emotion": list(EMOTIONS),
+        "dance": list(DANCE_STYLES),
+    }
+
 
 class RobotLike(Protocol):
     def goto_target(self, **kwargs: object) -> object: ...
@@ -71,6 +97,7 @@ class QueuedRobotAction:
     arguments: dict[str, object]
     generation: int
     on_complete: Callable[[dict[str, object]], None] | None = None
+    hold_pose: bool = False
 
 
 def create_head_pose(**kwargs: float) -> object:
@@ -155,6 +182,7 @@ class ReachyRobotActions:
         arguments: dict[str, object],
         *,
         on_complete: Callable[[dict[str, object]], None] | None = None,
+        hold_pose: bool = False,
     ) -> dict[str, object]:
         if name not in ROBOT_TOOL_NAMES:
             return {"ok": False, "error": "Robot action is not allow-listed"}
@@ -163,7 +191,9 @@ class ReachyRobotActions:
         with self._state_lock:
             generation = self._generation
         try:
-            self._queue.put_nowait(QueuedRobotAction(name, dict(arguments), generation, on_complete))
+            self._queue.put_nowait(
+                QueuedRobotAction(name, dict(arguments), generation, on_complete, hold_pose)
+            )
         except queue.Full:
             return {"ok": False, "error": "Robot action queue is full"}
         return {"accepted": True, "queued": name}
@@ -252,7 +282,7 @@ class ReachyRobotActions:
                 result = {"ok": False, "error": str(exc), "action": action.name}
             finally:
                 try:
-                    if self._after_action is not None:
+                    if self._after_action is not None and not action.hold_pose:
                         self._after_action()
                 finally:
                     self._busy.clear()

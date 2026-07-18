@@ -17,7 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Realtime natural interruption and streamed-output flushing.
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.
 - Motor torque and microphone lifecycle management for privacy/power states.
-- Settings UI for conversation mode, speech providers, voices, interruption, local face/DOA controls, robot actions, power, app stop, and shutdown.
+- Tabbed settings UI with Dashboard, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
+- Manual semantic robot controls for look direction, curated emotions, recorded dances, and movement cancellation, routed through the same serialized safety layer as voice actions.
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
 - Optional on-demand Reachy camera tool with local diagnostics and Realtime image input.
 - Authenticated, non-cacheable one-frame snapshot route for explicit image sharing.
@@ -61,7 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff passes and 53 automated tests pass.
+- Ruff passes and 57 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

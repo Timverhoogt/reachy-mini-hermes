@@ -13,161 +13,196 @@
       <div>
         <p class="eyebrow">REACHY MINI × HERMES AGENT</p>
         <h1>Hey Hermes</h1>
-        <p class="subtitle">Give your Reachy Mini the memory, skills, and tools of your own Hermes Agent.</p>
+        <p class="subtitle">Voice, privacy, and physical control for your embodied Hermes Agent.</p>
       </div>
     </header>
 
-    <section class="card status-card">
+    <section class="card status-card" aria-live="polite">
       <div>
         <p class="label">Current state</p>
         <h2 id="runtime-state">Connecting…</h2>
         <p id="runtime-detail" class="muted">Reading app status</p>
       </div>
-      <span id="status-dot" class="status-dot"></span>
+      <span id="status-dot" class="status-dot" aria-label="Runtime status"></span>
     </section>
 
-    <section class="card">
-      <h2>Power and privacy</h2>
-      <p class="muted">Standby keeps only the local wake word active. Meeting and sleep stop microphone capture and disable motor torque.</p>
-      <div class="actions power-actions">
-        <button type="button" data-power="standby">Standby</button>
-        <button type="button" data-power="awake" class="secondary">Awake</button>
-        <button type="button" data-power="meeting" data-minutes="60" class="secondary">Meeting · 60 min</button>
-        <button type="button" data-power="sleep" class="secondary">Sleep</button>
-      </div>
-      <div class="actions danger-actions">
-        <button type="button" id="app-off-button" class="secondary">Stop voice app</button>
-        <button type="button" id="shutdown-button" class="danger">Shut down Pi</button>
-      </div>
-      <p id="power-message" class="message" role="status"></p>
-    </section>
+    <nav class="tabs" role="tablist" aria-label="Reachy Hermes controls">
+      <button type="button" class="tab-button active" id="tab-dashboard" role="tab" aria-selected="true" aria-controls="panel-dashboard" data-tab="dashboard">Dashboard</button>
+      <button type="button" class="tab-button" id="tab-robot" role="tab" aria-selected="false" aria-controls="panel-robot" data-tab="robot">Robot</button>
+      <button type="button" class="tab-button" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings" data-tab="settings">Settings</button>
+    </nav>
 
-    <section class="card">
-      <h2>Hermes connection</h2>
-      <p class="muted">Run the companion bridge on the machine hosting Hermes Agent, then enter its LAN URL and API key.</p>
-      <form id="settings-form">
-        <label>Conversation mode
-          <select id="conversation_mode" name="conversation_mode">
-            <option value="pipeline">Hermes pipeline · configurable agent, STT and TTS</option>
-            <option value="realtime">OpenAI Realtime · native speech-to-speech</option>
-          </select>
-        </label>
-        <label>Bridge URL
-          <input id="bridge_url" name="bridge_url" type="url" placeholder="http://hermes.local:8643" required />
-        </label>
-        <label>API key
-          <input id="api_key" name="api_key" type="password" placeholder="Leave masked value unchanged" autocomplete="off" />
-        </label>
-        <div class="grid-two">
-          <label>Agent model
-            <select id="model" name="model">
-              <option value="hermes-agent">Hermes default model</option>
-            </select>
-            <small id="model-help">Available routes are provided by your Hermes Agent.</small>
-          </label>
-          <label>Language
-            <input id="language" name="language" value="en" maxlength="12" />
-          </label>
+    <div id="panel-dashboard" class="tab-panel" role="tabpanel" aria-labelledby="tab-dashboard" data-panel="dashboard">
+      <section class="card">
+        <div class="section-heading">
+          <div><p class="label">Operating state</p><h2>Power and privacy</h2></div>
+          <span id="power-mode-badge" class="badge">—</span>
         </div>
-        <div id="realtime-settings" class="grid-two">
-          <label>Realtime model
-            <input id="realtime_model" name="realtime_model" value="gpt-realtime-2.1" />
-          </label>
-          <label>Realtime voice
-            <select id="realtime_voice" name="realtime_voice">
-              <option value="marin">Marin</option><option value="cedar">Cedar</option>
-            </select>
-          </label>
-          <label>Reasoning effort
-            <select id="realtime_reasoning_effort" name="realtime_reasoning_effort">
-              <option value="minimal">Minimal</option><option value="low">Low</option>
-              <option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option>
-            </select>
-          </label>
+        <p class="muted">Standby keeps local wake detection active. Meeting and Sleep stop voice capture; Reachy folds safely before torque is released.</p>
+        <div class="actions power-actions">
+          <button type="button" data-power="standby">Standby</button>
+          <button type="button" data-power="awake" class="secondary">Awake</button>
+          <button type="button" data-power="meeting" data-minutes="60" class="secondary">Meeting · 60 min</button>
+          <button type="button" data-power="sleep" class="secondary">Sleep</button>
         </div>
-        <div class="grid-two">
-          <label>Speech recognition
-            <select id="stt_provider" name="stt_provider">
-              <option value="configured">Hermes configured STT</option>
-              <option value="local">Local Whisper</option>
-            </select>
-          </label>
-          <label>STT model
-            <select id="stt_model" name="stt_model"><option value="base">base</option></select>
-          </label>
-          <label>Speech voice provider
-            <select id="tts_provider" name="tts_provider">
-              <option value="configured">Hermes configured TTS</option>
-            </select>
-          </label>
-          <label>TTS model
-            <select id="tts_model" name="tts_model"><option value="eleven_flash_v2_5">eleven_flash_v2_5</option></select>
-          </label>
+        <div class="actions danger-actions">
+          <button type="button" id="app-off-button" class="secondary">Stop voice app</button>
+          <button type="button" id="shutdown-button" class="danger">Shut down Pi</button>
         </div>
-        <label>TTS voice
-          <select id="tts_voice" name="tts_voice">
-            <option value="pNInz6obpgDQGcFmaJgB">Adam</option>
-          </select>
-        </label>
-        <p id="voice-provider" class="muted provider-note">Speech providers are selected independently from the agent model.</p>
-        <label class="toggle-row">
-          <span><strong>Continued conversation</strong><small>Listen for a follow-up after each answer</small></span>
-          <input id="continuous_conversation" name="continuous_conversation" type="checkbox" />
-        </label>
-        <label class="toggle-row">
-          <span><strong>Voice-state motion</strong><small>Listening, thinking, and speaking poses</small></span>
-          <input id="motion_enabled" name="motion_enabled" type="checkbox" checked />
-        </label>
-        <label class="toggle-row">
-          <span><strong>Reachy action tools</strong><small>Realtime may look, express emotions, and perform authentic recorded dances. Physical actions stay local.</small></span>
-          <input id="robot_tools_enabled" name="robot_tools_enabled" type="checkbox" checked />
-        </label>
-        <label class="toggle-row">
-          <span><strong>Local face following</strong><small>After “Hey Hermes”, follow a face locally for that conversation only. Never sends tracking frames to Hermes or the cloud.</small></span>
-          <input id="face_tracking_enabled" name="face_tracking_enabled" type="checkbox" />
-        </label>
-        <label>Face-following weight
-          <input id="face_tracking_weight" name="face_tracking_weight" type="range" min="0" max="1" step="0.05" value="0.65" />
-          <small>Blend local face tracking with Reachy's voice and action motion.</small>
-        </label>
-        <label class="toggle-row">
-          <span><strong>Turn toward wake phrase</strong><small>Use the microphone array's local direction estimate once after wake. No audio or direction data leaves Reachy.</small></span>
-          <input id="doa_enabled" name="doa_enabled" type="checkbox" />
-        </label>
-        <label class="toggle-row">
-          <span><strong>Interruption</strong><small>Pipeline: say “Hey Hermes” while speaking. Realtime: natural barge-in.</small></span>
-          <input id="barge_in_enabled" name="barge_in_enabled" type="checkbox" checked />
-        </label>
-        <label class="toggle-row">
-          <span><strong>On-demand camera</strong><small>Realtime captures one frame only when a visual request needs it.</small></span>
-          <input id="camera_enabled" name="camera_enabled" type="checkbox" />
-        </label>
-        <div class="actions">
+        <p id="power-message" class="message" role="status"></p>
+      </section>
+
+      <section class="card conversation-card">
+        <div><p class="label">Last heard</p><p id="last-transcript" class="quote">—</p></div>
+        <div><p class="label">Last response</p><p id="last-response" class="quote">—</p></div>
+      </section>
+    </div>
+
+    <div id="panel-robot" class="tab-panel" role="tabpanel" aria-labelledby="tab-robot" data-panel="robot" hidden>
+      <section class="card robot-control-card">
+        <div class="section-heading">
+          <div><p class="label">Local semantic controls</p><h2>Move Reachy</h2></div>
+          <span id="robot-mode-badge" class="badge">—</span>
+        </div>
+        <p class="muted">Controls use the same allow-listed actions as Hermes—never raw joints. A command from Standby wakes Reachy first. Manual movement is blocked in Meeting and Sleep.</p>
+
+        <div class="robot-control-grid">
+          <div class="control-group">
+            <h3>Look</h3>
+            <div class="d-pad" aria-label="Head direction controls">
+              <button type="button" class="secondary direction-up manual-control" data-robot-action="look" data-robot-value="up" aria-label="Look up">↑</button>
+              <button type="button" class="secondary direction-left manual-control" data-robot-action="look" data-robot-value="left" aria-label="Look left">←</button>
+              <button type="button" class="secondary direction-center manual-control" data-robot-action="look" data-robot-value="center" aria-label="Look forward">●</button>
+              <button type="button" class="secondary direction-right manual-control" data-robot-action="look" data-robot-value="right" aria-label="Look right">→</button>
+              <button type="button" class="secondary direction-down manual-control" data-robot-action="look" data-robot-value="down" aria-label="Look down">↓</button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h3>Expression</h3>
+            <label for="emotion-select" class="sr-only">Emotion</label>
+            <select id="emotion-select">
+              <option value="happy">Happy</option>
+              <option value="excited">Excited</option>
+              <option value="loving">Loving</option>
+              <option value="grateful">Grateful</option>
+              <option value="thinking">Thinking</option>
+              <option value="confused">Confused</option>
+              <option value="sad">Sad</option>
+              <option value="surprised">Surprised</option>
+              <option value="calm">Calm</option>
+              <option value="welcoming">Welcoming</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+            <button type="button" id="emotion-button" class="manual-control">Perform expression</button>
+          </div>
+        </div>
+
+        <div class="control-group dance-group">
+          <h3>Dance</h3>
+          <div class="actions robot-actions">
+            <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="short">Short</button>
+            <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="groovy">Groovy</button>
+            <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="energetic">Energetic</button>
+            <button type="button" id="robot-stop-button" class="danger">Stop movement</button>
+          </div>
+        </div>
+        <p id="robot-message" class="message" role="status" aria-live="polite"></p>
+        <p class="muted action-status">Last action: <strong id="last-robot-action">—</strong><span id="robot-action-error"></span></p>
+      </section>
+
+      <section class="card">
+        <p class="label">Private diagnostic</p>
+        <h2>Camera</h2>
+        <p class="muted">Capture one frame locally to verify the camera. The image is not returned to this page or sent to Hermes.</p>
+        <div class="actions left-actions">
           <button type="button" id="camera-test-button" class="secondary">Test camera locally</button>
         </div>
-        <details>
-          <summary>Advanced voice timing</summary>
-          <div class="grid-two advanced">
-            <label>End silence (seconds)<input id="end_silence_seconds" type="number" min="0.1" max="5" step="0.1" /></label>
-            <label>Max utterance (seconds)<input id="max_utterance_seconds" type="number" min="1" max="120" step="1" /></label>
-            <label>VAD minimum RMS<input id="vad_min_rms" type="number" min="0.001" max="0.5" step="0.001" /></label>
-            <label>Noise multiplier<input id="vad_noise_multiplier" type="number" min="1" max="20" step="0.1" /></label>
-            <label>Wake threshold<input id="wake_keyword_threshold" type="number" min="0.01" max="1" step="0.01" /></label>
-            <label>Wake score<input id="wake_keyword_score" type="number" min="0" max="10" step="0.1" /></label>
-          </div>
-        </details>
-        <div class="actions">
-          <button type="button" id="test-button" class="secondary">Test connection</button>
-          <button type="submit">Save settings</button>
-        </div>
-        <p id="form-message" class="message" role="status"></p>
-      </form>
-    </section>
+        <p id="camera-message" class="message" role="status"></p>
+      </section>
+    </div>
 
-    <section class="card conversation-card">
-      <div><p class="label">Last heard</p><p id="last-transcript" class="quote">—</p></div>
-      <div><p class="label">Last response</p><p id="last-response" class="quote">—</p></div>
-    </section>
+    <div id="panel-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-settings" data-panel="settings" hidden>
+      <section class="card">
+        <p class="label">Configuration</p>
+        <h2>Hermes connection and voice</h2>
+        <p class="muted">Run the companion bridge on the machine hosting Hermes Agent, then enter its trusted LAN URL and API key.</p>
+        <form id="settings-form">
+          <label>Conversation mode
+            <select id="conversation_mode" name="conversation_mode">
+              <option value="pipeline">Hermes pipeline · configurable agent, STT and TTS</option>
+              <option value="realtime">OpenAI Realtime · native speech-to-speech</option>
+            </select>
+          </label>
+          <label>Bridge URL
+            <input id="bridge_url" name="bridge_url" type="url" placeholder="http://hermes.local:8643" required />
+          </label>
+          <label>API key
+            <input id="api_key" name="api_key" type="password" placeholder="Leave masked value unchanged" autocomplete="off" />
+          </label>
+          <div class="grid-two">
+            <label>Agent model
+              <select id="model" name="model"><option value="hermes-agent">Hermes default model</option></select>
+              <small id="model-help">Available routes are provided by your Hermes Agent.</small>
+            </label>
+            <label>Language<input id="language" name="language" value="en" maxlength="12" /></label>
+          </div>
+          <div id="realtime-settings" class="grid-two">
+            <label>Realtime model<input id="realtime_model" name="realtime_model" value="gpt-realtime-2.1" /></label>
+            <label>Realtime voice
+              <select id="realtime_voice" name="realtime_voice"><option value="marin">Marin</option><option value="cedar">Cedar</option></select>
+            </label>
+            <label>Reasoning effort
+              <select id="realtime_reasoning_effort" name="realtime_reasoning_effort">
+                <option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid-two">
+            <label>Speech recognition
+              <select id="stt_provider" name="stt_provider"><option value="configured">Hermes configured STT</option><option value="local">Local Whisper</option></select>
+            </label>
+            <label>STT model<select id="stt_model" name="stt_model"><option value="base">base</option></select></label>
+            <label>Speech voice provider<select id="tts_provider" name="tts_provider"><option value="configured">Hermes configured TTS</option></select></label>
+            <label>TTS model<select id="tts_model" name="tts_model"><option value="eleven_flash_v2_5">eleven_flash_v2_5</option></select></label>
+          </div>
+          <label>TTS voice<select id="tts_voice" name="tts_voice"><option value="pNInz6obpgDQGcFmaJgB">Adam</option></select></label>
+          <p id="voice-provider" class="muted provider-note">Speech providers are selected independently from the agent model.</p>
+
+          <details open>
+            <summary>Embodiment and privacy</summary>
+            <div class="settings-section">
+              <label class="toggle-row"><span><strong>Continued conversation</strong><small>Listen for a follow-up after each answer</small></span><input id="continuous_conversation" name="continuous_conversation" type="checkbox" /></label>
+              <label class="toggle-row"><span><strong>Voice-state motion</strong><small>Listening, thinking, and speaking poses</small></span><input id="motion_enabled" name="motion_enabled" type="checkbox" checked /></label>
+              <label class="toggle-row"><span><strong>Reachy action tools</strong><small>Realtime may look, express emotions, and dance. Manual controls remain local.</small></span><input id="robot_tools_enabled" name="robot_tools_enabled" type="checkbox" checked /></label>
+              <label class="toggle-row"><span><strong>Local face following</strong><small>Follow a face locally during the active conversation only</small></span><input id="face_tracking_enabled" name="face_tracking_enabled" type="checkbox" /></label>
+              <label>Face-following weight<input id="face_tracking_weight" name="face_tracking_weight" type="range" min="0" max="1" step="0.05" value="0.65" /><small>Blend local face tracking with Reachy's voice and action motion.</small></label>
+              <label class="toggle-row"><span><strong>Turn toward wake phrase</strong><small>Use one local microphone-array direction estimate after wake</small></span><input id="doa_enabled" name="doa_enabled" type="checkbox" /></label>
+              <label class="toggle-row"><span><strong>Interruption</strong><small>Pipeline wake-phrase interruption or natural Realtime barge-in</small></span><input id="barge_in_enabled" name="barge_in_enabled" type="checkbox" checked /></label>
+              <label class="toggle-row"><span><strong>On-demand camera</strong><small>Realtime captures one frame only for an explicit visual request</small></span><input id="camera_enabled" name="camera_enabled" type="checkbox" /></label>
+            </div>
+          </details>
+
+          <details>
+            <summary>Advanced voice timing</summary>
+            <div class="grid-two advanced">
+              <label>End silence (seconds)<input id="end_silence_seconds" type="number" min="0.1" max="5" step="0.1" /></label>
+              <label>Max utterance (seconds)<input id="max_utterance_seconds" type="number" min="1" max="120" step="1" /></label>
+              <label>VAD minimum RMS<input id="vad_min_rms" type="number" min="0.001" max="0.5" step="0.001" /></label>
+              <label>Noise multiplier<input id="vad_noise_multiplier" type="number" min="1" max="20" step="0.1" /></label>
+              <label>Wake threshold<input id="wake_keyword_threshold" type="number" min="0.01" max="1" step="0.01" /></label>
+              <label>Wake score<input id="wake_keyword_score" type="number" min="0" max="10" step="0.1" /></label>
+            </div>
+          </details>
+          <div class="actions">
+            <button type="button" id="test-button" class="secondary">Test connection</button>
+            <button type="submit">Save settings</button>
+          </div>
+          <p id="form-message" class="message" role="status"></p>
+        </form>
+      </section>
+    </div>
   </main>
   <script src="/static/main.js"></script>
 </body>

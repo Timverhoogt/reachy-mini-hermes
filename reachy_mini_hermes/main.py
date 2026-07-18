@@ -14,6 +14,7 @@ from reachy_mini import ReachyMini, ReachyMiniApp
 
 from .config import AppConfig, load_config, merge_config, save_config
 from .hermes_client import HermesBridgeClient
+from .robot_tools import robot_control_options
 from .runtime import HermesVoiceRuntime
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,6 +54,11 @@ class SettingsUpdate(BaseModel):
     realtime_model: str | None = None
     realtime_voice: str | None = None
     realtime_reasoning_effort: str | None = None
+
+
+class RobotActionRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=32)
+    value: str = Field(min_length=1, max_length=32)
 
 
 class PowerRequest(BaseModel):
@@ -185,6 +191,30 @@ class ReachyMiniHermes(ReachyMiniApp):
                 media_type="image/jpeg",
                 headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
             )
+
+        @self.settings_app.get("/api/robot/options")
+        def robot_options() -> dict[str, object]:
+            return {"ok": True, **robot_control_options()}
+
+        @self.settings_app.post("/api/robot/action")
+        def robot_action(request: RobotActionRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.queue_manual_robot_action(request.action, request.value)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/robot/stop")
+        def stop_robot_action() -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.stop_manual_robot_action()
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         @self.settings_app.post("/api/power")
         def power(request: PowerRequest) -> dict[str, object]:
