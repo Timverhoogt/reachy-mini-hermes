@@ -19,8 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Motor torque and microphone lifecycle management for privacy/power states.
 - Tabbed settings UI with Dashboard, Announce, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
 - Full announcement console with exact-text TTS, provider/model/voice overrides, quick templates, repeat/pause controls, a bounded serialized queue, independent Stop/clear, session-scoped browser draft preservation, and voice-only, wake-and-return, or stay-awake behavior.
-- Manual semantic robot controls for confirmed motor/fold state, safe wake/fold power actions, nine-way bounded head direction, curated expressions, footprint-labelled dances, and cooperative movement cancellation, routed through the same serialized safety layer as voice actions.
-- Priority Stop behavior, privacy revalidation at execution time, busy-request rejection, persistent action state, and mobile-safe controls prevent delayed or post-privacy motion.
+- Manual semantic robot controls now include live Cartesian pose readout and bounded 1/2.5/5/10-unit precision steps for X/Y/Z translation, head roll/pitch/yaw, rotating-base yaw, and independent head/base/all centering, alongside confirmed motor/fold state, safe wake/fold power actions, nine-way head direction, curated expressions, dances, and cooperative movement cancellation.
+- Priority Stop behavior, privacy revalidation at execution time, busy-request rejection, persistent action state, and mobile-safe controls prevent delayed or post-privacy motion. Precision motion uses app-owned 50 Hz interpolation so Stop/Meeting/Sleep can cancel both head and base movement; folding now waits for action-worker idle and re-verifies the physical sleep pose before torque release.
 - Installable Android PWA metadata, branded icons, a root-scoped service worker, Dashboard install UX, and an HTTP Add-to-Home-Screen fallback.
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
 - Optional on-demand Reachy camera tool with local diagnostics and Realtime image input.

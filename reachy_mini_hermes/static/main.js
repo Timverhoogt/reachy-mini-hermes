@@ -11,6 +11,7 @@ let loaded = false;
 let currentConfig = null;
 let voiceOptions = { stt: [], tts: [] };
 let manualActionPending = false;
+let poseRefreshPending = false;
 let powerTransitionPending = false;
 let statusRefreshPending = false;
 let currentPowerMode = "unknown";
@@ -47,6 +48,7 @@ function activateTab(name, focus = false, recordHistory = false) {
   if (recordHistory && window.location.hash !== `#${target.dataset.tab}`) {
     window.history.pushState(null, "", `#${target.dataset.tab}`);
   }
+  if (target.dataset.tab === "robot") refreshRobotPose();
   if (focus) target.focus();
 }
 
@@ -188,6 +190,7 @@ function updateStatus(payload) {
   $("robot-mode-badge").textContent = robotBusy ? "moving" : powerMode;
   const robotActionLabels = {
     move_reachy_head: "Look direction",
+    nudge_reachy: "Precision pose",
     express_reachy_emotion: "Expression preset",
     dance_reachy: "Dance preset",
   };
@@ -239,6 +242,7 @@ function updateStatus(payload) {
     button.setAttribute("aria-pressed", String(button.dataset.power === powerMode));
     button.disabled = powerTransitionPending || manualActionPending;
   });
+  if (!robotBusy) refreshRobotPose();
   const dot = $("status-dot");
   dot.className = "status-dot";
   if (["waiting_for_wake_word", "listening", "looking", "thinking", "speaking"].includes(state)) dot.classList.add("ready");
@@ -587,6 +591,60 @@ $("camera-test-button").addEventListener("click", async () => {
   }
 });
 
+async function refreshRobotPose() {
+  if (poseRefreshPending || $("panel-robot").hidden) return;
+  poseRefreshPending = true;
+  try {
+    const response = await fetch("/api/robot/pose", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    const pose = body.pose || {};
+    const formatPose = (value) => {
+      if (value === null || value === undefined || value === "") return "—";
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(1) : "—";
+    };
+    ["x", "y", "z", "roll", "pitch", "yaw"].forEach((axis) => {
+      $(`pose-${axis}`).textContent = formatPose(pose[axis]);
+    });
+    $("pose-body-yaw").textContent = formatPose(pose.body_yaw);
+  } catch (error) {
+    ["x", "y", "z", "roll", "pitch", "yaw", "body-yaw"].forEach((axis) => {
+      $(`pose-${axis}`).textContent = "—";
+    });
+  } finally {
+    poseRefreshPending = false;
+  }
+}
+
+async function sendPrecisionRobotAction(axis, delta) {
+  const message = $("robot-message");
+  manualActionPending = true;
+  const isCenter = axis.startsWith("center_");
+  message.textContent = currentPowerMode === "standby"
+    ? `Waking Reachy before ${isCenter ? axis.replace("_", " ") : `${axis} ${delta > 0 ? "+" : ""}${delta}`}…`
+    : `Moving ${isCenter ? axis.replace("_", " ") : `${axis} ${delta > 0 ? "+" : ""}${delta}`}…`;
+  message.className = "message";
+  document.querySelectorAll(".manual-control, [data-power]").forEach((button) => { button.disabled = true; });
+  try {
+    const response = await fetch("/api/robot/nudge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ axis, delta }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = `${isCenter ? axis.replace("_", " ") : `${axis} ${delta > 0 ? "+" : ""}${delta}`} started · Reachy is ${body.power_mode}`;
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    manualActionPending = false;
+    await refreshStatus();
+  }
+}
+
 async function sendManualRobotAction(action, value) {
   const message = $("robot-message");
   manualActionPending = true;
@@ -619,6 +677,15 @@ document.querySelectorAll("[data-robot-action]").forEach((button) => {
   button.addEventListener("click", () => {
     if (button.dataset.confirm && !window.confirm(button.dataset.confirm)) return;
     sendManualRobotAction(button.dataset.robotAction, button.dataset.robotValue);
+  });
+});
+
+document.querySelectorAll("[data-nudge-axis]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const step = Number($("precision-step").value);
+    const sign = Number(button.dataset.nudgeSign);
+    const delta = Number.isFinite(sign) ? step * sign : 0;
+    sendPrecisionRobotAction(button.dataset.nudgeAxis, delta);
   });
 });
 

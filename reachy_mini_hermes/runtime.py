@@ -29,7 +29,12 @@ from .config import AppConfig, load_config
 from .hermes_client import HermesBridgeClient, HermesBridgeError, SpeechAudio
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
-from .robot_tools import ReachyRobotActions, completed_robot_tool_call, manual_robot_action
+from .robot_tools import (
+    ReachyRobotActions,
+    completed_robot_tool_call,
+    manual_precision_action,
+    manual_robot_action,
+)
 from .wakeword import HeyHermesSpotter, ensure_kws_model
 
 _LOGGER = logging.getLogger(__name__)
@@ -320,7 +325,7 @@ class HermesVoiceRuntime:
     def _fold_head_before_torque_release(self) -> tuple[bool, str]:
         """Fold Reachy into its supported pose before releasing motor torque."""
         with self._motor_transition_lock:
-            if self._head_safely_folded:
+            if self._head_safely_folded and self._read_head_safely_folded():
                 try:
                     self._set_motor_mode(False)
                 except RuntimeError as exc:
@@ -328,6 +333,17 @@ class HermesVoiceRuntime:
                     _LOGGER.error(message)
                     return False, message
                 return True, ""
+            self._head_safely_folded = False
+            if self._actions is not None:
+                self._actions.cancel(stop_media=False)
+                if not self._actions.wait_idle(timeout=5.0):
+                    message = "Robot movement did not stop; motors remain enabled to prevent an unsafe fold"
+                    _LOGGER.error(message)
+                    try:
+                        self._set_motor_mode(True)
+                    except RuntimeError:
+                        _LOGGER.exception("Could not preserve torque after movement stop timeout")
+                    return False, message
             if self._playback_stopped_for_privacy:
                 start_playing = getattr(self.robot.media, "start_playing", None)
                 if callable(start_playing):
@@ -353,6 +369,14 @@ class HermesVoiceRuntime:
                     self._set_motor_mode(True)
                 except RuntimeError:
                     _LOGGER.exception("Could not reconfirm enabled torque after sleep movement failure")
+                return False, message
+            if not self._read_head_safely_folded():
+                message = "Reachy sleep movement returned without a verified folded pose; motors remain enabled"
+                _LOGGER.error(message)
+                try:
+                    self._set_motor_mode(True)
+                except RuntimeError:
+                    _LOGGER.exception("Could not preserve torque after unverified sleep pose")
                 return False, message
             self._head_safely_folded = True
             try:
@@ -599,6 +623,79 @@ class HermesVoiceRuntime:
                 "ok": True,
                 "action": action.strip().lower(),
                 "value": value.strip().lower(),
+                "power_mode": self._effective_power_mode(),
+                **result,
+            }
+
+    def robot_pose(self) -> dict[str, float]:
+        """Read a sanitized Cartesian pose from Reachy's local daemon."""
+        try:
+            response = httpx.get("http://127.0.0.1:8000/api/state/full", timeout=2.0)
+            response.raise_for_status()
+            state = response.json()
+            if not isinstance(state, dict):
+                raise ValueError("daemon state is not an object")
+            head = state.get("head_pose")
+            required = ("x", "y", "z", "roll", "pitch", "yaw")
+            if not isinstance(head, dict) or any(key not in head for key in required):
+                raise ValueError("daemon head pose is incomplete")
+            if "body_yaw" not in state:
+                raise ValueError("daemon body yaw is missing")
+            values: dict[str, float] = {}
+            for key in required:
+                raw = head[key]
+                if isinstance(raw, bool):
+                    raise ValueError(f"daemon pose field {key} is not numeric")
+                values[key] = float(raw)
+            raw_body = state["body_yaw"]
+            if isinstance(raw_body, bool):
+                raise ValueError("daemon body yaw is not numeric")
+            values["body_yaw"] = float(raw_body)
+            if not all(math.isfinite(value) for value in values.values()):
+                raise ValueError("daemon pose contains a non-finite value")
+            return {
+                "x": round(values["x"] * 1000.0, 2),
+                "y": round(values["y"] * 1000.0, 2),
+                "z": round(values["z"] * 1000.0, 2),
+                "roll": round(math.degrees(values["roll"]), 2),
+                "pitch": round(math.degrees(values["pitch"]), 2),
+                "yaw": round(math.degrees(values["yaw"]), 2),
+                "body_yaw": round(math.degrees(values["body_yaw"]), 2),
+            }
+        except Exception as exc:
+            raise RuntimeError(f"Could not read Reachy pose: {exc}") from exc
+
+    def queue_precision_robot_action(self, axis: str, delta: float) -> dict[str, object]:
+        """Queue one bounded Cartesian nudge after confirmed motor wake."""
+        with self._motor_transition_lock:
+            mode = self._effective_power_mode()
+            if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
+                raise RuntimeError("Precision robot control is blocked in Meeting and Sleep")
+            if self._actions is None:
+                raise RuntimeError("Robot action controller is not ready")
+            if mode == "standby":
+                self.set_power_mode("awake")
+            if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
+                raise RuntimeError("Precision robot control requires confirmed Awake motor torque")
+            pose = self.robot_pose()
+            name, arguments = manual_precision_action(
+                axis,
+                delta,
+                body_yaw_degrees=pose["body_yaw"],
+            )
+            result = self._actions.enqueue(
+                name,
+                arguments,
+                hold_pose=True,
+                reject_if_busy=True,
+            )
+            if not result.get("accepted"):
+                raise RuntimeError(str(result.get("error") or "Precision movement could not be queued"))
+            _LOGGER.info("Precision robot movement queued: %s %s", axis, delta)
+            return {
+                "ok": True,
+                "axis": axis.strip().lower(),
+                "delta": float(delta),
                 "power_mode": self._effective_power_mode(),
                 **result,
             }

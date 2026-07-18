@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
 from reachy_mini_hermes.robot_tools import (
     ReachyRobotActions,
     completed_robot_tool_call,
+    manual_precision_action,
     manual_robot_action,
     robot_control_options,
 )
@@ -36,8 +38,13 @@ class FakeRobot:
         self.antenna_samples: list[list[float]] = []
         self.cancellations = 0
 
-    def get_current_head_pose(self) -> dict[str, bool]:
-        return {"current": True}
+    def get_current_head_pose(self) -> list[list[float]]:
+        return [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
 
     def goto_target(self, **kwargs: object) -> None:
         self.targets.append(kwargs)
@@ -97,6 +104,75 @@ def test_manual_robot_controls_translate_only_curated_values() -> None:
         manual_robot_action("joint", "neck=180")
 
 
+def test_precision_controls_validate_only_cartesian_axes() -> None:
+    assert manual_precision_action("pitch", -1.0, body_yaw_degrees=3.0) == (
+        "nudge_reachy",
+        {"axis": "pitch", "delta": -1.0, "body_yaw_degrees": 3.0},
+    )
+    assert manual_precision_action("center_all", 0.0) == (
+        "nudge_reachy",
+        {"axis": "center_all", "delta": 0.0, "body_yaw_degrees": 0.0},
+    )
+    with pytest.raises(ValueError):
+        manual_precision_action("joint_4", 1.0)
+    with pytest.raises(ValueError):
+        manual_precision_action("yaw", 25.0)
+
+
+def test_precision_head_and_base_moves_are_clamped_and_interpolated(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools.interpolate_head_pose",
+        lambda start, target, ratio: target,
+    )
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    pitch = actions.execute(
+        "nudge_reachy",
+        {"axis": "pitch", "delta": -2.5, "body_yaw_degrees": 0.0},
+    )
+    base = actions.execute(
+        "nudge_reachy",
+        {"axis": "body_yaw", "delta": 10.0, "body_yaw_degrees": 27.0},
+    )
+
+    assert pitch["ok"] is True
+    assert pitch["target"]["pitch"] == -2.5
+    assert robot.head_samples[-1]["pitch"] == -2.5
+    assert robot.head_samples[-1]["mm"] is True
+    assert base["target"] == {"body_yaw": 30.0}
+    assert robot.body_samples[-1] == pytest.approx(0.5235987756)
+
+
+def test_precision_center_all_resets_head_and_base(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools.interpolate_head_pose",
+        lambda start, target, ratio: target,
+    )
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.execute(
+        "nudge_reachy",
+        {"axis": "center_all", "delta": 0.0, "body_yaw_degrees": 18.0},
+    )
+
+    assert result["ok"] is True
+    assert result["target"] == {
+        "body_yaw": 0.0,
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "roll": 0.0,
+        "pitch": 0.0,
+        "yaw": 0.0,
+    }
+    assert robot.head_samples[-1]["pitch"] == 0.0
+    assert robot.body_samples[-1] == 0.0
+
+
 def test_robot_actions_use_safe_curated_moves_without_move_audio(monkeypatch) -> None:
     monkeypatch.setattr(
         "reachy_mini_hermes.robot_tools.create_head_pose",
@@ -141,6 +217,37 @@ def test_diagonal_look_uses_one_bounded_semantic_head_pose(monkeypatch) -> None:
             "duration": 0.6,
         }
     ]
+
+
+def test_stop_cancels_precision_body_interpolation_without_late_targets(monkeypatch) -> None:
+    robot = FakeRobot()
+    completed = threading.Event()
+    results: list[dict[str, object]] = []
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+    actions.start()
+    def on_complete(result: dict[str, object]) -> None:
+        results.append(result)
+        completed.set()
+
+    actions.enqueue(
+        "nudge_reachy",
+        {"axis": "body_yaw", "delta": 10.0, "body_yaw_degrees": 0.0},
+        on_complete=on_complete,
+    )
+    deadline = time.monotonic() + 1
+    while not robot.body_samples and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert actions.cancel(stop_media=False) is True
+    assert completed.wait(1)
+    time.sleep(0.05)
+    samples_after_stop = len(robot.body_samples)
+    time.sleep(0.15)
+
+    assert len(robot.body_samples) == samples_after_stop
+    assert results == [{"ok": False, "error": "Robot action was cancelled", "action": "nudge_reachy"}]
+    assert actions.wait_idle(1)
+    actions.close()
 
 
 def test_unknown_or_unapproved_robot_action_is_rejected() -> None:
@@ -194,7 +301,7 @@ def test_manual_stop_uses_cooperative_move_flag_without_stopping_media() -> None
 
     assert actions.cancel(stop_media=False) is True
     assert actions._cancel_requested.is_set()
-    assert robot.head_samples[-1] == {"current": True}
+    assert robot.head_samples[-1] == robot.get_current_head_pose()
     assert robot.cancellations == 0
 
 

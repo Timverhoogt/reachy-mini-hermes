@@ -65,6 +65,11 @@ class RobotActionRequest(BaseModel):
     value: str = Field(min_length=1, max_length=32)
 
 
+class RobotNudgeRequest(BaseModel):
+    axis: str = Field(min_length=1, max_length=32)
+    delta: float = Field(default=0.0, ge=-10, le=10)
+
+
 class PowerRequest(BaseModel):
     mode: str
     duration_minutes: float = Field(default=60, ge=1, le=480)
@@ -261,6 +266,26 @@ class ReachyMiniHermes(ReachyMiniApp):
                 raise HTTPException(status_code=409, detail="Voice runtime has not started")
             try:
                 return self._runtime.queue_manual_robot_action(request.action, request.value)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.get("/api/robot/pose")
+        def robot_pose() -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return {"ok": True, "pose": self._runtime.robot_pose()}
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/robot/nudge")
+        def robot_nudge(request: RobotNudgeRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.queue_precision_robot_action(request.axis, request.delta)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:

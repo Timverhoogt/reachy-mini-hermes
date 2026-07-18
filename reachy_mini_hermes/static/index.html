@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
 </head>
 <body>
   <main>
@@ -166,7 +166,7 @@
             <button type="button" id="motor-wake-button" data-power="awake">Wake &amp; enable</button>
             <button type="button" id="motor-standby-button" data-power="standby" class="secondary">Fold &amp; disable</button>
             <button type="button" id="robot-stop-button" class="danger" aria-describedby="robot-stop-help">Stop action</button>
-            <p id="robot-stop-help" class="motor-stop-help">Stops the active Look, Expression, or Dance command without stopping voice audio. Safe folding is never interrupted.</p>
+            <p id="robot-stop-help" class="motor-stop-help">Stops the active Look, Precision, Expression, or Dance command without stopping voice audio. Safe folding is never interrupted.</p>
           </div>
         </div>
         <p id="robot-message" class="message" role="status" aria-live="polite"></p>
@@ -206,6 +206,56 @@
             </select>
             <button type="button" id="emotion-button" class="manual-control">Perform selected expression</button>
           </div>
+        </div>
+
+        <div class="control-group precision-group">
+          <div class="control-group-heading">
+            <div><h3>Precision pose control</h3><p class="muted compact-note">Small Cartesian steps with conservative software limits. Position uses millimetres; pitch, roll, yaw, and base use degrees.</p></div>
+            <span class="control-chip">Head + base</span>
+          </div>
+          <div class="precision-toolbar">
+            <label>Step size
+              <select id="precision-step">
+                <option value="1">Fine · 1 mm / 1°</option>
+                <option value="2.5" selected>Small · 2.5 mm / 2.5°</option>
+                <option value="5">Medium · 5 mm / 5°</option>
+                <option value="10">Large · 10 mm / 10°</option>
+              </select>
+            </label>
+            <div class="pose-readout" role="group" aria-label="Current measured head and base pose">
+              <span>X <strong id="pose-x">—</strong> mm</span>
+              <span>Y <strong id="pose-y">—</strong> mm</span>
+              <span>Z <strong id="pose-z">—</strong> mm</span>
+              <span>Roll <strong id="pose-roll">—</strong>°</span>
+              <span>Pitch <strong id="pose-pitch">—</strong>°</span>
+              <span>Yaw <strong id="pose-yaw">—</strong>°</span>
+              <span>Base <strong id="pose-body-yaw">—</strong>°</span>
+            </div>
+          </div>
+          <div class="precision-control-grid">
+            <div class="precision-axis-card">
+              <h4>Orientation</h4>
+              <div class="axis-row"><span>Yaw</span><button type="button" class="secondary manual-control" data-nudge-axis="yaw" data-nudge-sign="1" aria-label="Yaw left">Left</button><button type="button" class="secondary manual-control" data-nudge-axis="yaw" data-nudge-sign="-1" aria-label="Yaw right">Right</button></div>
+              <div class="axis-row"><span>Pitch</span><button type="button" class="secondary manual-control" data-nudge-axis="pitch" data-nudge-sign="-1" aria-label="Pitch up">Up</button><button type="button" class="secondary manual-control" data-nudge-axis="pitch" data-nudge-sign="1" aria-label="Pitch down">Down</button></div>
+              <div class="axis-row"><span>Roll</span><button type="button" class="secondary manual-control" data-nudge-axis="roll" data-nudge-sign="-1" aria-label="Roll negative">−</button><button type="button" class="secondary manual-control" data-nudge-axis="roll" data-nudge-sign="1" aria-label="Roll positive">+</button></div>
+            </div>
+            <div class="precision-axis-card">
+              <h4>Position</h4>
+              <div class="axis-row"><span>X</span><button type="button" class="secondary manual-control" data-nudge-axis="x" data-nudge-sign="1" aria-label="Move head forward on X axis">Forward</button><button type="button" class="secondary manual-control" data-nudge-axis="x" data-nudge-sign="-1" aria-label="Move head backward on X axis">Back</button></div>
+              <div class="axis-row"><span>Y</span><button type="button" class="secondary manual-control" data-nudge-axis="y" data-nudge-sign="1" aria-label="Move head left on Y axis">Left</button><button type="button" class="secondary manual-control" data-nudge-axis="y" data-nudge-sign="-1" aria-label="Move head right on Y axis">Right</button></div>
+              <div class="axis-row"><span>Z</span><button type="button" class="secondary manual-control" data-nudge-axis="z" data-nudge-sign="1" aria-label="Move head up on Z axis">Up</button><button type="button" class="secondary manual-control" data-nudge-axis="z" data-nudge-sign="-1" aria-label="Move head down on Z axis">Down</button></div>
+            </div>
+            <div class="precision-axis-card">
+              <h4>Rotating base</h4>
+              <div class="axis-row"><span>Base yaw</span><button type="button" class="secondary manual-control" data-nudge-axis="body_yaw" data-nudge-sign="1" aria-label="Rotate base left">Left</button><button type="button" class="secondary manual-control" data-nudge-axis="body_yaw" data-nudge-sign="-1" aria-label="Rotate base right">Right</button></div>
+              <div class="precision-centers">
+                <button type="button" class="secondary manual-control" data-nudge-axis="center_head" data-nudge-sign="0">Center head</button>
+                <button type="button" class="secondary manual-control" data-nudge-axis="center_base" data-nudge-sign="0">Center base</button>
+                <button type="button" class="secondary manual-control" data-nudge-axis="center_all" data-nudge-sign="0">Center all</button>
+              </div>
+            </div>
+          </div>
+          <p class="muted compact-note">Limits: X ±15 mm, Y/Z ±20 mm, roll ±15°, pitch ±25°, head yaw ±35°, base yaw ±30°. Stop action freezes the current pose.</p>
         </div>
 
         <div class="control-group dance-group">
@@ -336,7 +386,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=12"></script>
-  <script src="/static/main.js?v=12"></script>
+  <script src="/static/camera.js?v=14"></script>
+  <script src="/static/main.js?v=14"></script>
 </body>
 </html>

@@ -112,6 +112,43 @@ def test_already_folded_standby_does_not_replay_sleep_motion() -> None:
     assert motor_modes == [False]
 
 
+def test_unverified_sleep_pose_keeps_torque_enabled() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._read_head_safely_folded = lambda: False  # type: ignore[method-assign]
+    motor_modes: list[bool] = []
+    runtime._set_motor_mode = lambda enabled, wake=False: motor_modes.append(enabled)  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="without a verified folded pose"):
+        runtime.set_power_mode("sleep")
+
+    assert motor_modes == [True, True]
+    assert runtime._head_safely_folded is False
+
+
+def test_fold_refuses_torque_release_until_action_worker_is_idle() -> None:
+    class BusyActions:
+        pending_count = 1
+
+        def cancel(self, *, stop_media: bool = True) -> bool:
+            return True
+
+        def wait_idle(self, timeout: float = 5.0) -> bool:
+            return False
+
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    runtime._actions = BusyActions()  # type: ignore[assignment]
+    motor_modes: list[bool] = []
+    runtime._set_motor_mode = lambda enabled, wake=False: motor_modes.append(enabled)  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="movement did not stop"):
+        runtime.set_power_mode("sleep")
+
+    assert robot.sleep_calls == 0
+    assert motor_modes == [True]
+    assert runtime._head_safely_folded is False
+
+
 def test_sleep_motion_failure_keeps_torque_enabled_instead_of_dropping_head() -> None:
     class FailingSleepRobot(FakeRobot):
         def goto_sleep(self) -> None:
@@ -128,6 +165,56 @@ def test_sleep_motion_failure_keeps_torque_enabled_instead_of_dropping_head() ->
     assert motor_modes == [True, True]
     assert "motors remain enabled" in str(status["last_error"])
     assert status["power_mode"] == "sleep"
+
+
+def test_robot_pose_fails_closed_on_missing_or_non_finite_daemon_fields(monkeypatch) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, object]:
+            return {
+                "head_pose": {"x": 0, "y": 0, "z": 0, "roll": 0, "pitch": 0},
+                "body_yaw": float("nan"),
+            }
+
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.get", lambda *args, **kwargs: Response())
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+
+    with pytest.raises(RuntimeError, match="head pose is incomplete"):
+        runtime.robot_pose()
+
+
+def test_robot_pose_converts_complete_daemon_state_to_ui_units(monkeypatch) -> None:
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, object]:
+            return {
+                "head_pose": {
+                    "x": 0.001,
+                    "y": -0.002,
+                    "z": 0.003,
+                    "roll": 0.1,
+                    "pitch": -0.2,
+                    "yaw": 0.3,
+                },
+                "body_yaw": -0.4,
+            }
+
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.get", lambda *args, **kwargs: Response())
+    pose = HermesVoiceRuntime(FakeRobot(), threading.Event()).robot_pose()
+
+    assert pose == {
+        "x": 1.0,
+        "y": -2.0,
+        "z": 3.0,
+        "roll": 5.73,
+        "pitch": -11.46,
+        "yaw": 17.19,
+        "body_yaw": -22.92,
+    }
 
 
 def test_meeting_mode_has_bounded_timer() -> None:
@@ -440,6 +527,9 @@ def test_manual_robot_action_is_blocked_in_privacy_modes() -> None:
 
         def cancel(self, *, stop_media: bool = True) -> bool:
             return False
+
+        def wait_idle(self, timeout: float = 5.0) -> bool:
+            return True
 
     runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
     runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]

@@ -45,6 +45,27 @@ def test_robot_tab_offers_bounded_diagonal_look_and_wide_motion_confirmation() -
     assert "Wide" in html
 
 
+def test_robot_tab_offers_precision_pose_and_base_controls() -> None:
+    html = (STATIC / "index.html").read_text()
+    main = (STATIC / "main.js").read_text()
+
+    assert 'id="precision-step"' in html
+    for axis in ("x", "y", "z", "roll", "pitch", "yaw", "body_yaw"):
+        assert f'data-nudge-axis="{axis}"' in html
+        assert f'id="pose-{axis.replace("_", "-")}"' in html
+    for center in ("center_head", "center_base", "center_all"):
+        assert f'data-nudge-axis="{center}"' in html
+    assert "Fine · 1 mm / 1°" in html
+    assert "Small · 2.5 mm / 2.5°" in html
+    assert 'fetch("/api/robot/nudge"' in main
+    assert 'fetch("/api/robot/pose"' in main
+    assert "if (!robotBusy) refreshRobotPose()" in main
+    assert 'aria-label="Move head up on Z axis"' in html
+    assert 'aria-label="Rotate base left"' in html
+    assert 'role="group" aria-label="Current measured head and base pose"' in html
+    assert "nudge_reachy: \"Precision pose\"" in main
+
+
 def test_motor_ui_serializes_power_transitions_and_reports_confirmed_state() -> None:
     main = (STATIC / "main.js").read_text()
     style = (STATIC / "style.css").read_text()
@@ -71,7 +92,7 @@ def test_motor_ui_serializes_power_transitions_and_reports_confirmed_state() -> 
     assert 'data-action-busy="true"' in style
     assert "position: fixed" in style
     assert 'data-action-busy="false"' in html
-    assert 'reachy-hermes-shell-v12' in worker
-    assert '/static/style.css?v=12' in html
-    assert '/static/camera.js?v=12' in html
-    assert '/static/main.js?v=12' in html
+    assert 'reachy-hermes-shell-v14' in worker
+    assert '/static/style.css?v=14' in html
+    assert '/static/camera.js?v=14' in html
+    assert '/static/main.js?v=14' in html

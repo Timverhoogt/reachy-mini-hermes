@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import queue
 import threading
 import time
@@ -20,6 +21,19 @@ ROBOT_TOOL_NAMES = frozenset(
         "dance_reachy",
     }
 )
+_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {"nudge_reachy"}
+_PRECISION_AXES = frozenset(
+    {"x", "y", "z", "roll", "pitch", "yaw", "body_yaw", "center_head", "center_base", "center_all"}
+)
+_HEAD_LIMITS = {
+    "x": (-15.0, 15.0),
+    "y": (-20.0, 20.0),
+    "z": (-20.0, 20.0),
+    "roll": (-15.0, 15.0),
+    "pitch": (-25.0, 25.0),
+    "yaw": (-35.0, 35.0),
+}
+_BODY_YAW_LIMIT = (-30.0, 30.0)
 
 _LOOK_POSES: dict[str, dict[str, float]] = {
     "left": {"yaw": 35.0},
@@ -72,6 +86,53 @@ def manual_robot_action(action: str, value: str) -> tuple[str, dict[str, object]
     raise ValueError("Unknown or unsupported manual robot action")
 
 
+def manual_precision_action(
+    axis: str,
+    delta: float,
+    *,
+    body_yaw_degrees: float = 0.0,
+) -> tuple[str, dict[str, object]]:
+    """Validate one fine relative movement without exposing raw joints."""
+    axis = axis.strip().lower()
+    if axis not in _PRECISION_AXES:
+        raise ValueError("Unknown precision movement axis")
+    if axis.startswith("center_"):
+        return "nudge_reachy", {"axis": axis, "delta": 0.0, "body_yaw_degrees": body_yaw_degrees}
+    delta = float(delta)
+    if delta == 0 or abs(delta) > 10:
+        raise ValueError("Precision movement must be between -10 and 10")
+    return "nudge_reachy", {
+        "axis": axis,
+        "delta": delta,
+        "body_yaw_degrees": body_yaw_degrees,
+    }
+
+
+def _head_pose_components(pose: object) -> dict[str, float]:
+    """Extract millimetres and XYZ Euler degrees from an SDK 4x4 pose."""
+    matrix = cast(object, pose)
+    r20 = float(matrix[2][0])  # type: ignore[index]
+    pitch = math.asin(max(-1.0, min(1.0, -r20)))
+    if abs(math.cos(pitch)) > 1e-7:
+        roll = math.atan2(float(matrix[2][1]), float(matrix[2][2]))  # type: ignore[index]
+        yaw = math.atan2(float(matrix[1][0]), float(matrix[0][0]))  # type: ignore[index]
+    else:
+        roll = math.atan2(-float(matrix[1][2]), float(matrix[1][1]))  # type: ignore[index]
+        yaw = 0.0
+    return {
+        "x": float(matrix[0][3]) * 1000.0,  # type: ignore[index]
+        "y": float(matrix[1][3]) * 1000.0,  # type: ignore[index]
+        "z": float(matrix[2][3]) * 1000.0,  # type: ignore[index]
+        "roll": math.degrees(roll),
+        "pitch": math.degrees(pitch),
+        "yaw": math.degrees(yaw),
+    }
+
+
+def _clamp(value: float, limits: tuple[float, float]) -> float:
+    return max(limits[0], min(limits[1], value))
+
+
 def robot_control_options() -> dict[str, list[str]]:
     """Return the UI-safe semantic controls without exposing raw motors or joints."""
     return {
@@ -116,6 +177,13 @@ def create_head_pose(**kwargs: float) -> object:
     from reachy_mini.utils import create_head_pose as sdk_create_head_pose
 
     return sdk_create_head_pose(**kwargs)
+
+
+def interpolate_head_pose(start: object, target: object, ratio: float) -> object:
+    """Import SDK SE(3) interpolation lazily for hardware-independent tests."""
+    from reachy_mini.utils.interpolation import linear_pose_interpolation
+
+    return linear_pose_interpolation(start, target, ratio)
 
 
 def _default_library_factory() -> object:
@@ -215,7 +283,7 @@ class ReachyRobotActions:
         hold_pose: bool = False,
         reject_if_busy: bool = False,
     ) -> dict[str, object]:
-        if name not in ROBOT_TOOL_NAMES:
+        if name not in _QUEUED_ROBOT_ACTION_NAMES:
             return {"ok": False, "error": "Robot action is not allow-listed"}
         if self._closed.is_set() or self.stop_event.is_set():
             return {"ok": False, "error": "Robot action controller is stopping"}
@@ -247,6 +315,50 @@ class ReachyRobotActions:
             self.robot.goto_target(head=target, antennas=None, body_yaw=None, duration=0.6)
             return {"ok": True, "action": name, "direction": direction}
 
+        if name == "nudge_reachy":
+            axis = str(arguments.get("axis") or "").lower()
+            if axis not in _PRECISION_AXES:
+                return {"ok": False, "error": "Unknown precision movement axis"}
+            delta = float(arguments.get("delta") or 0.0)
+            body_yaw = float(arguments.get("body_yaw_degrees") or 0.0)
+            target_head: object | None = None
+            target_body: float | None = None
+            result_pose: dict[str, float] = {}
+
+            if axis in {"body_yaw", "center_base", "center_all"}:
+                target_body_degrees = 0.0 if axis in {"center_base", "center_all"} else body_yaw + delta
+                target_body_degrees = _clamp(target_body_degrees, _BODY_YAW_LIMIT)
+                target_body = math.radians(target_body_degrees)
+                result_pose["body_yaw"] = round(target_body_degrees, 2)
+
+            if axis not in {"body_yaw", "center_base"}:
+                components = _head_pose_components(self.robot.get_current_head_pose())
+                if axis in {"center_head", "center_all"}:
+                    components = {key: 0.0 for key in _HEAD_LIMITS}
+                elif axis in _HEAD_LIMITS:
+                    components[axis] = _clamp(components[axis] + delta, _HEAD_LIMITS[axis])
+                target_head = create_head_pose(
+                    x=components["x"],
+                    y=components["y"],
+                    z=components["z"],
+                    roll=components["roll"],
+                    pitch=components["pitch"],
+                    yaw=components["yaw"],
+                    mm=True,
+                    degrees=True,
+                )
+                result_pose.update({key: round(value, 2) for key, value in components.items()})
+
+            duration = max(0.22, min(0.6, 0.22 + abs(delta) * 0.03))
+            if not self._run_precision_interpolation(
+                target_head=target_head,
+                target_body=target_body,
+                start_body=math.radians(body_yaw),
+                duration=duration,
+            ):
+                return {"ok": False, "error": "Robot action was cancelled", "action": name}
+            return {"ok": True, "action": name, "axis": axis, "target": result_pose}
+
         if name == "express_reachy_emotion":
             emotion = str(arguments.get("emotion") or "").lower()
             move_name = _EMOTION_MOVES.get(emotion)
@@ -266,6 +378,34 @@ class ReachyRobotActions:
             return {"ok": True, "action": name, "style": style, "move": move_name}
 
         return {"ok": False, "error": "Robot action is not allow-listed"}
+
+    def _run_precision_interpolation(
+        self,
+        *,
+        target_head: object | None,
+        target_body: float | None,
+        start_body: float,
+        duration: float,
+    ) -> bool:
+        """Run cancellable app-owned interpolation instead of an opaque daemon task."""
+        start_head = self.robot.get_current_head_pose() if target_head is not None else None
+        started = time.monotonic()
+        period = 1.0 / 50.0
+        while True:
+            if self._cancel_requested.is_set() or self.stop_event.is_set() or self._closed.is_set():
+                return False
+            elapsed = time.monotonic() - started
+            ratio = min(1.0, elapsed / duration)
+            eased = ratio * ratio * (3.0 - 2.0 * ratio)
+            if target_head is not None and start_head is not None:
+                head = interpolate_head_pose(start_head, target_head, eased)
+                self.robot.set_target_head_pose(head)
+            if target_body is not None:
+                self.robot.set_target_body_yaw(start_body + (target_body - start_body) * eased)
+            if ratio >= 1.0:
+                return True
+            if self._cancel_requested.wait(min(period, max(0.0, duration - elapsed))):
+                return False
 
     def _play_recorded_move(self, move_name: str) -> bool:
         if self._library is None:
