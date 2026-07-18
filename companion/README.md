@@ -7,6 +7,7 @@ The companion bridge gives Reachy one authenticated endpoint for:
 - configured or explicitly selected STT/TTS providers;
 - a private OpenAI Realtime WebSocket;
 - `ask_hermes` delegation from Realtime back into the user's Hermes agent.
+- local Realtime power-mode calls for Standby, Awake, timed Meeting, and Sleep.
 - pass-through of on-demand Reachy camera frames to Realtime image input.
 
 Provider credentials stay on the Hermes host. Reachy stores only the bridge URL and the private `API_SERVER_KEY` bearer token.
@@ -77,7 +78,7 @@ Authorization: Bearer <API_SERVER_KEY>
 | `POST /v1/audio/speech` | Configured/Edge/ElevenLabs TTS |
 | `GET /v1/realtime` | Authenticated WebSocket proxy to OpenAI Realtime |
 
-The Realtime client sends an initial `session.start` envelope containing model, voice, reasoning effort, Hermes agent route, stable memory scope, system prompt, and the camera/robot-tool feature flags. The bridge then creates the OpenAI GA Realtime session and exposes `ask_hermes` plus only the enabled, curated Reachy-local tools.
+The Realtime client sends an initial `session.start` envelope containing model, voice, reasoning effort, Hermes agent route, stable memory scope, system prompt, and the camera/robot-tool feature flags. The bridge then creates the OpenAI GA Realtime session and exposes `ask_hermes`, the always-available local `set_reachy_power_mode` tool, and only the enabled camera/motion tools. Sleep and Meeting are applied on Reachy itself; no privileged credential is sent to the robot.
 
 ### Realtime trust boundary
 

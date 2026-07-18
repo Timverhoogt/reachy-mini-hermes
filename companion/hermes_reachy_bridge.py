@@ -41,7 +41,34 @@ def _build_realtime_tools(camera_enabled: bool, robot_tools_enabled: bool) -> li
                 "required": ["request"],
                 "additionalProperties": False,
             },
-        }
+        },
+        {
+            "type": "function",
+            "name": "set_reachy_power_mode",
+            "description": (
+                "Set Reachy's local power/privacy mode when the user explicitly asks. Standby ends the current "
+                "conversation but keeps local wake detection active. Awake keeps motors on. Meeting disables voice "
+                "and motion for a timed period. Sleep disables voice and motion until changed from the UI or a "
+                "physical control."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["standby", "awake", "meeting", "sleep"],
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 480,
+                        "description": "Meeting duration. Defaults to 30 minutes when omitted.",
+                    },
+                },
+                "required": ["mode"],
+                "additionalProperties": False,
+            },
+        },
     ]
     if camera_enabled:
         tools.append(
@@ -468,6 +495,14 @@ class Bridge:
             if robot_tools_enabled
             else "Do not claim to perform physical robot actions because robot tools are disabled. "
         )
+        power_instruction = (
+            "When the user explicitly asks Reachy to enter Standby, Awake, Meeting, or Sleep, call "
+            "set_reachy_power_mode instead of ask_hermes. Use 30 minutes for Meeting when no duration is given. "
+            "Standby, Meeting, and Sleep end the current conversation immediately. Sleep also disables the wake "
+            "word, so never claim the user can wake Reachy by voice from Sleep; the UI or a physical control is "
+            "required. Do not change modes from casual phrases such as 'I am tired' unless they are clearly a "
+            "command to Reachy. "
+        )
         instructions = (
             "You are Hermes, speaking through a Reachy Mini robot. Be concise, natural, and conversational. "
             "Never say punctuation names or announce that you are awake. You may answer simple social conversation "
@@ -476,6 +511,7 @@ class Bridge:
             "succeeded without that tool. "
             + camera_instruction
             + robot_instruction
+            + power_instruction
             + system_prompt
         )
         upstream_headers = {"Authorization": f"Bearer {openai_key}"}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import re
@@ -111,6 +112,49 @@ def realtime_audio_item_id(kind: str, payload: dict[str, object]) -> str:
     return str(item.get("id") or "")
 
 
+@dataclass(frozen=True, slots=True)
+class PowerModeToolCall:
+    call_id: str
+    mode: str
+    duration_minutes: int | None
+
+
+def completed_power_mode_call(
+    kind: str,
+    payload: dict[str, object],
+) -> PowerModeToolCall | None:
+    """Parse a local power request only after its Realtime call is completed."""
+    if kind != "response.output_item.done":
+        return None
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return None
+    call_id = str(item.get("call_id") or "")
+    if (
+        item.get("type") != "function_call"
+        or item.get("name") != "set_reachy_power_mode"
+        or item.get("status") != "completed"
+        or not call_id
+    ):
+        return None
+    try:
+        arguments = json.loads(item.get("arguments") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        arguments = {}
+    if not isinstance(arguments, dict):
+        arguments = {}
+    mode = str(arguments.get("mode") or "").strip().lower()
+    raw_duration = arguments.get("duration_minutes", 30)
+    if isinstance(raw_duration, bool):
+        duration_minutes = None
+    else:
+        try:
+            duration_minutes = int(raw_duration)
+        except (TypeError, ValueError):
+            duration_minutes = None
+    return PowerModeToolCall(call_id, mode, duration_minutes)
+
+
 def completed_camera_call_id(kind: str, payload: dict[str, object]) -> str:
     """Return a completed camera tool call ID, never an in-progress/cancelled one."""
     if kind != "response.output_item.done":
@@ -161,6 +205,7 @@ class HermesVoiceRuntime:
         self._last_wake_at = 0.0
         self._power_lock = threading.RLock()
         self._privacy_requested = threading.Event()
+        self._conversation_stop_requested = threading.Event()
         self._camera_lock = threading.Lock()
         self._power_mode = "standby"
         self._meeting_until = 0.0
@@ -178,6 +223,10 @@ class HermesVoiceRuntime:
         mode = mode.strip().lower()
         if mode not in _POWER_MODES:
             raise ValueError(f"Unsupported power mode: {mode}")
+        if mode in {"standby", "meeting", "sleep"}:
+            self._conversation_stop_requested.set()
+        else:
+            self._conversation_stop_requested.clear()
         if mode in {"meeting", "sleep"}:
             self._privacy_requested.set()
         with self._power_lock:
@@ -529,6 +578,7 @@ class HermesVoiceRuntime:
             _LOGGER.info("Wake word detected: %s", keyword)
             if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
                 continue
+            self._conversation_stop_requested.clear()
             self._set_motor_mode(True, wake=True)
             if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
                 self._set_motor_mode(False)
@@ -561,6 +611,41 @@ class HermesVoiceRuntime:
                     self._motion.idle()
                 if self._effective_power_mode() == "standby":
                     self._set_motor_mode(False)
+
+    def _handle_power_mode_call(
+        self,
+        session: RealtimeBridgeSession,
+        power_call: PowerModeToolCall,
+    ) -> dict[str, object]:
+        """Apply a completed local power call and report its real resulting state."""
+        mode = power_call.mode
+        duration_minutes = power_call.duration_minutes
+        if mode not in _POWER_MODES:
+            result: dict[str, object] = {
+                "ok": False,
+                "error": "Mode must be standby, awake, meeting, or sleep",
+            }
+        elif mode == "meeting" and (
+            duration_minutes is None or not 1 <= duration_minutes <= 480
+        ):
+            result = {
+                "ok": False,
+                "error": "Meeting duration must be between 1 and 480 minutes",
+            }
+        else:
+            duration_seconds = float((duration_minutes or 30) * 60) if mode == "meeting" else 0.0
+            self.set_power_mode(mode, duration_seconds=duration_seconds)
+            result = {"ok": True, "mode": mode}
+            if mode == "meeting":
+                result["duration_minutes"] = duration_minutes or 30
+        session.send_tool_result(
+            power_call.call_id,
+            result,
+            continue_response=not result.get("ok") or mode == "awake",
+        )
+        _LOGGER.info("Realtime power mode tool: %s", result)
+        return result
+
     def _run_realtime_conversation(self, config: AppConfig) -> None:
         """Run a persistent speech-to-speech session after the local wake word."""
         session = RealtimeBridgeSession(config)
@@ -572,6 +657,7 @@ class HermesVoiceRuntime:
         playback = RealtimePlayback()
         handled_camera_call_ids: set[str] = set()
         handled_robot_call_ids: set[str] = set()
+        handled_power_call_ids: set[str] = set()
         self._play_asset("listening.wav")
         self._discard_audio(0.34)
         self._set_status(
@@ -590,7 +676,7 @@ class HermesVoiceRuntime:
         if self._motion is not None:
             self._motion.listening()
         try:
-            while not self.stop_event.is_set():
+            while not self.stop_event.is_set() and not self._conversation_stop_requested.is_set():
                 if self._effective_power_mode() in {"meeting", "sleep"}:
                     break
                 if time.monotonic() - last_activity >= config.conversation_timeout_seconds:
@@ -658,7 +744,11 @@ class HermesVoiceRuntime:
                             )
                     camera_call_id = completed_camera_call_id(kind, payload)
                     robot_call = completed_robot_tool_call(kind, payload)
-                    if camera_call_id and camera_call_id not in handled_camera_call_ids:
+                    power_call = completed_power_mode_call(kind, payload)
+                    if power_call is not None and power_call.call_id not in handled_power_call_ids:
+                        handled_power_call_ids.add(power_call.call_id)
+                        self._handle_power_mode_call(session, power_call)
+                    elif camera_call_id and camera_call_id not in handled_camera_call_ids:
                         handled_camera_call_ids.add(camera_call_id)
                         self._set_status("looking", "Capturing one on-demand camera frame")
                         try:
@@ -757,6 +847,10 @@ class HermesVoiceRuntime:
                                 self._status.turns_completed += 1
                             generation_done = True
                         last_activity = time.monotonic()
+                    if self._conversation_stop_requested.is_set():
+                        break
+                if self._conversation_stop_requested.is_set():
+                    break
                 if generation_done and speaking and not playback.audible(time.monotonic()):
                     speaking = False
                     generation_done = False
@@ -784,7 +878,7 @@ class HermesVoiceRuntime:
             _LOGGER.debug("Hermes bridge health: %s", health.get("status"))
 
             first_turn = True
-            while not self.stop_event.is_set():
+            while not self.stop_event.is_set() and not self._conversation_stop_requested.is_set():
                 if self._effective_power_mode() in {"meeting", "sleep"}:
                     break
                 if not first_turn:

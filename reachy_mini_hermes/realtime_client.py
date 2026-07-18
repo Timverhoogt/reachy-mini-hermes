@@ -211,8 +211,14 @@ class RealtimeBridgeSession:
         except Exception as exc:
             raise RealtimeBridgeError(f"Could not report camera failure: {exc}") from exc
 
-    def send_tool_result(self, call_id: str, result: dict[str, object]) -> None:
-        """Complete one robot-local function call and continue the response."""
+    def send_tool_result(
+        self,
+        call_id: str,
+        result: dict[str, object],
+        *,
+        continue_response: bool = True,
+    ) -> None:
+        """Complete one robot-local function call and optionally continue the response."""
         if self._socket is None:
             raise RealtimeBridgeError("Realtime session is not connected")
         if not call_id:
@@ -230,7 +236,8 @@ class RealtimeBridgeSession:
                     }
                 )
             )
-            self._socket.send(json.dumps({"type": "response.create"}))
+            if continue_response:
+                self._socket.send(json.dumps({"type": "response.create"}))
         except Exception as exc:
             raise RealtimeBridgeError(f"Could not send robot tool result: {exc}") from exc
 

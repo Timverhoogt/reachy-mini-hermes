@@ -91,3 +91,34 @@ def test_robot_tool_result_completes_call_and_continues_response() -> None:
         "output": '{"ok": true, "queued": "look_left"}',
     }
     assert events[1] == {"type": "response.create"}
+
+
+def test_power_tool_result_can_end_session_without_requesting_more_speech() -> None:
+    class Socket:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def send(self, message: str) -> None:
+            self.messages.append(message)
+
+    session = RealtimeBridgeSession.__new__(RealtimeBridgeSession)
+    socket = Socket()
+    session._socket = socket  # type: ignore[assignment]
+
+    session.send_tool_result(
+        "power-call",
+        {"ok": True, "mode": "sleep"},
+        continue_response=False,
+    )
+
+    events = [json.loads(message) for message in socket.messages]
+    assert events == [
+        {
+            "type": "conversation.item.create",
+            "item": {
+                "type": "function_call_output",
+                "call_id": "power-call",
+                "output": '{"ok": true, "mode": "sleep"}',
+            },
+        }
+    ]

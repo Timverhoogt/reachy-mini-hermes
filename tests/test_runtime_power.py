@@ -6,8 +6,10 @@ from reachy_mini_hermes.config import AppConfig
 from reachy_mini_hermes.hermes_client import SpeechAudio
 from reachy_mini_hermes.runtime import (
     HermesVoiceRuntime,
+    PowerModeToolCall,
     RealtimePlayback,
     completed_camera_call_id,
+    completed_power_mode_call,
     doa_yaw_degrees,
     realtime_audio_item_id,
 )
@@ -138,6 +140,69 @@ def test_realtime_audio_item_tracking_ignores_function_calls() -> None:
         )
         == "item-audio"
     )
+
+
+def test_power_mode_tool_requires_completed_output_item() -> None:
+    completed: dict[str, object] = {
+        "item": {
+            "type": "function_call",
+            "name": "set_reachy_power_mode",
+            "status": "completed",
+            "call_id": "call-power",
+            "arguments": '{"mode":"meeting","duration_minutes":45}',
+        }
+    }
+    incomplete: dict[str, object] = {
+        "item": {**completed["item"], "status": "incomplete"},  # type: ignore[dict-item]
+    }
+
+    assert completed_power_mode_call("response.function_call_arguments.done", completed) is None
+    assert completed_power_mode_call("response.output_item.done", incomplete) is None
+    call = completed_power_mode_call("response.output_item.done", completed)
+    assert call is not None
+    assert call.call_id == "call-power"
+    assert call.mode == "meeting"
+    assert call.duration_minutes == 45
+
+
+def test_standby_requests_current_conversation_to_stop_and_awake_clears_it() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]
+
+    runtime.set_power_mode("standby")
+    assert runtime._conversation_stop_requested.is_set()
+
+    runtime.set_power_mode("awake")
+    assert not runtime._conversation_stop_requested.is_set()
+
+
+def test_power_mode_tool_applies_meeting_before_ending_realtime_session() -> None:
+    class Session:
+        def __init__(self) -> None:
+            self.results: list[tuple[str, dict[str, object], bool]] = []
+
+        def send_tool_result(
+            self,
+            call_id: str,
+            result: dict[str, object],
+            *,
+            continue_response: bool = True,
+        ) -> None:
+            self.results.append((call_id, result, continue_response))
+
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]
+    session = Session()
+
+    result = runtime._handle_power_mode_call(
+        session,  # type: ignore[arg-type]
+        PowerModeToolCall("call-meeting", "meeting", 45),
+    )
+
+    assert result == {"ok": True, "mode": "meeting", "duration_minutes": 45}
+    assert runtime.status()["power_mode"] == "meeting"
+    assert runtime._conversation_stop_requested.is_set()
+    assert session.results == [("call-meeting", result, False)]
 
 
 def test_camera_test_captures_locally_without_returning_image() -> None:

@@ -38,6 +38,8 @@ Optional face following is separate from cloud vision. It runs in the Reachy dae
 
 Realtime robot tools are allow-listed to local head direction, recorded emotion, and recorded dance actions. They cannot invoke shell commands, Home Assistant, files, or arbitrary Hermes tools. Those capabilities remain behind the authenticated `ask_hermes` boundary.
 
+The local `set_reachy_power_mode` Realtime tool can select only Standby, Awake, Meeting, or Sleep after an explicit spoken request. It cannot stop the app, reboot, or shut down the Pi. Sleep disables subsequent voice wake, so recovery requires the trusted settings UI or a physical control.
+
 The snapshot API returns image bytes only after bearer-token authentication and explicit confirmation, and sets `Cache-Control: no-store`. The unauthenticated local camera test returns metadata only.
 
 ## Operational controls

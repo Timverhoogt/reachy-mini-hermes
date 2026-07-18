@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Privacy-controlled daemon-local face following that runs only during an active post-wake conversation.
 - Optional wake-time DOA orientation using Reachy's local microphone-array direction estimate.
 - Curated Realtime robot tools for look direction, authentic recorded emotions, and three recorded dance styles.
+- Local Realtime power-mode tool for explicit Standby, Awake, timed Meeting, and Sleep commands.
 - Serialized action worker that yields face/voice motion during explicit moves and cancels actions on Meeting/Sleep.
 - Operations runbook covering deployment, rollback, cooling maintenance, health checks, and acoustic acceptance.
 
@@ -58,7 +59,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff passes and 46 automated tests pass.
+- Ruff passes and 50 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

@@ -56,12 +56,28 @@ def test_realtime_robot_tools_are_curated_and_can_be_disabled() -> None:
     names = {tool["name"] for tool in bridge._build_realtime_tools(True, True)}
     assert names == {
         "ask_hermes",
+        "set_reachy_power_mode",
         "capture_reachy_camera",
         "move_reachy_head",
         "express_reachy_emotion",
         "dance_reachy",
     }
-    assert {tool["name"] for tool in bridge._build_realtime_tools(False, False)} == {"ask_hermes"}
+    assert {tool["name"] for tool in bridge._build_realtime_tools(False, False)} == {
+        "ask_hermes",
+        "set_reachy_power_mode",
+    }
+    power_tool = next(
+        tool for tool in bridge._build_realtime_tools(False, False) if tool["name"] == "set_reachy_power_mode"
+    )
+    assert power_tool["parameters"]["properties"]["mode"]["enum"] == [
+        "standby",
+        "awake",
+        "meeting",
+        "sleep",
+    ]
+    duration = power_tool["parameters"]["properties"]["duration_minutes"]
+    assert duration["minimum"] == 1
+    assert duration["maximum"] == 480
 
 
 def test_ask_hermes_requires_completed_output_item() -> None:
