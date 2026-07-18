@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.
 - Motor torque and microphone lifecycle management for privacy/power states.
 - Tabbed settings UI with Dashboard, Robot, and Settings workspaces for clearer desktop, mobile, and Reachy Control use.
-- Manual semantic robot controls for look direction, curated emotions, recorded dances, and movement cancellation, routed through the same serialized safety layer as voice actions.
+- Manual semantic robot controls for confirmed motor/fold state, safe wake/fold power actions, nine-way bounded head direction, curated expressions, footprint-labelled dances, and cooperative movement cancellation, routed through the same serialized safety layer as voice actions.
 - Priority Stop behavior, privacy revalidation at execution time, busy-request rejection, persistent action state, and mobile-safe controls prevent delayed or post-privacy motion.
 - Installable Android PWA metadata, branded icons, a root-scoped service worker, Dashboard install UX, and an HTTP Add-to-Home-Screen fallback.
 - Realtime client, silence playback asset, and tests for Realtime audio and power-state behavior.
@@ -42,6 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Voice status exposes power mode, Meeting timer, provider state, and interruption count.
 - Documentation now describes the dual-mode architecture and security boundaries.
 - The local camera viewer selects `ws://` on direct LAN HTTP and `wss://` on trusted HTTPS deployments, allowing Tailscale Serve to secure both the PWA and WebRTC signaling.
+- The Robot tab now groups confirmed torque/fold state with Wake, safe Fold, and Stop controls; adds bounded diagonal looks, descriptive expression presets, dance-footprint labels, and clear-space confirmation for wide motion.
+- Power and wake/fold transitions are serialized across clients; daemon, wake-motion, and torque-release failures now return explicit errors, keep the last confirmed motor state visible, and prevent false-success UI messages or post-release action execution.
 - Hugging Face app page now presents the complete voice, interruption, camera, Hermes-tool, and power/privacy architecture.
 
 ### Fixed
@@ -67,7 +69,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff passes and 70 automated tests pass.
+- Ruff passes and 80 automated tests pass.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

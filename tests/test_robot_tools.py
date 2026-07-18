@@ -82,7 +82,17 @@ def test_manual_robot_controls_translate_only_curated_values() -> None:
         {"emotion": "happy"},
     )
     assert manual_robot_action("dance", "groovy") == ("dance_reachy", {"style": "groovy"})
-    assert robot_control_options()["look"] == ["left", "right", "up", "down", "center"]
+    assert robot_control_options()["look"] == [
+        "left",
+        "right",
+        "up",
+        "down",
+        "up_left",
+        "up_right",
+        "down_left",
+        "down_right",
+        "center",
+    ]
     with pytest.raises(ValueError):
         manual_robot_action("joint", "neck=180")
 
@@ -110,6 +120,27 @@ def test_robot_actions_use_safe_curated_moves_without_move_audio(monkeypatch) ->
     assert robot.body_samples
     assert robot.antenna_samples
     assert robot.cancellations == 0
+
+
+def test_diagonal_look_uses_one_bounded_semantic_head_pose(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools.create_head_pose",
+        lambda **kwargs: kwargs,
+    )
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.execute("move_reachy_head", {"direction": "up_left"})
+
+    assert result == {"ok": True, "action": "move_reachy_head", "direction": "up_left"}
+    assert robot.targets == [
+        {
+            "head": {"yaw": 25.0, "pitch": -18.0, "degrees": True},
+            "antennas": None,
+            "body_yaw": None,
+            "duration": 0.6,
+        }
+    ]
 
 
 def test_unknown_or_unapproved_robot_action_is_rejected() -> None:

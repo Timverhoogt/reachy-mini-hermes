@@ -11,8 +11,14 @@ let loaded = false;
 let currentConfig = null;
 let voiceOptions = { stt: [], tts: [] };
 let manualActionPending = false;
+let powerTransitionPending = false;
+let statusRefreshPending = false;
 let currentPowerMode = "unknown";
+let lastMotorAnnouncement = "";
 let deferredInstallPrompt = null;
+
+document.querySelectorAll(".manual-control, [data-power]").forEach((button) => { button.disabled = true; });
+$("emotion-select").disabled = true;
 
 function activateTab(name, focus = false, recordHistory = false) {
   const target = document.querySelector(`[data-tab="${name}"]`) || document.querySelector("[data-tab]");
@@ -166,27 +172,64 @@ function updateStatus(payload) {
   const powerMode = runtime.power_mode || "unknown";
   currentPowerMode = powerMode;
   const robotBusy = Boolean(runtime.robot_action_busy);
+  const motorsEnabled = runtime.motors_enabled;
+  const headSafelyFolded = Boolean(runtime.head_safely_folded);
+  const controlsBlocked = ["meeting", "sleep"].includes(powerMode)
+    || robotBusy || manualActionPending || powerTransitionPending;
   $("power-mode-badge").textContent = powerMode;
   $("robot-mode-badge").textContent = robotBusy ? "moving" : powerMode;
-  $("last-robot-action").textContent = runtime.last_robot_action || "—";
+  const robotActionLabels = {
+    move_reachy_head: "Look direction",
+    express_reachy_emotion: "Expression preset",
+    dance_reachy: "Dance preset",
+  };
+  $("last-robot-action").textContent = robotActionLabels[runtime.last_robot_action]
+    || runtime.last_robot_action
+    || "—";
   $("robot-action-error").textContent = runtime.robot_action_last_error
     ? ` · ${runtime.robot_action_last_error}`
     : "";
-  const manualBlocked = ["meeting", "sleep"].includes(powerMode);
+  const motorStateText = motorsEnabled === true
+    ? `Torque on · ${headSafelyFolded ? "folded pose" : "active pose"}`
+    : motorsEnabled === false
+      ? `Torque off · ${headSafelyFolded ? "folded safely" : "pose unconfirmed"}`
+      : "Motor state unavailable";
+  $("motor-state").textContent = motorStateText;
+  const motorDot = $("motor-state-dot");
+  motorDot.className = "motor-state-dot";
+  if (motorsEnabled === true) motorDot.classList.add("on");
+  if (motorsEnabled === false) motorDot.classList.add("off");
+  if (runtime.last_error && motorsEnabled !== false) motorDot.classList.add("error");
+  document.querySelector(".robot-control-card").setAttribute(
+    "aria-busy",
+    String(robotBusy || manualActionPending || powerTransitionPending),
+  );
+  document.querySelector(".robot-control-card").dataset.actionBusy = String(
+    robotBusy || manualActionPending,
+  );
   document.querySelectorAll(".manual-control").forEach((button) => {
-    button.disabled = manualBlocked || robotBusy || manualActionPending;
+    button.disabled = controlsBlocked;
   });
-  $("emotion-select").disabled = manualBlocked || robotBusy || manualActionPending;
-  $("robot-stop-button").disabled = false;
-  $("robot-readiness").textContent = robotBusy
-    ? "Moving — press Stop movement to cancel"
-    : powerMode === "standby"
-      ? "Standby — movement will wake Reachy"
-      : powerMode === "awake"
-        ? "Awake — movement enabled; voice still waits for Hey Hermes"
-        : `${powerMode} — manual movement unavailable`;
+  $("emotion-select").disabled = controlsBlocked;
+  $("robot-stop-button").disabled = powerTransitionPending;
+  const readinessText = powerTransitionPending
+    ? "Changing motor power — manual presets are paused"
+    : robotBusy
+      ? "Moving — press Stop action to cancel active and queued movement"
+      : powerMode === "standby"
+        ? "Standby — a movement command wakes Reachy first"
+        : powerMode === "awake"
+          ? "Awake — bounded remote movement is enabled"
+          : `${powerMode} — manual movement unavailable`;
+  $("robot-readiness").textContent = readinessText;
+  const motorAnnouncement = `${motorStateText}. ${readinessText}`;
+  if (motorAnnouncement !== lastMotorAnnouncement) {
+    $("motor-state-live").textContent = motorAnnouncement;
+    lastMotorAnnouncement = motorAnnouncement;
+  }
   document.querySelectorAll("[data-power]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.power === powerMode));
+    button.disabled = powerTransitionPending || manualActionPending;
   });
   const dot = $("status-dot");
   dot.className = "status-dot";
@@ -298,6 +341,8 @@ $("tts_provider").addEventListener("change", () => {
 });
 
 async function refreshStatus() {
+  if (statusRefreshPending) return;
+  statusRefreshPending = true;
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -309,6 +354,19 @@ async function refreshStatus() {
     $("runtime-state").textContent = "Disconnected";
     $("runtime-detail").textContent = String(error);
     $("status-dot").className = "status-dot error";
+    $("robot-mode-badge").textContent = "offline";
+    $("motor-state").textContent = "Motor state unavailable";
+    $("motor-state-dot").className = "motor-state-dot error";
+    $("robot-readiness").textContent = "Remote controls disabled until live status returns";
+    const disconnectedAnnouncement = "Motor state unavailable. Remote controls disabled until live status returns.";
+    if (disconnectedAnnouncement !== lastMotorAnnouncement) {
+      $("motor-state-live").textContent = disconnectedAnnouncement;
+      lastMotorAnnouncement = disconnectedAnnouncement;
+    }
+    document.querySelectorAll(".manual-control, [data-power]").forEach((button) => { button.disabled = true; });
+    $("emotion-select").disabled = true;
+  } finally {
+    statusRefreshPending = false;
   }
 }
 
@@ -398,7 +456,7 @@ async function sendManualRobotAction(action, value) {
     ? `Waking Reachy before ${action}: ${value}…`
     : `Starting ${action}: ${value}…`;
   message.className = "message";
-  document.querySelectorAll(".manual-control").forEach((button) => { button.disabled = true; });
+  document.querySelectorAll(".manual-control, [data-power]").forEach((button) => { button.disabled = true; });
   $("emotion-select").disabled = true;
   try {
     const response = await fetch("/api/robot/action", {
@@ -420,7 +478,25 @@ async function sendManualRobotAction(action, value) {
 }
 
 document.querySelectorAll("[data-robot-action]").forEach((button) => {
-  button.addEventListener("click", () => sendManualRobotAction(button.dataset.robotAction, button.dataset.robotValue));
+  button.addEventListener("click", () => {
+    if (button.dataset.confirm && !window.confirm(button.dataset.confirm)) return;
+    sendManualRobotAction(button.dataset.robotAction, button.dataset.robotValue);
+  });
+});
+
+const dPad = $("look-d-pad");
+dPad.addEventListener("keydown", (event) => {
+  const keyDirections = {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    Home: "center",
+  };
+  const direction = keyDirections[event.key];
+  if (!direction) return;
+  event.preventDefault();
+  dPad.querySelector(`[data-robot-value="${direction}"]`)?.click();
 });
 
 $("emotion-button").addEventListener("click", () => {
@@ -454,12 +530,21 @@ $("robot-stop-button").addEventListener("click", async () => {
   }
 });
 
-async function setPowerMode(mode, durationMinutes = 60) {
-  const message = $("power-message");
+async function setPowerMode(mode, durationMinutes = 60, message = $("power-message")) {
+  if (powerTransitionPending) return;
+  powerTransitionPending = true;
+  document.querySelectorAll("[data-power], .manual-control").forEach((button) => { button.disabled = true; });
+  $("emotion-select").disabled = true;
+  $("robot-stop-button").disabled = true;
   if (mode !== "awake" && window.ReachyCamera?.isActive()) {
     window.ReachyCamera.stop(`Camera stopped before switching to ${mode}.`);
   }
-  message.textContent = `Switching to ${mode}…`;
+  message.textContent = mode === "standby"
+    ? "Folding Reachy before disabling motor torque…"
+    : mode === "awake"
+      ? "Enabling motor torque and waking Reachy…"
+      : `Switching to ${mode}…`;
+  message.className = "message";
   try {
     const response = await fetch("/api/power", {
       method: "POST",
@@ -468,17 +553,34 @@ async function setPowerMode(mode, durationMinutes = 60) {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
-    message.textContent = `Power mode: ${body.runtime.power_mode}`;
+    const runtime = body.runtime || {};
+    if (mode === "awake" && (runtime.power_mode !== "awake" || runtime.motors_enabled !== true)) {
+      throw new Error("Awake was not confirmed by the robot runtime");
+    }
+    if (mode === "standby" && (runtime.motors_enabled !== false || runtime.head_safely_folded !== true)) {
+      throw new Error("Safe folded Standby was not confirmed by the robot runtime");
+    }
+    message.textContent = mode === "standby"
+      ? "Reachy folded safely · motor torque disabled"
+      : mode === "awake"
+        ? "Reachy awake · motor torque enabled"
+        : `Power mode: ${body.runtime.power_mode}`;
     message.className = "message ok";
-    await refreshStatus();
   } catch (error) {
     message.textContent = String(error);
     message.className = "message error";
+  } finally {
+    powerTransitionPending = false;
+    await refreshStatus();
   }
 }
 
 document.querySelectorAll("[data-power]").forEach((button) => {
-  button.addEventListener("click", () => setPowerMode(button.dataset.power, Number(button.dataset.minutes || 60)));
+  button.addEventListener("click", () => {
+    const panel = button.closest("[data-panel]");
+    const message = panel.closest("#panel-robot") ? $("robot-message") : $("power-message");
+    setPowerMode(button.dataset.power, Number(button.dataset.minutes || 60), message);
+  });
 });
 
 $("app-off-button").addEventListener("click", async () => {
@@ -507,14 +609,36 @@ async function loadRobotOptions() {
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
     const emotionSelect = $("emotion-select");
     const selected = emotionSelect.value || "happy";
+    const emotionLabels = {
+      happy: "Happy · animated",
+      excited: "Excited · animated",
+      loving: "Loving · gentle",
+      grateful: "Grateful · gentle",
+      thinking: "Thinking · subtle",
+      confused: "Confused · expressive",
+      sad: "Sad · gentle",
+      surprised: "Surprised · animated",
+      calm: "Calm · gentle",
+      welcoming: "Welcoming · expressive",
+      yes: "Yes · head nod",
+      no: "No · head shake",
+    };
     emotionSelect.replaceChildren();
     (body.emotion || []).forEach((emotion) => {
       const option = document.createElement("option");
       option.value = emotion;
-      option.textContent = emotion.charAt(0).toUpperCase() + emotion.slice(1);
+      option.textContent = emotionLabels[emotion] || emotion.charAt(0).toUpperCase() + emotion.slice(1);
       emotionSelect.appendChild(option);
     });
     if ([...emotionSelect.options].some((option) => option.value === selected)) emotionSelect.value = selected;
+    const allowedLook = new Set(body.look || []);
+    document.querySelectorAll('[data-robot-action="look"]').forEach((button) => {
+      button.hidden = !allowedLook.has(button.dataset.robotValue);
+    });
+    const allowedDances = new Set(body.dance || []);
+    document.querySelectorAll('[data-robot-action="dance"]').forEach((button) => {
+      button.hidden = !allowedDances.has(button.dataset.robotValue);
+    });
   } catch (error) {
     $("robot-message").textContent = `Could not load robot controls: ${String(error)}`;
     $("robot-message").className = "message error";

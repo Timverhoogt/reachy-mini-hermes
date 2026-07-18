@@ -26,6 +26,10 @@ _LOOK_POSES: dict[str, dict[str, float]] = {
     "right": {"yaw": -35.0},
     "up": {"pitch": -25.0},
     "down": {"pitch": 25.0},
+    "up_left": {"yaw": 25.0, "pitch": -18.0},
+    "up_right": {"yaw": -25.0, "pitch": -18.0},
+    "down_left": {"yaw": 25.0, "pitch": 18.0},
+    "down_right": {"yaw": -25.0, "pitch": 18.0},
     "center": {},
 }
 

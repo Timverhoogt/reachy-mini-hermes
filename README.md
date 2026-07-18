@@ -205,7 +205,7 @@ The in-app UI is organized into three keyboard-accessible tabs:
 - **Robot** — safe manual look directions, curated emotions, three recorded dances, stop movement, and an opt-in local WebRTC camera viewer.
 - **Settings** — Hermes bridge, voice, embodiment, privacy, and advanced timing configuration.
 
-Manual controls use the same serialized semantic action worker as Realtime; the browser cannot submit raw joints, arbitrary move names, shell commands, or host actions. A manual movement from Standby first completes Reachy's native wake motion and leaves it Awake. The server rejects additional taps while an action is active, rechecks privacy immediately before physical execution, and blocks all movement during Meeting/Sleep. **Stop movement** stays available out of band, cancels the active move plus queued work without changing power mode or initiating a new pose, and preserves the voice playback pipeline. The UI is intended only for a trusted LAN/VPN.
+Remote motor controls expose the confirmed torque/fold state and keep **Wake & enable**, **Fold & disable**, and cooperative **Stop action** together at the top of the Robot tab. A nine-way bounded head pad adds diagonal looks; expression presets describe their motion character; dance presets label compact, medium, and wide movement, with an extra clear-space confirmation for the wide Energetic move. Controls use the same serialized semantic action worker as Realtime—the browser cannot submit raw joints, arbitrary move names, shell commands, or motor calibration. A manual movement from Standby first completes Reachy's native wake motion and leaves it Awake. Power transitions pause all presets, additional taps are rejected while an action is active, privacy is rechecked immediately before execution, and Meeting/Sleep block movement. **Stop action** remains available during semantic movement, cancels active plus queued work without changing power mode or initiating a new pose, and preserves the voice playback pipeline. Safe folding is never interrupted. The UI is intended only for a trusted LAN/VPN.
 
 The Dashboard is also a Progressive Web App. Android Chrome exposes an **Install app** button when the page is served from a trusted HTTPS origin; the manifest, standalone display mode, icons, root-scoped service worker, and Android shortcuts are bundled with the app. The service worker caches only the static application shell and never intercepts `/api/` requests. On the direct `http://<reachy-address>:8042` LAN URL, use Chrome's **⋮ → Add to Home screen** fallback; robot controls still require a live connection to Reachy. For private trusted HTTPS, install Tailscale on Reachy and expose the UI with `tailscale serve --bg --https=443 http://127.0.0.1:8042`. Expose camera signaling separately with `tailscale serve --bg --tls-terminated-tcp=8443 tcp://127.0.0.1:8443`; the viewer automatically selects `wss://` from an HTTPS page and retains `ws://` on direct LAN HTTP. Use **Serve**, never Funnel, so the dashboard remains tailnet-only.
 
@@ -297,7 +297,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **70 tests**.
+Current automated suite: **80 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -248,6 +248,8 @@ class ReachyMiniHermes(ReachyMiniApp):
                 return {"ok": True, "runtime": runtime}
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         @self.settings_app.post("/api/app-off")
         def app_off(request: ConfirmationRequest) -> dict[str, object]:
@@ -280,7 +282,10 @@ class ReachyMiniHermes(ReachyMiniApp):
             if request.confirm.strip().lower() != "shutdown":
                 raise HTTPException(status_code=400, detail="Confirmation must be 'shutdown'")
             if self._runtime is not None:
-                self._runtime.set_power_mode("sleep")
+                try:
+                    self._runtime.set_power_mode("sleep")
+                except RuntimeError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
 
             def poweroff() -> None:
                 try:

@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=10" />
 </head>
 <body>
   <main>
@@ -79,58 +79,77 @@
     </div>
 
     <div id="panel-robot" class="tab-panel" role="tabpanel" aria-labelledby="tab-robot" data-panel="robot" hidden>
-      <section class="card robot-control-card">
+      <section class="card robot-control-card" aria-busy="false" data-action-busy="false">
         <div class="section-heading">
-          <div><p class="label">Local semantic controls</p><h2>Move Reachy</h2></div>
+          <div><p class="label">Remote motor control</p><h2>Move Reachy</h2></div>
           <span id="robot-mode-badge" class="badge">—</span>
         </div>
-        <p class="muted">Controls use the same allow-listed actions as Hermes—never raw joints. A command from Standby wakes Reachy first. Manual movement is blocked in Meeting and Sleep.</p>
-        <p id="robot-readiness" class="readiness">Standby — movement will wake Reachy</p>
+        <p class="muted">Use bounded semantic poses and authentic Reachy moves—never raw joints or motor calibration. Meeting and Sleep always block movement.</p>
+
+        <div class="motor-command-bar">
+          <div class="motor-state-summary">
+            <span id="motor-state-dot" class="motor-state-dot" aria-hidden="true"></span>
+            <div>
+              <span class="label">Motor state</span>
+              <strong id="motor-state">Checking motor state…</strong>
+              <p id="robot-readiness" class="motor-readiness">Standby — movement will wake Reachy</p>
+              <span id="motor-state-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
+            </div>
+          </div>
+          <div class="motor-safety-actions" aria-label="Motor power and action controls">
+            <button type="button" id="motor-wake-button" data-power="awake">Wake &amp; enable</button>
+            <button type="button" id="motor-standby-button" data-power="standby" class="secondary">Fold &amp; disable</button>
+            <button type="button" id="robot-stop-button" class="danger" aria-describedby="robot-stop-help">Stop action</button>
+            <p id="robot-stop-help" class="motor-stop-help">Stops the active Look, Expression, or Dance command without stopping voice audio. Safe folding is never interrupted.</p>
+          </div>
+        </div>
+        <p id="robot-message" class="message" role="status" aria-live="polite"></p>
 
         <div class="robot-control-grid">
           <div class="control-group">
-            <h3>Look</h3>
-            <div class="d-pad" aria-label="Head direction controls">
+            <div class="control-group-heading"><div><h3>Look direction</h3><p class="muted compact-note">Nine bounded head poses. Center holds the forward pose.</p></div><span class="control-chip">Head</span></div>
+            <div id="look-d-pad" class="d-pad" role="group" aria-label="Head direction controls">
+              <button type="button" class="secondary direction-up-left manual-control" data-robot-action="look" data-robot-value="up_left" aria-label="Look up and left">↖</button>
               <button type="button" class="secondary direction-up manual-control" data-robot-action="look" data-robot-value="up" aria-label="Look up">↑</button>
+              <button type="button" class="secondary direction-up-right manual-control" data-robot-action="look" data-robot-value="up_right" aria-label="Look up and right">↗</button>
               <button type="button" class="secondary direction-left manual-control" data-robot-action="look" data-robot-value="left" aria-label="Look left">←</button>
               <button type="button" class="secondary direction-center manual-control" data-robot-action="look" data-robot-value="center" aria-label="Look forward">●</button>
               <button type="button" class="secondary direction-right manual-control" data-robot-action="look" data-robot-value="right" aria-label="Look right">→</button>
+              <button type="button" class="secondary direction-down-left manual-control" data-robot-action="look" data-robot-value="down_left" aria-label="Look down and left">↙</button>
               <button type="button" class="secondary direction-down manual-control" data-robot-action="look" data-robot-value="down" aria-label="Look down">↓</button>
+              <button type="button" class="secondary direction-down-right manual-control" data-robot-action="look" data-robot-value="down_right" aria-label="Look down and right">↘</button>
             </div>
           </div>
 
-          <div class="control-group">
-            <h3>Expression</h3>
+          <div class="control-group expression-group">
+            <div class="control-group-heading"><div><h3>Expression preset</h3><p class="muted compact-note">One curated move; voice audio stays independent.</p></div><span class="control-chip">Head + antennas</span></div>
             <label for="emotion-select" class="sr-only">Emotion</label>
             <select id="emotion-select">
-              <option value="happy">Happy</option>
-              <option value="excited">Excited</option>
-              <option value="loving">Loving</option>
-              <option value="grateful">Grateful</option>
-              <option value="thinking">Thinking</option>
-              <option value="confused">Confused</option>
-              <option value="sad">Sad</option>
-              <option value="surprised">Surprised</option>
-              <option value="calm">Calm</option>
-              <option value="welcoming">Welcoming</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
+              <option value="happy">Happy · animated</option>
+              <option value="excited">Excited · animated</option>
+              <option value="loving">Loving · gentle</option>
+              <option value="grateful">Grateful · gentle</option>
+              <option value="thinking">Thinking · subtle</option>
+              <option value="confused">Confused · expressive</option>
+              <option value="sad">Sad · gentle</option>
+              <option value="surprised">Surprised · animated</option>
+              <option value="calm">Calm · gentle</option>
+              <option value="welcoming">Welcoming · expressive</option>
+              <option value="yes">Yes · head nod</option>
+              <option value="no">No · head shake</option>
             </select>
-            <button type="button" id="emotion-button" class="manual-control">Perform expression</button>
+            <button type="button" id="emotion-button" class="manual-control">Perform selected expression</button>
           </div>
         </div>
 
         <div class="control-group dance-group">
-          <h3>Dance</h3>
-          <p class="muted compact-note">Clear space around Reachy first. Energetic uses the largest movement.</p>
+          <div class="control-group-heading"><div><h3>Dance preset</h3><p class="muted compact-note">Recorded Reachy moves. Clear space before medium or wide motion.</p></div><span class="control-chip">Full body</span></div>
           <div class="actions robot-actions">
-            <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="short">Short</button>
-            <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="groovy">Groovy</button>
-            <button type="button" class="secondary manual-control" data-robot-action="dance" data-robot-value="energetic">Energetic</button>
-            <button type="button" id="robot-stop-button" class="danger">Stop movement</button>
+            <button type="button" class="secondary manual-control preset-button" data-robot-action="dance" data-robot-value="short"><span>Short</span><small>Compact</small></button>
+            <button type="button" class="secondary manual-control preset-button" data-robot-action="dance" data-robot-value="groovy"><span>Groovy</span><small>Medium</small></button>
+            <button type="button" class="secondary manual-control preset-button" data-robot-action="dance" data-robot-value="energetic" data-confirm="Energetic uses wide body, head, and antenna movement. Confirm that Reachy has clear space."><span>Energetic</span><small>Wide</small></button>
           </div>
         </div>
-        <p id="robot-message" class="message" role="status" aria-live="polite"></p>
         <p class="muted action-status">Last action: <strong id="last-robot-action">—</strong><span id="robot-action-error"></span></p>
       </section>
 
@@ -251,7 +270,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=6"></script>
-  <script src="/static/main.js"></script>
+  <script src="/static/camera.js?v=10"></script>
+  <script src="/static/main.js?v=10"></script>
 </body>
 </html>

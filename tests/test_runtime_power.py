@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -120,7 +121,9 @@ def test_sleep_motion_failure_keeps_torque_enabled_instead_of_dropping_head() ->
     motor_modes: list[bool] = []
     runtime._set_motor_mode = lambda enabled, wake=False: motor_modes.append(enabled)  # type: ignore[method-assign]
 
-    status = runtime.set_power_mode("sleep")
+    with pytest.raises(RuntimeError, match="motors remain enabled"):
+        runtime.set_power_mode("sleep")
+    status = runtime.status()
 
     assert motor_modes == [True, True]
     assert "motors remain enabled" in str(status["last_error"])
@@ -149,6 +152,125 @@ def test_awake_runs_physical_wake_motion() -> None:
 
     assert status["power_mode"] == "awake"
     assert calls[-1] == (True, True)
+
+
+def test_motor_daemon_failure_is_reported_instead_of_false_standby(monkeypatch) -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._head_safely_folded = True
+
+    def fail_post(*args, **kwargs):
+        raise RuntimeError("daemon unavailable")
+
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.post", fail_post)
+
+    with pytest.raises(RuntimeError, match="disabling motor torque failed"):
+        runtime.set_power_mode("standby")
+
+    status = runtime.status()
+    assert status["motors_enabled"] is None
+    assert status["head_safely_folded"] is True
+    assert "daemon unavailable" in str(status["last_error"])
+
+
+def test_wake_failure_recovers_to_confirmed_folded_standby(monkeypatch) -> None:
+    class FailingWakeRobot(FakeRobot):
+        def wake_up(self) -> None:
+            raise RuntimeError("wake blocked")
+
+    class Response:
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.post", lambda *args, **kwargs: Response())
+    runtime = HermesVoiceRuntime(FailingWakeRobot(), threading.Event())
+    runtime._head_safely_folded = True
+
+    with pytest.raises(RuntimeError, match="wake motion failed"):
+        runtime.set_power_mode("awake")
+
+    status = runtime.status()
+    assert status["power_mode"] == "standby"
+    assert status["motors_enabled"] is False
+    assert status["head_safely_folded"] is True
+    assert "wake blocked" in str(status["last_error"])
+
+
+def test_disable_failure_after_folding_keeps_enabled_torque_visible(monkeypatch) -> None:
+    class Response:
+        def __init__(self, fail: bool) -> None:
+            self.fail = fail
+
+        def raise_for_status(self) -> None:
+            if self.fail:
+                raise RuntimeError("disable rejected")
+
+    monkeypatch.setattr(
+        "reachy_mini_hermes.runtime.httpx.post",
+        lambda url, **kwargs: Response(url.endswith("/disabled")),
+    )
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+
+    with pytest.raises(RuntimeError, match="disabling motor torque failed"):
+        runtime.set_power_mode("standby")
+
+    status = runtime.status()
+    assert status["power_mode"] == "standby"
+    assert status["motors_enabled"] is True
+    assert status["head_safely_folded"] is True
+    assert "disable rejected" in str(status["last_error"])
+
+
+def test_power_transitions_are_serialized_across_clients() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    state_lock = threading.Lock()
+    barrier = threading.Barrier(3)
+    active = 0
+    max_active = 0
+    errors: list[Exception] = []
+
+    def apply() -> None:
+        nonlocal active, max_active
+        with state_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.04)
+        mode = runtime._effective_power_mode()
+        runtime._set_status("test", mode, power_mode=mode, last_error="")
+        with state_lock:
+            active -= 1
+
+    runtime._apply_power_mode_unlocked = apply  # type: ignore[method-assign]
+
+    def transition(mode: str) -> None:
+        barrier.wait()
+        try:
+            runtime.set_power_mode(mode)
+        except Exception as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=transition, args=("awake",)),
+        threading.Thread(target=transition, args=("standby",)),
+    ]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join(2)
+
+    assert not errors
+    assert max_active == 1
+    assert all(not thread.is_alive() for thread in threads)
+
+
+def test_robot_action_execution_rechecks_confirmed_torque() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._power_mode = "standby"
+    runtime._motors_enabled = False
+
+    with pytest.raises(RuntimeError, match="torque is not confirmed"):
+        runtime._before_robot_action()
 
 
 def test_realtime_playback_remains_audible_after_generation_finishes() -> None:
@@ -285,7 +407,13 @@ def test_manual_robot_action_auto_wakes_and_manual_stop_preserves_audio_pipeline
 
     robot = FakeRobot()
     runtime = HermesVoiceRuntime(robot, threading.Event())
-    runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]
+
+    def set_motor_mode(enabled: bool, wake: bool = False) -> None:
+        runtime._motors_enabled = enabled
+        if enabled and wake:
+            runtime._head_safely_folded = False
+
+    runtime._set_motor_mode = set_motor_mode  # type: ignore[method-assign]
     actions = Actions()
     runtime._actions = actions  # type: ignore[assignment]
 
@@ -355,6 +483,23 @@ def test_camera_test_captures_locally_without_returning_image() -> None:
 
     assert result == {"bytes": 9, "content_type": "image/jpeg"}
     assert runtime.status()["camera_captures"] == 1
+
+
+def test_runtime_status_reports_confirmed_motor_and_fold_state(monkeypatch) -> None:
+    class Response:
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.post", lambda *args, **kwargs: Response())
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._head_safely_folded = False
+
+    runtime._set_motor_mode(True)
+    status = runtime.status()
+
+    assert status["motors_enabled"] is True
+    assert status["head_safely_folded"] is False
 
 
 @pytest.mark.parametrize("mode", ["meeting", "sleep"])
