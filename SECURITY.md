@@ -19,11 +19,12 @@ The Reachy configuration contains the bridge bearer token and is written with mo
 ## Network exposure
 
 - Keep Reachy and Hermes on a trusted LAN, management VLAN, or VPN.
-- Do not expose ports `8042`, `8642`, or `8643` directly to the public internet.
+- Do not expose ports `8042`, `8443`, `8642`, or `8643` directly to the public internet.
 - Port `8042` hosts the settings and power-control UI. Its confirmation strings prevent accidental clicks; they are not authentication.
+- Port `8443` hosts the daemon's WebRTC signaling service for the local camera producer.
 - Port `8642` is the Hermes API Server.
 - Port `8643` is the companion bridge, including the Realtime WebSocket proxy.
-- Use TLS and an authenticated reverse proxy for any remote access.
+- Use TLS and an authenticated reverse proxy for any remote access. Tailscale Serve can terminate HTTPS for port `8042` and TLS-terminated TCP/WSS for port `8443`; use Serve rather than public Funnel and restrict access with tailnet grants/ACLs.
 - Restrict ingress with host/network firewalls to the Reachy and administrator addresses that actually need access.
 
 ## Realtime trust boundary
@@ -42,7 +43,7 @@ The local `set_reachy_power_mode` Realtime tool can select only Standby, Awake, 
 
 The snapshot API returns image bytes only after bearer-token authentication and explicit confirmation, and sets `Cache-Control: no-store`. The unauthenticated local camera test returns metadata only.
 
-The optional local live viewer does not create a Hermes camera endpoint. After an explicit user action while Reachy is Awake, the browser connects directly to the daemon's existing GStreamer WebRTC producer on port 8443—the same feed used by Reachy Mini Control. The UI disables the audio track, uses no public STUN service, and closes its session on tab exit, page backgrounding, Standby, Meeting, or Sleep. The `camera_feed_enabled` setting controls this UI, but it does not disable Reachy's upstream daemon producer or prevent another authorized Reachy Control client from connecting; network access to the daemon and signaling port remains the real trust boundary.
+The optional local live viewer does not create a Hermes camera endpoint. After an explicit user action while Reachy is Awake, the browser connects directly to the daemon's existing GStreamer WebRTC producer on port 8443—the same feed used by Reachy Mini Control. Direct LAN HTTP uses `ws://`; a trusted HTTPS deployment uses `wss://` with TLS terminated by its private reverse proxy. The UI disables the audio track, adds no public STUN service, and closes its session on tab exit, page backgrounding, Standby, Meeting, Sleep, Hermes status loss, or app shutdown. The `camera_feed_enabled` setting controls this UI, but it does not disable Reachy's upstream daemon producer or prevent another authorized Reachy Control client from connecting; network access to the daemon and signaling port remains the real trust boundary.
 
 ## Operational controls
 

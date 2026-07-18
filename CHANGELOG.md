@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Companion health output reports Realtime availability and model.
 - Voice status exposes power mode, Meeting timer, provider state, and interruption count.
 - Documentation now describes the dual-mode architecture and security boundaries.
+- The local camera viewer selects `ws://` on direct LAN HTTP and `wss://` on trusted HTTPS deployments, allowing Tailscale Serve to secure both the PWA and WebRTC signaling.
 - Hugging Face app page now presents the complete voice, interruption, camera, Hermes-tool, and power/privacy architecture.
 
 ### Fixed

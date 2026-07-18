@@ -19,10 +19,11 @@ def test_robot_tab_contains_explicit_local_live_camera_controls() -> None:
     assert html.index('/static/camera.js') < html.index('/static/main.js')
 
 
-def test_camera_viewer_uses_local_webrtc_without_public_stun_or_audio() -> None:
+def test_camera_viewer_uses_private_webrtc_without_public_stun_or_audio() -> None:
     camera = (STATIC / "camera.js").read_text()
 
-    assert 'signalingServerUrl: `ws://${window.location.hostname}:8443`' in camera
+    assert 'window.location.protocol === "https:" ? "wss" : "ws"' in camera
+    assert 'signalingServerUrl: `${signalingScheme}://${window.location.hostname}:8443`' in camera
     assert "webrtcConfig: { iceServers: [] }" in camera
     assert "stun:" not in camera
     assert "track.enabled = false" in camera

@@ -148,14 +148,6 @@
       updateButtons();
       return;
     }
-    if (window.location.protocol === "https:") {
-      setUi(
-        "Unavailable",
-        "This robot exposes local WebRTC over ws://. Open its direct LAN HTTP dashboard until a trusted WSS proxy is configured.",
-        "error",
-      );
-      return;
-    }
     if (typeof window.RTCPeerConnection !== "function" || !window.GstWebRTCAPI) {
       setUi("Unsupported", "This browser does not provide the required WebRTC camera support.", "error");
       return;
@@ -167,11 +159,13 @@
     updateButtons();
 
     try {
+      const signalingScheme = window.location.protocol === "https:" ? "wss" : "ws";
       const api = new window.GstWebRTCAPI({
-        signalingServerUrl: `ws://${window.location.hostname}:8443`,
+        signalingServerUrl: `${signalingScheme}://${window.location.hostname}:8443`,
         reconnectionTimeout: 0,
         meta: { name: "reachy-hermes-ui" },
-        // The viewer and robot are on the same LAN; avoid sending ICE queries to public STUN services.
+        // The viewer reaches the robot directly over the LAN or private tailnet;
+        // avoid adding a separate public STUN dependency in the browser.
         webrtcConfig: { iceServers: [] },
       });
       state.api = api;
