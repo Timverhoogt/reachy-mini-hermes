@@ -93,7 +93,7 @@ Implemented:
 - exact-text announcement queue with provider/model/voice overrides and physical behavior policy;
 - bounded manual look, expression, dance, precision Cartesian/head/base controls, live pose, independent centering, and priority Stop;
 - BlueZ controller discovery/pair/trust/connect management plus opt-in `/dev/input/js*` monitoring;
-- PlayStation-compatible bounded look, center, Happy, Surprised, and Stop mappings routed through the existing safety gates;
+- Sony-vendor DualShock 4/DualSense bounded look, center, Happy, Surprised, and Stop mappings routed through the existing safety gates; unsupported identities fail closed;
 - installable Android PWA with synchronized cache versioning;
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown;
 - private Tailscale-compatible HTTPS/WSS camera deployment;

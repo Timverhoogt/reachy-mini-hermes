@@ -223,7 +223,7 @@ Kids Mode is deliberately separate from the normal Hermes agent session. A paren
 
 > **Hardware scope:** Bluetooth controller management is supported only on **Reachy Mini Wireless**, using its Raspberry Pi Bluetooth radio. It is not supported on Reachy Mini Lite or wired-only installations.
 
-The Robot tab can pair and manage PlayStation-compatible or other Linux gamepads through Reachy Pi's BlueZ adapter. Put a DualShock 4 into pairing mode with **Share + PS**, or a DualSense with **Create + PS**, then use **Scan**, **Pair & connect**, and **Enable controller movement**. Controller movement is opt-in and uses the same allow-listed action queue as the browser:
+The Robot tab can pair and manage Sony DualShock 4 and DualSense controllers through Reachy Pi's BlueZ adapter. Other controller identities and layouts—including Xbox, Switch, and generic USB gamepads—are rejected until they have a separately validated mapping. Put a DualShock 4 into pairing mode with **Share + PS**, or a DualSense with **Create + PS**, then use **Scan**, **Pair & connect**, and **Enable controller movement**. Controller movement is opt-in and uses the same allow-listed action queue as the browser:
 
 - Left stick or D-pad: bounded eight-way head look.
 - Cross: center the head.

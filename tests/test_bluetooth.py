@@ -77,7 +77,8 @@ def test_pair_uses_one_bounded_bluetoothctl_session_and_validates_mac() -> None:
     status = service.pair("aa:bb:cc:dd:ee:ff")
     pair_call = calls[0]
     assert pair_call[0] == [
-        "bluetoothctl", "--timeout", "35", "pair", "AA:BB:CC:DD:EE:FF"
+        "bluetoothctl", "--timeout", "35", "--agent", "NoInputNoOutput",
+        "pair", "AA:BB:CC:DD:EE:FF",
     ]
     assert pair_call[1] is None
     assert ["bluetoothctl", "trust", "AA:BB:CC:DD:EE:FF"] in [call[0] for call in calls]
@@ -141,14 +142,37 @@ def test_scan_failure_propagates_and_retains_error() -> None:
         }
     ]
 
+    def refresh_failure_runner(command: list[str], _input: str | None, _timeout: float):
+        arguments = command[1:]
+        if arguments == ["power", "on"]:
+            return FakeResult(returncode=0, stdout="Changing power on succeeded")
+        if arguments == ["--timeout", "5", "scan", "on"]:
+            return FakeResult(returncode=0, stdout="Device AA:BB:CC:DD:EE:FF Wireless Controller")
+        return FakeResult(returncode=1, stdout="", stderr="org.bluez.Error.Failed")
+
+    refresh_failure = BluetoothGamepadService(
+        lambda *_args: None,
+        command_runner=refresh_failure_runner,
+        adapter_available=True,
+    )
+    with pytest.raises(RuntimeError, match="org.bluez.Error.Failed"):
+        refresh_failure.scan(seconds=5)
+    assert "org.bluez.Error.Failed" in str(refresh_failure.status()["last_error"])
+
 
 def test_unsupported_joystick_fails_closed_and_state_reset_clears_axes(tmp_path, monkeypatch) -> None:
     joystick = tmp_path / "js0"
     joystick.write_bytes(b"")
+    identity = {"name": "Unsupported Flight Stick", "vendor": "054c"}
     monkeypatch.setattr(
         BluetoothGamepadService,
         "_joystick_name",
-        staticmethod(lambda _fd, _path: "Unsupported Flight Stick"),
+        staticmethod(lambda _fd, _path: identity["name"]),
+    )
+    monkeypatch.setattr(
+        BluetoothGamepadService,
+        "_joystick_vendor",
+        staticmethod(lambda _path: identity["vendor"]),
     )
     service = BluetoothGamepadService(
         lambda *_args: None,
@@ -162,6 +186,23 @@ def test_unsupported_joystick_fails_closed_and_state_reset_clears_axes(tmp_path,
         service._reset_gamepad_state_locked()
     assert service._axes == {}
     assert service._last_direction == ""
+
+    unsupported = (
+        ("Xbox Wireless Controller", "045e"),
+        ("Generic USB Gamepad", "1234"),
+        ("Nintendo Switch Pro Controller", "057e"),
+        ("DualSense Wireless Controller", "057e"),
+    )
+    for name, vendor in unsupported:
+        identity.update(name=name, vendor=vendor)
+        assert not service._is_supported_playstation_controller(name, vendor)
+        assert service._select_joystick() == ""
+    identity.update(name="Wireless Controller", vendor="054c")
+    assert service._is_supported_playstation_controller("Wireless Controller", "054c")
+    assert service._select_joystick() == str(joystick)
+    assert service._is_supported_playstation_controller(
+        "Sony Interactive Entertainment DualSense Wireless Controller", "054C"
+    )
 
 
 def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
@@ -194,7 +235,7 @@ def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
     ]
 
 
-def test_bluetooth_ui_exposes_pairing_mapping_and_v20_assets() -> None:
+def test_bluetooth_ui_exposes_pairing_mapping_and_v21_assets() -> None:
     static = Path(__file__).resolve().parents[1] / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
     script = (static / "main.js").read_text(encoding="utf-8")
@@ -216,4 +257,5 @@ def test_bluetooth_ui_exposes_pairing_mapping_and_v20_assets() -> None:
     assert "not supported on Reachy Mini Lite" in html
     assert "/api/bluetooth/scan" in script
     assert "/api/bluetooth/gamepad" in script
-    assert "reachy-hermes-shell-v20" in worker
+    assert "if (body.last_error) throw new Error(body.last_error);" in script
+    assert "reachy-hermes-shell-v21" in worker

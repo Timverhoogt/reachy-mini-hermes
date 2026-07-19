@@ -924,6 +924,7 @@ async function bluetoothCommand(path, payload, pendingText) {
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
     renderBluetooth(body);
+    if (body.last_error) throw new Error(body.last_error);
     message.textContent = "Bluetooth controller settings updated.";
     message.className = "message ok";
   } catch (error) {

@@ -22,7 +22,14 @@ _JS_EVENT_BUTTON = 0x01
 _JS_EVENT_AXIS = 0x02
 _JS_EVENT_INIT = 0x80
 _STICK_THRESHOLD = 20_000
-_SUPPORTED_NAME_PARTS = ("wireless controller", "dualsense", "playstation", "gamepad", "controller")
+_SONY_USB_VENDOR_ID = "054c"
+_SUPPORTED_EXACT_NAMES = {"wireless controller"}
+_SUPPORTED_NAME_PARTS = (
+    "dualshock 4",
+    "dualsense",
+    "sony computer entertainment wireless controller",
+    "sony interactive entertainment wireless controller",
+)
 
 
 class CommandResult(Protocol):
@@ -127,7 +134,7 @@ class BluetoothGamepadService:
         with self._bluez_lock:
             return self._refresh_locked()
 
-    def _refresh_locked(self) -> dict[str, object]:
+    def _refresh_locked(self, *, strict: bool = False) -> dict[str, object]:
         """Refresh while the caller owns the re-entrant BlueZ operation lock."""
         try:
             show = self._run(["show"], timeout=6.0)
@@ -164,6 +171,8 @@ class BluetoothGamepadService:
         except Exception as exc:
             with self._lock:
                 self._last_error = str(exc)
+            if strict:
+                raise
         return self.status()
 
     def scan(self, *, seconds: int = 12) -> dict[str, object]:
@@ -195,7 +204,7 @@ class BluetoothGamepadService:
             # Some BlueZ builds drop unpaired device objects as soon as the
             # scanning bluetoothctl client exits. Refresh bond/connection state,
             # then preserve this operation's bounded discovery results for the UI.
-            self._refresh_locked()
+            self._refresh_locked(strict=True)
             with self._lock:
                 for address, name in discovered.items():
                     if address not in self._devices:
@@ -218,9 +227,12 @@ class BluetoothGamepadService:
         with self._bluez_lock:
             pair_error: Exception | None = None
             try:
-                # One-shot bluetoothctl registers its own pairing agent. Piping
-                # early `agent` commands races BlueZ startup on headless Pi images.
-                self._run(["--timeout", "35", "pair", address], timeout=40.0)
+                # Register an explicit headless agent for this bounded pairing
+                # process; BlueZ requires an agent before first-time pairing.
+                self._run(
+                    ["--timeout", "35", "--agent", "NoInputNoOutput", "pair", address],
+                    timeout=40.0,
+                )
             except Exception as exc:
                 pair_error = exc
             try:
@@ -237,7 +249,7 @@ class BluetoothGamepadService:
                     raise RuntimeError(f"BlueZ did not confirm connection for {address}")
                 with self._lock:
                     self._last_error = ""
-                return self._refresh_locked()
+                return self._refresh_locked(strict=True)
             except Exception as exc:
                 with self._lock:
                     self._last_error = str(exc)
@@ -251,7 +263,7 @@ class BluetoothGamepadService:
             properties = self._device_properties(address)
             if properties.get("trusted") != "yes" or properties.get("connected") != "yes":
                 raise RuntimeError(f"BlueZ did not confirm a trusted connection for {address}")
-            return self._refresh_locked()
+            return self._refresh_locked(strict=True)
 
     def disconnect(self, address: str) -> dict[str, object]:
         address = _validate_address(address)
@@ -261,14 +273,14 @@ class BluetoothGamepadService:
             properties = self._device_properties(address)
             if properties.get("connected") == "yes":
                 raise RuntimeError(f"BlueZ still reports {address} as connected")
-            return self._refresh_locked()
+            return self._refresh_locked(strict=True)
 
     def remove(self, address: str) -> dict[str, object]:
         address = _validate_address(address)
         self._dispatch("stop", "", "")
         with self._bluez_lock:
             self._run(["remove", address], timeout=10.0)
-            status = self._refresh_locked()
+            status = self._refresh_locked(strict=True)
             devices = status.get("devices", [])
             if isinstance(devices, list) and any(
                 isinstance(device, dict) and device.get("address") == address and device.get("paired")
@@ -345,6 +357,22 @@ class BluetoothGamepadService:
         except OSError:
             return Path(path).name
 
+    @staticmethod
+    def _joystick_vendor(path: str) -> str:
+        vendor_path = Path("/sys/class/input") / Path(path).name / "device" / "id" / "vendor"
+        try:
+            return vendor_path.read_text(encoding="ascii").strip().lower()
+        except OSError:
+            return ""
+
+    @staticmethod
+    def _is_supported_playstation_controller(name: str, vendor: str) -> bool:
+        normalized = " ".join(name.lower().split())
+        return vendor.lower() == _SONY_USB_VENDOR_ID and (
+            normalized in _SUPPORTED_EXACT_NAMES
+            or any(part in normalized for part in _SUPPORTED_NAME_PARTS)
+        )
+
     def _select_joystick(self) -> str:
         paths = self._joystick_glob()
         for path in paths:
@@ -353,10 +381,10 @@ class BluetoothGamepadService:
             except OSError:
                 continue
             try:
-                name = self._joystick_name(fd, path).lower()
+                name = self._joystick_name(fd, path)
             finally:
                 os.close(fd)
-            if any(part in name for part in _SUPPORTED_NAME_PARTS):
+            if self._is_supported_playstation_controller(name, self._joystick_vendor(path)):
                 return path
         return ""
 

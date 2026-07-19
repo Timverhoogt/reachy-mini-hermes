@@ -9,13 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - BlueZ-backed Bluetooth discovery, pairing, trust, connect, disconnect, and forget controls in the trusted Robot tab.
-- Opt-in Linux joystick monitoring for PlayStation-compatible and other gamepads without an additional Python dependency.
+- Opt-in Linux joystick monitoring restricted to Sony-vendor DualShock 4 and DualSense identities with the validated PlayStation mapping; other layouts fail closed.
 - Safe gamepad mapping for bounded look, center, Happy, Surprised, and cooperative Stop actions.
 - Bluetooth/controller operational guidance, service-account permissions, explicit Reachy Mini Wireless-only hardware scope, security boundaries, and hardware-free regression tests.
 
 ### Changed
 
-- PWA shell advanced to v20 for the Bluetooth controller UI.
+- PWA shell advanced to v21 for the reviewed Bluetooth controller UI.
 
 ### Verified
 
