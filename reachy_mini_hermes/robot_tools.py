@@ -96,11 +96,14 @@ def manual_precision_action(
     axis = axis.strip().lower()
     if axis not in _PRECISION_AXES:
         raise ValueError("Unknown precision movement axis")
+    body_yaw_degrees = float(body_yaw_degrees)
+    if not math.isfinite(body_yaw_degrees):
+        raise ValueError("Current base yaw must be finite")
     if axis.startswith("center_"):
         return "nudge_reachy", {"axis": axis, "delta": 0.0, "body_yaw_degrees": body_yaw_degrees}
     delta = float(delta)
-    if delta == 0 or abs(delta) > 10:
-        raise ValueError("Precision movement must be between -10 and 10")
+    if not math.isfinite(delta) or delta == 0 or abs(delta) > 10:
+        raise ValueError("Precision movement must be finite and between -10 and 10")
     return "nudge_reachy", {
         "axis": axis,
         "delta": delta,

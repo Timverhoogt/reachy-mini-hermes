@@ -67,3 +67,26 @@ def test_bluetooth_management_routes_are_bounded_and_persist_gamepad_opt_in(monk
     assert enabled.status_code == 200
     assert service.enabled is True
     assert saved and saved[-1].gamepad_enabled is True
+
+
+def test_gamepad_precision_actions_use_the_existing_safe_precision_runtime_path() -> None:
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.precision: list[tuple[str, float]] = []
+
+        def queue_precision_robot_action(self, axis: str, delta: float) -> None:
+            self.precision.append((axis, delta))
+
+    app = ReachyMiniHermes(False)
+    runtime = FakeRuntime()
+    app._runtime = runtime  # type: ignore[assignment]
+
+    app._handle_gamepad_action("precision", "body_yaw", "5.0")
+    app._handle_gamepad_action("precision", "body_yaw", "-5.0")
+    app._handle_gamepad_action("precision", "center_base", "0.0")
+
+    assert runtime.precision == [
+        ("body_yaw", 5.0),
+        ("body_yaw", -5.0),
+        ("center_base", 0.0),
+    ]

@@ -117,6 +117,10 @@ def test_precision_controls_validate_only_cartesian_axes() -> None:
         manual_precision_action("joint_4", 1.0)
     with pytest.raises(ValueError):
         manual_precision_action("yaw", 25.0)
+    with pytest.raises(ValueError):
+        manual_precision_action("body_yaw", float("nan"))
+    with pytest.raises(ValueError):
+        manual_precision_action("body_yaw", 5.0, body_yaw_degrees=float("nan"))
 
 
 def test_precision_head_and_base_moves_are_clamped_and_interpolated(monkeypatch) -> None:

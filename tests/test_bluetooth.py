@@ -210,11 +210,14 @@ def test_unsupported_joystick_fails_closed_and_state_reset_clears_axes(tmp_path,
     )
     assert service._select_joystick() == ""
     service.handle_joystick_event(0x02, 0, 32_000)
+    service.handle_joystick_event(0x02, 2, -32_000)
     assert service._axes
+    assert service._last_base_direction == "left"
     with service._lock:
         service._reset_gamepad_state_locked()
     assert service._axes == {}
     assert service._last_direction == ""
+    assert service._last_base_direction == ""
 
     unsupported = (
         ("Xbox Wireless Controller", "045e"),
@@ -251,6 +254,14 @@ def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
     service.handle_joystick_event(0x01, 0, 1)
     service.handle_joystick_event(0x01, 3, 1)
     service.handle_joystick_event(0x01, 2, 1)
+    service.handle_joystick_event(0x01, 4, 1)
+    service.handle_joystick_event(0x01, 5, 1)
+    service.handle_joystick_event(0x01, 11, 1)
+    service.handle_joystick_event(0x01, 12, 1)
+    service.handle_joystick_event(0x02, 2, -32_000)
+    service.handle_joystick_event(0x02, 2, -32_000)  # Held right stick is debounced.
+    service.handle_joystick_event(0x02, 2, 0)
+    service.handle_joystick_event(0x02, 2, 32_000)
     service.handle_joystick_event(0x01, 8, 1)  # Share has no mapped action.
 
     assert actions == [
@@ -261,10 +272,16 @@ def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
         ("action", "emotion", "happy"),
         ("action", "emotion", "surprised"),
         ("stop", "", ""),
+        ("precision", "body_yaw", "5.0"),
+        ("precision", "body_yaw", "-5.0"),
+        ("precision", "center_head", "0.0"),
+        ("precision", "center_base", "0.0"),
+        ("precision", "body_yaw", "5.0"),
+        ("precision", "body_yaw", "-5.0"),
     ]
 
 
-def test_bluetooth_ui_exposes_pairing_mapping_and_v23_assets() -> None:
+def test_bluetooth_ui_exposes_pairing_mapping_and_v24_assets() -> None:
     static = Path(__file__).resolve().parents[1] / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
     script = (static / "main.js").read_text(encoding="utf-8")
@@ -282,9 +299,13 @@ def test_bluetooth_ui_exposes_pairing_mapping_and_v23_assets() -> None:
         assert f'id="{element_id}"' in html
     assert "Share + PS" in html
     assert "Create + PS" in html
+    assert "Right stick rotates the base" in html
+    assert "L1 / R1" in html
+    assert "L3 centers the head" in html
+    assert "R3 centers the base" in html
     assert "Reachy Mini Wireless only" in html
     assert "not supported on Reachy Mini Lite" in html
     assert "/api/bluetooth/scan" in script
     assert "/api/bluetooth/gamepad" in script
     assert "if (body.last_error) throw new Error(body.last_error);" in script
-    assert "reachy-hermes-shell-v23" in worker
+    assert "reachy-hermes-shell-v24" in worker

@@ -120,6 +120,7 @@ class BluetoothGamepadService:
         self._gamepad_thread: threading.Thread | None = None
         self._axes: dict[int, int] = {}
         self._last_direction = ""
+        self._last_base_direction = ""
 
     def _run(self, args: list[str], *, input_text: str | None = None, timeout: float = 12.0) -> str:
         if not self._adapter_available:
@@ -334,6 +335,7 @@ class BluetoothGamepadService:
         self._gamepad_path = ""
         self._axes.clear()
         self._last_direction = ""
+        self._last_base_direction = ""
 
     def set_gamepad_enabled(self, enabled: bool) -> dict[str, object]:
         enabled = bool(enabled)
@@ -473,14 +475,33 @@ class BluetoothGamepadService:
                 1: ("action", "look", "center"),
                 2: ("stop", "", ""),
                 3: ("action", "emotion", "surprised"),
+                4: ("precision", "body_yaw", "5.0"),
+                5: ("precision", "body_yaw", "-5.0"),
+                11: ("precision", "center_head", "0.0"),
+                12: ("precision", "center_base", "0.0"),
             }
             command = mapping.get(number)
             if command:
                 self._dispatch(*command)
             return
-        if kind != _JS_EVENT_AXIS or number not in {0, 1, 6, 7}:
+        if kind != _JS_EVENT_AXIS or number not in {0, 1, 2, 6, 7}:
             return
         self._axes[number] = int(value)
+        if number == 2:
+            base_direction = (
+                "left"
+                if value < -_STICK_THRESHOLD
+                else "right"
+                if value > _STICK_THRESHOLD
+                else ""
+            )
+            if base_direction == self._last_base_direction:
+                return
+            self._last_base_direction = base_direction
+            if base_direction:
+                delta = "5.0" if base_direction == "left" else "-5.0"
+                self._dispatch("precision", "body_yaw", delta)
+            return
         use_dpad = abs(self._axes.get(6, 0)) > _STICK_THRESHOLD or abs(self._axes.get(7, 0)) > _STICK_THRESHOLD
         x = self._axes.get(6 if use_dpad else 0, 0)
         y = self._axes.get(7 if use_dpad else 1, 0)

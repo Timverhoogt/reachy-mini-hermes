@@ -150,6 +150,9 @@ class ReachyMiniHermes(ReachyMiniApp):
         if kind == "stop":
             self._runtime.stop_manual_robot_action()
             return
+        if kind == "precision":
+            self._runtime.queue_precision_robot_action(action, float(value))
+            return
         self._runtime.queue_manual_robot_action(action, value)
 
     def _require_kids_pin_attempt_allowed(self) -> None:
