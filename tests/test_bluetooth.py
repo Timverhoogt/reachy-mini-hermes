@@ -264,7 +264,7 @@ def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
     ]
 
 
-def test_bluetooth_ui_exposes_pairing_mapping_and_v22_assets() -> None:
+def test_bluetooth_ui_exposes_pairing_mapping_and_v23_assets() -> None:
     static = Path(__file__).resolve().parents[1] / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
     script = (static / "main.js").read_text(encoding="utf-8")
@@ -287,4 +287,4 @@ def test_bluetooth_ui_exposes_pairing_mapping_and_v22_assets() -> None:
     assert "/api/bluetooth/scan" in script
     assert "/api/bluetooth/gamepad" in script
     assert "if (body.last_error) throw new Error(body.last_error);" in script
-    assert "reachy-hermes-shell-v22" in worker
+    assert "reachy-hermes-shell-v23" in worker
