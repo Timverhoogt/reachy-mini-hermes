@@ -394,7 +394,7 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
 def test_kids_static_assets_advance_pwa_cache_together() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     worker = (STATIC / "service-worker.js").read_text(encoding="utf-8")
-    assert "reachy-hermes-shell-v19" in worker
+    assert "reachy-hermes-shell-v20" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=19" in html
-        assert f'"/static/{asset}?v=19"' in worker
+        assert f"/static/{asset}?v=20" in html
+        assert f'"/static/{asset}?v=20"' in worker

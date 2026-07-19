@@ -154,6 +154,34 @@ Expected startup milestones include:
 
 Treat tracebacks, `Reachy voice runtime failed`, repeated WebSocket closures, and increasing daemon restarts as failures. Hardware GPU-device discovery warnings from ONNX Runtime may be harmless on a Pi when CPU inference continues successfully.
 
+## Bluetooth and controller checks
+
+This procedure applies only to **Reachy Mini Wireless**. Reachy Mini Lite and wired-only installations do not expose this Bluetooth controller feature as supported hardware.
+
+1. Verify the adapter and BlueZ service:
+
+   ```bash
+   systemctl is-active bluetooth
+   bluetoothctl show
+   sudo rfkill list bluetooth
+   ```
+
+2. Verify the Reachy app service account belongs to `input` and can run `bluetoothctl show` through the target image's BlueZ D-Bus/polkit policy. Do not assume a `bluetooth` Unix group exists. Restart the Reachy daemon after changing groups.
+3. Put the controller in pairing mode and use **Robot → Bluetooth gamepad → Scan**. Confirm Pair, Trust, and Connect all succeed.
+4. Confirm the kernel created `/dev/input/js0` (or another `js*` device) and the app reports **Controller ready**.
+5. With clear space and controller movement enabled, test one input at a time: D-pad look, Cross center, Square Happy, Triangle Surprised, Circle Stop.
+6. Enter Meeting, Sleep, and Kids Mode and confirm movement inputs are rejected. Disconnect the controller and confirm the UI returns to Waiting/Disconnected without moving Reachy.
+7. Do not map power, shutdown, dance, camera, agent, smart-home, or raw joint operations to the controller.
+
+Useful diagnostics:
+
+```bash
+bluetoothctl devices Paired
+bluetoothctl devices Connected
+jstest /dev/input/js0
+journalctl -u bluetooth -n 100 --no-pager
+```
+
 ## Power controls
 
 Use the settings UI where practical. API equivalents:

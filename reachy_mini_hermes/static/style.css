@@ -142,6 +142,19 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
 .announcement-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 18px; }
 .announcement-status-grid .quote { margin-bottom: 0; }
 .quote { color: #d7dbe5; line-height: 1.5; overflow-wrap: anywhere; }
+.hardware-scope-note { margin: 14px 0 0; padding: 11px 13px; border: 1px solid rgba(245, 158, 11, .35); border-radius: 12px; background: rgba(245, 158, 11, .08); color: var(--muted); font-size: .9rem; }
+.hardware-scope-note strong { color: #fbbf24; }
+.bluetooth-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+.bluetooth-status-grid > div { display: grid; gap: 5px; min-height: 78px; padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: #080a0f88; }
+.bluetooth-status-grid strong { overflow-wrap: anywhere; }
+.bluetooth-pairing-grid { display: grid; grid-template-columns: minmax(240px, 1fr) 1.5fr; align-items: end; gap: 14px; }
+.bluetooth-actions { justify-content: flex-start; }
+.bluetooth-actions button { min-height: 44px; }
+.bluetooth-enable-row { display: flex; align-items: flex-start; gap: 12px; margin: 18px 0; padding: 15px; border: 1px solid #7b61ff55; border-radius: 14px; background: #7b61ff0b; }
+.bluetooth-enable-row input { flex: 0 0 auto; width: 24px; min-height: 24px; margin-top: 2px; accent-color: var(--accent2); }
+.bluetooth-enable-row span { display: grid; gap: 4px; }
+.bluetooth-enable-row small { color: var(--muted); font-weight: 400; line-height: 1.45; }
+
 .kids-panel { --kids-sun: #ffd15c; --kids-sky: #68d8ff; --kids-mint: #70e0b5; --kids-purple: #a68cff; }
 .kids-hero { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 28px; min-height: 250px; overflow: hidden; border-color: #68d8ff66; background: radial-gradient(circle at 85% 10%, #ffd15c36 0, transparent 30%), linear-gradient(135deg, #17263aee, #251a3aee); }
 .kids-hero::before { content: ""; position: absolute; inset: auto -10% -55% 30%; height: 220px; border-radius: 50%; background: #68d8ff12; transform: rotate(-8deg); }
@@ -199,7 +212,7 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
   .card { padding: 19px; border-radius: 18px; }
   .tabs { top: calc(6px + env(safe-area-inset-top)); overflow-x: auto; }
   .tab-button { min-height: 44px; padding: 0 8px; font-size: .86rem; }
-  .grid-two, .conversation-card, .robot-control-grid, .announcement-status-grid, .precision-control-grid, .precision-toolbar, .kids-guide-grid { grid-template-columns: 1fr; }
+  .grid-two, .conversation-card, .robot-control-grid, .announcement-status-grid, .precision-control-grid, .precision-toolbar, .kids-guide-grid, .bluetooth-status-grid, .bluetooth-pairing-grid { grid-template-columns: 1fr; }
   .kids-hero { grid-template-columns: 1fr; min-height: 0; }
   .kids-mascot { display: none; }
   .kids-activities { grid-template-columns: repeat(2, 1fr); }

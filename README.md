@@ -219,6 +219,33 @@ Remote motor controls expose the confirmed torque/fold state and keep **Wake & e
 
 Kids Mode is deliberately separate from the normal Hermes agent session. A parent selects an optional nickname, age band (4–6, 7–9, or 10–12), English or Dutch, a 15/30/45/60-minute limit, and one of Buddy chat, Story maker, Quiz quest, Riddle box, or Calm corner. Set the initial PIN from a trusted parent device before giving a child access because the first caller can claim an unset PIN. Parent management is protected by a 6–8 digit PIN stored only as a salted `scrypt` verifier; the plaintext PIN is not persisted in the browser, public status, logs, or configuration responses. Starting the mode opens a fresh, bounded child pipeline through the private `/v1/kids/chat` route, with pre/post moderation and no normal Hermes memory or tool session. Camera, agent/delegation tools, files, messaging, Home Assistant, purchases, power tools, and explicit robot actions remain unavailable. Normalized, approved complete responses receive separate short-lived, single-use bridge capabilities for streaming and configured-TTS fallback, each bound to the child session and exact text, then stream through fixed-policy ElevenLabs Flash v2.5 as 24 kHz PCM—unmoderated model tokens are never sent directly to speech. Optional motion is limited to gentle local listening/thinking/speaking cues. Starting Kids Mode closes any prior conversation; ending it immediately invalidates the child session; synchronous STT/chat HTTP calls are not transport-aborted and may run until their bounded timeout, but their returned output is discarded. Ending also interrupts active streaming TTS and audio playback, cancels movement, clears queued speech, and runs the verified safe fold before torque release. A monotonic server timer enforces the limit and gives a five-minute warning. This is a supervised beta feature, not a babysitter, therapist, medical service, or emergency service; generative replies can still be wrong. Child audio goes to the configured STT provider, moderated child text goes to OpenAI, and approved reply text goes to ElevenLabs; the optional nickname is included in the deterministic ElevenLabs greeting. Exclusion from Hermes memory is not a provider-retention guarantee—review each provider's data controls before use.
 
+### Bluetooth controllers
+
+> **Hardware scope:** Bluetooth controller management is supported only on **Reachy Mini Wireless**, using its Raspberry Pi Bluetooth radio. It is not supported on Reachy Mini Lite or wired-only installations.
+
+The Robot tab can pair and manage PlayStation-compatible or other Linux gamepads through Reachy Pi's BlueZ adapter. Put a DualShock 4 into pairing mode with **Share + PS**, or a DualSense with **Create + PS**, then use **Scan**, **Pair & connect**, and **Enable controller movement**. Controller movement is opt-in and uses the same allow-listed action queue as the browser:
+
+- Left stick or D-pad: bounded eight-way head look.
+- Cross: center the head.
+- Square: Happy expression.
+- Triangle: Surprised expression.
+- Circle: cooperatively stop the active and queued robot action.
+
+Kids Mode, Meeting, Sleep, privacy mode, motor transitions, and the existing robot-action queue remain authoritative. The controller cannot submit raw joints, calibration, shell commands, power changes, dances, camera requests, agent tools, or Home Assistant actions.
+
+Reachy Pi needs BlueZ and Linux joystick support. For a manual deployment:
+
+```bash
+sudo apt-get install bluez joystick
+sudo systemctl enable --now bluetooth
+sudo usermod -aG input "$USER"
+# Log out/reboot after changing groups, then verify:
+bluetoothctl show
+ls -l /dev/input/js*
+```
+
+If the Reachy app daemon runs as a dedicated service account, add that account—not only the interactive SSH account—to `input`, verify that `bluetoothctl show` works under that account through the image's BlueZ D-Bus/polkit policy, then restart the daemon. A `bluetooth` Unix group is not portable and is not assumed. Do not grant blanket passwordless sudo to the web app; pairing uses bounded `bluetoothctl` arguments and strict MAC-address validation.
+
 The Dashboard is also a Progressive Web App. Android Chrome exposes an **Install app** button when the page is served from a trusted HTTPS origin; the manifest, standalone display mode, icons, root-scoped service worker, and Android shortcuts are bundled with the app. The service worker caches only the static application shell and never intercepts `/api/` requests. On the direct `http://<reachy-address>:8042` LAN URL, use Chrome's **⋮ → Add to Home screen** fallback; robot controls still require a live connection to Reachy. For private trusted HTTPS, install Tailscale on Reachy and expose the UI with `tailscale serve --bg --https=443 http://127.0.0.1:8042`. Expose camera signaling separately with `tailscale serve --bg --tls-terminated-tcp=8443 tcp://127.0.0.1:8443`; the viewer automatically selects `wss://` from an HTTPS page and retains `ws://` on direct LAN HTTP. Use **Serve**, never Funnel, so the dashboard remains tailnet-only.
 
 ## Power and privacy states
@@ -310,7 +337,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **134 tests**.
+Current automated suite: **143 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

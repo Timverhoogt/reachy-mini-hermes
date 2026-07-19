@@ -92,7 +92,7 @@ def test_motor_ui_serializes_power_transitions_and_reports_confirmed_state() -> 
     assert 'data-action-busy="true"' in style
     assert "position: fixed" in style
     assert 'data-action-busy="false"' in html
-    assert 'reachy-hermes-shell-v19' in worker
-    assert '/static/style.css?v=19' in html
-    assert '/static/camera.js?v=19' in html
-    assert '/static/main.js?v=19' in html
+    assert 'reachy-hermes-shell-v20' in worker
+    assert '/static/style.css?v=20' in html
+    assert '/static/camera.js?v=20' in html
+    assert '/static/main.js?v=20' in html

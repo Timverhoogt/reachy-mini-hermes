@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=19" />
+  <link rel="stylesheet" href="/static/style.css?v=20" />
 </head>
 <body>
   <main>
@@ -352,6 +352,40 @@
         <p class="muted action-status">Last action: <strong id="last-robot-action">—</strong><span id="robot-action-error"></span></p>
       </section>
 
+      <section class="card bluetooth-card">
+        <div class="section-heading">
+          <div><p class="label">Local controller</p><h2>Bluetooth gamepad</h2></div>
+          <span id="bluetooth-badge" class="badge">Checking…</span>
+        </div>
+        <p class="muted">Pair a PlayStation-compatible or other Linux gamepad through Reachy Pi's BlueZ adapter. Controller actions use the same bounded movement queue, Kids lock, and Meeting/Sleep safety gates as this tab.</p>
+        <p class="hardware-scope-note"><strong>Reachy Mini Wireless only.</strong> This tool requires the Wireless model's Raspberry Pi Bluetooth radio; it is not supported on Reachy Mini Lite or wired-only installations.</p>
+        <div class="bluetooth-status-grid">
+          <div><span class="label">Adapter</span><strong id="bluetooth-adapter-state">Checking…</strong></div>
+          <div><span class="label">Controller input</span><strong id="gamepad-state">Disabled</strong></div>
+          <div><span class="label">Last input</span><strong id="gamepad-last-action">—</strong></div>
+        </div>
+        <div class="bluetooth-pairing-grid">
+          <label>Discovered or paired controller
+            <select id="bluetooth-device-select">
+              <option value="">No controller found</option>
+            </select>
+          </label>
+          <div class="actions bluetooth-actions">
+            <button type="button" id="bluetooth-scan-button">Scan 12 seconds</button>
+            <button type="button" id="bluetooth-pair-button" class="secondary" disabled>Pair &amp; connect</button>
+            <button type="button" id="bluetooth-connect-button" class="secondary" disabled>Connect</button>
+            <button type="button" id="bluetooth-disconnect-button" class="secondary" disabled>Disconnect</button>
+            <button type="button" id="bluetooth-remove-button" class="danger" disabled>Forget</button>
+          </div>
+        </div>
+        <label class="checkbox-row bluetooth-enable-row">
+          <input type="checkbox" id="gamepad-enabled" />
+          <span><strong>Enable controller movement</strong><small>Left stick or D-pad looks · Cross centers · Square is Happy · Triangle is Surprised · Circle stops the active action.</small></span>
+        </label>
+        <p class="muted compact-note">Pairing mode: DualShock 4—hold <strong>Share + PS</strong>; DualSense—hold <strong>Create + PS</strong> until the light flashes. Keep Reachy clear of obstacles before enabling movement.</p>
+        <p id="bluetooth-message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
       <section class="card camera-card">
         <div class="section-heading">
           <div><p class="label">Private local viewer</p><h2>Reachy camera</h2></div>
@@ -469,7 +503,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=19"></script>
-  <script src="/static/main.js?v=19"></script>
+  <script src="/static/camera.js?v=20"></script>
+  <script src="/static/main.js?v=20"></script>
 </body>
 </html>

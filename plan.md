@@ -92,6 +92,8 @@ Implemented:
 - five keyboard-accessible tabs: Dashboard, Kids, Announce, Robot, and Settings;
 - exact-text announcement queue with provider/model/voice overrides and physical behavior policy;
 - bounded manual look, expression, dance, precision Cartesian/head/base controls, live pose, independent centering, and priority Stop;
+- BlueZ controller discovery/pair/trust/connect management plus opt-in `/dev/input/js*` monitoring;
+- PlayStation-compatible bounded look, center, Happy, Surprised, and Stop mappings routed through the existing safety gates;
 - installable Android PWA with synchronized cache versioning;
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown;
 - private Tailscale-compatible HTTPS/WSS camera deployment;
@@ -102,7 +104,7 @@ Implemented:
 Automated and packaging:
 
 - Ruff, Python compilation, JavaScript syntax, and `git diff --check` pass.
-- **134 pytest tests pass** in a clean Reachy SDK 1.9 environment with GStreamer bindings.
+- **143 pytest tests pass** in a clean Reachy SDK 1.9 environment with GStreamer bindings.
 - Wheel and source distributions build successfully.
 - `reachy-mini-app-assistant check .` passes all repository structure and metadata checks; its isolated-install phase is blocked on this workstation by the upstream Reachy Mini `PyGObject` dependency requiring Cairo development headers. The complete app suite is instead exercised in the Reachy SDK 1.9 environment with GStreamer bindings above.
 - Tracked and untracked publication files pass provider-key/token-prefix scanning.
@@ -122,6 +124,7 @@ Physical Reachy deployment:
 - `Hey Hermes` is verified with live microphone input;
 - `Okay Nabu` and `Hey Reachy` are verified against generated acceptance audio and load in the live three-phrase keyword graph;
 - camera, motor, power, app restart, bridge, daemon, and watchdog checks have passed on the reference Reachy Mini Lite;
+- on the current Raspberry Pi target, BlueZ 5.82, the onboard adapter, RF unblocking, classic/LE discovery, `bluetoothctl` authorization, and `input` group access are verified; final Reachy Mini Wireless DualShock pairing and mapping acceptance is deferred;
 - the green GPIO17 button is electrically verified with one debounced falling edge on press and one rising edge on release. GPIO behavior is not yet integrated into the app.
 
 Human acceptance still required per hardware/audio environment:

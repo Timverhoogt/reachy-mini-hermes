@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from reachy_mini import ReachyMini, ReachyMiniApp
 
+from .bluetooth import BluetoothGamepadService
 from .config import AppConfig, load_config, merge_config, save_config
 from .hermes_client import HermesBridgeClient
 from .kids_mode import KidsProfile, hash_parent_pin, verify_parent_pin
@@ -72,6 +73,18 @@ class RobotNudgeRequest(BaseModel):
     delta: float = Field(default=0.0, ge=-10, le=10)
 
 
+class BluetoothDeviceRequest(BaseModel):
+    address: str = Field(pattern=r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
+
+
+class BluetoothScanRequest(BaseModel):
+    seconds: int = Field(default=12, ge=5, le=30)
+
+
+class GamepadEnabledRequest(BaseModel):
+    enabled: bool
+
+
 class PowerRequest(BaseModel):
     mode: str
     duration_minutes: float = Field(default=60, ge=1, le=480)
@@ -118,10 +131,20 @@ class ReachyMiniHermes(ReachyMiniApp):
     def __init__(self, running_on_wireless: bool = False) -> None:
         super().__init__(running_on_wireless=running_on_wireless)
         self._runtime: HermesVoiceRuntime | None = None
+        self._bluetooth = BluetoothGamepadService(self._handle_gamepad_action)
         self._kids_pin_lock = threading.Lock()
         self._kids_pin_failures = 0
         self._kids_pin_locked_until = 0.0
         self._register_settings_routes()
+
+    def _handle_gamepad_action(self, kind: str, action: str, value: str) -> None:
+        """Route controller input through the same safety gates as the Robot tab."""
+        if self._runtime is None:
+            raise RuntimeError("Voice runtime has not started")
+        if kind == "stop":
+            self._runtime.stop_manual_robot_action()
+            return
+        self._runtime.queue_manual_robot_action(action, value)
 
     def _require_kids_pin_attempt_allowed(self) -> None:
         with self._kids_pin_lock:
@@ -403,6 +426,62 @@ class ReachyMiniHermes(ReachyMiniApp):
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+        @self.settings_app.get("/api/bluetooth/status")
+        def bluetooth_status() -> dict[str, object]:
+            return {"ok": True, **self._bluetooth.refresh()}
+
+        @self.settings_app.post("/api/bluetooth/scan")
+        def bluetooth_scan(request: BluetoothScanRequest) -> dict[str, object]:
+            try:
+                return {"ok": True, **self._bluetooth.scan(seconds=request.seconds)}
+            except (RuntimeError, ValueError) as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/bluetooth/pair")
+        def bluetooth_pair(request: BluetoothDeviceRequest) -> dict[str, object]:
+            try:
+                return {"ok": True, **self._bluetooth.pair(request.address)}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/bluetooth/connect")
+        def bluetooth_connect(request: BluetoothDeviceRequest) -> dict[str, object]:
+            try:
+                return {"ok": True, **self._bluetooth.connect(request.address)}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/bluetooth/disconnect")
+        def bluetooth_disconnect(request: BluetoothDeviceRequest) -> dict[str, object]:
+            try:
+                return {"ok": True, **self._bluetooth.disconnect(request.address)}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/bluetooth/remove")
+        def bluetooth_remove(request: BluetoothDeviceRequest) -> dict[str, object]:
+            try:
+                return {"ok": True, **self._bluetooth.remove(request.address)}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/bluetooth/gamepad")
+        def bluetooth_gamepad(request: GamepadEnabledRequest) -> dict[str, object]:
+            try:
+                current = load_config()
+                save_config(merge_config(current, {"gamepad_enabled": request.enabled}))
+                return {"ok": True, **self._bluetooth.set_gamepad_enabled(request.enabled)}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         @self.settings_app.get("/api/robot/options")
         def robot_options() -> dict[str, object]:
             return {"ok": True, **robot_control_options()}
@@ -512,9 +591,14 @@ class ReachyMiniHermes(ReachyMiniApp):
             return {"ok": True, "state": "shutting_down"}
 
     def run(self, reachy_mini: ReachyMini, stop_event: threading.Event) -> None:
-        """Run wake detection and serialized Hermes voice turns."""
+        """Run wake detection, gamepad monitoring, and serialized Hermes voice turns."""
         self._runtime = HermesVoiceRuntime(reachy_mini, stop_event)
-        self._runtime.run()
+        try:
+            if load_config().gamepad_enabled:
+                self._bluetooth.set_gamepad_enabled(True)
+            self._runtime.run()
+        finally:
+            self._bluetooth.close()
 
 
 def run_cli() -> None:

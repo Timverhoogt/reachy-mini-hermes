@@ -55,6 +55,14 @@ The snapshot API returns image bytes only after bearer-token authentication and 
 
 The optional local live viewer does not create a Hermes camera endpoint. After an explicit user action while Reachy is Awake, the browser connects directly to the daemon's existing GStreamer WebRTC producer on port 8443—the same feed used by Reachy Mini Control. Direct LAN HTTP uses `ws://`; a trusted HTTPS deployment uses `wss://` with TLS terminated by its private reverse proxy. The UI disables the audio track, adds no public STUN service, and closes its session on tab exit, page backgrounding, Standby, Meeting, Sleep, Hermes status loss, or app shutdown. The `camera_feed_enabled` setting controls this UI, but it does not disable Reachy's upstream daemon producer or prevent another authorized Reachy Control client from connecting; network access to the daemon and signaling port remains the real trust boundary.
 
+## Bluetooth controller boundary
+
+Bluetooth controller support is scoped to **Reachy Mini Wireless** and its Raspberry Pi radio. Reachy Mini Lite and wired-only installations are outside this feature's supported hardware boundary.
+
+Bluetooth management is exposed only through the trusted management UI and is blocked while Kids controls are locked. The app invokes `bluetoothctl` without a shell, accepts only strictly validated colon-separated MAC addresses, and never exposes arbitrary command arguments. Controller input is read locally from Linux `/dev/input/js*`; no gamepad events leave Reachy Pi.
+
+Gamepad movement is disabled by default and must be explicitly enabled. Only bounded look/center and two curated expression actions are mapped; Circle maps to cooperative Stop. Every movement still passes through the same Kids, privacy, Meeting/Sleep, motor-transition, queue-capacity, and safe-wake checks as Robot-tab actions. The Bluetooth feature does not grant power, camera, agent, smart-home, file, messaging, or shell capabilities. Give the app service account `input` access for joystick devices and only the narrowly scoped BlueZ D-Bus/polkit authorization provided by the target image—never blanket passwordless sudo.
+
 ## Operational controls
 
 - Keep `security.redact_secrets` enabled in Hermes.

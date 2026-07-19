@@ -58,6 +58,7 @@ class AppConfig:
     face_tracking_weight: float = 0.65
     doa_enabled: bool = False
     robot_tools_enabled: bool = True
+    gamepad_enabled: bool = False
     agent_tools_enabled: bool = True
     power_tools_enabled: bool = True
     kids_parent_pin_hash: str = ""

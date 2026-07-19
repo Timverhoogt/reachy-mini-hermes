@@ -21,6 +21,8 @@ let announcementRequestPending = false;
 let lastAnnouncementLiveText = "";
 let kidsRequestPending = false;
 let selectedKidsActivity = "buddy";
+let bluetoothRefreshPending = false;
+let bluetoothState = null;
 
 const kidsActivityLabels = {
   buddy: "Buddy chat",
@@ -42,6 +44,10 @@ $("kids-start-button").disabled = true;
 $("kids-stop-button").disabled = true;
 $("kids-pin-setup-button").disabled = true;
 $("kids-parent-unlock-button").disabled = true;
+[
+  "bluetooth-scan-button", "bluetooth-pair-button", "bluetooth-connect-button",
+  "bluetooth-disconnect-button", "bluetooth-remove-button", "gamepad-enabled",
+].forEach((id) => { $(id).disabled = true; });
 
 try {
   const savedKidsProfile = JSON.parse(window.localStorage.getItem("reachy-hermes-kids-profile") || "{}");
@@ -80,7 +86,10 @@ function activateTab(name, focus = false, recordHistory = false) {
   if (recordHistory && window.location.hash !== `#${target.dataset.tab}`) {
     window.history.pushState(null, "", `#${target.dataset.tab}`);
   }
-  if (target.dataset.tab === "robot") refreshRobotPose();
+  if (target.dataset.tab === "robot") {
+    refreshRobotPose();
+    refreshBluetooth();
+  }
   if (focus) target.focus();
 }
 
@@ -825,6 +834,153 @@ async function refreshRobotPose() {
   }
 }
 
+function renderBluetooth(state) {
+  bluetoothState = state;
+  const devices = Array.isArray(state.devices) ? state.devices : [];
+  const select = $("bluetooth-device-select");
+  const previous = select.value;
+  select.replaceChildren();
+  if (!devices.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No controller found";
+    select.appendChild(option);
+  } else {
+    devices.forEach((device) => {
+      const option = document.createElement("option");
+      option.value = device.address;
+      const flags = [device.connected ? "connected" : "", device.paired ? "paired" : ""]
+        .filter(Boolean).join(", ");
+      option.textContent = `${device.name} · ${device.address}${flags ? ` · ${flags}` : ""}`;
+      select.appendChild(option);
+    });
+    if (devices.some((device) => device.address === previous)) select.value = previous;
+  }
+  const selected = devices.find((device) => device.address === select.value);
+  $("bluetooth-adapter-state").textContent = !state.adapter_available
+    ? "BlueZ unavailable"
+    : state.adapter_powered ? "Powered on" : "Powered off";
+  $("gamepad-state").textContent = state.gamepad_connected
+    ? state.gamepad_name || "Connected"
+    : state.gamepad_enabled ? "Waiting for /dev/input/js*" : "Disabled";
+  $("gamepad-last-action").textContent = state.last_gamepad_action || "—";
+  $("gamepad-enabled").checked = Boolean(state.gamepad_enabled);
+  $("gamepad-enabled").disabled = false;
+  $("bluetooth-scan-button").disabled = !state.adapter_available || Boolean(state.scan_active);
+  $("bluetooth-pair-button").disabled = !selected || Boolean(selected.paired);
+  $("bluetooth-connect-button").disabled = !selected || Boolean(selected.connected);
+  $("bluetooth-disconnect-button").disabled = !selected || !selected.connected;
+  $("bluetooth-remove-button").disabled = !selected || !selected.paired;
+  const connected = devices.some((device) => device.connected);
+  $("bluetooth-badge").textContent = state.gamepad_connected
+    ? "Controller ready" : connected ? "Bluetooth connected" : state.adapter_available ? "Ready" : "Unavailable";
+  const message = $("bluetooth-message");
+  if (state.last_error) {
+    message.textContent = state.last_error;
+    message.className = "message error";
+  } else if (!message.classList.contains("ok")) {
+    message.textContent = "";
+    message.className = "message";
+  }
+}
+
+async function refreshBluetooth() {
+  if (bluetoothRefreshPending || $("panel-robot").hidden) return;
+  bluetoothRefreshPending = true;
+  try {
+    const response = await fetch("/api/bluetooth/status", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    renderBluetooth(body);
+  } catch (error) {
+    $("bluetooth-badge").textContent = "Unavailable";
+    $("bluetooth-adapter-state").textContent = "Unavailable";
+    $("gamepad-state").textContent = "Disabled";
+    $("bluetooth-message").textContent = String(error);
+    $("bluetooth-message").className = "message error";
+    [
+      "bluetooth-scan-button", "bluetooth-pair-button", "bluetooth-connect-button",
+      "bluetooth-disconnect-button", "bluetooth-remove-button", "gamepad-enabled",
+    ].forEach((id) => { $(id).disabled = true; });
+  } finally {
+    bluetoothRefreshPending = false;
+  }
+}
+
+async function bluetoothCommand(path, payload, pendingText) {
+  const message = $("bluetooth-message");
+  message.textContent = pendingText;
+  message.className = "message";
+  [
+    "bluetooth-scan-button", "bluetooth-pair-button", "bluetooth-connect-button",
+    "bluetooth-disconnect-button", "bluetooth-remove-button", "gamepad-enabled",
+  ].forEach((id) => { $(id).disabled = true; });
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    renderBluetooth(body);
+    message.textContent = "Bluetooth controller settings updated.";
+    message.className = "message ok";
+  } catch (error) {
+    await refreshBluetooth();
+    message.textContent = String(error);
+    message.className = "message error";
+  }
+}
+
+$("bluetooth-device-select").addEventListener("change", () => {
+  if (bluetoothState) renderBluetooth(bluetoothState);
+});
+$("bluetooth-scan-button").addEventListener("click", () => {
+  bluetoothCommand("/api/bluetooth/scan", { seconds: 12 }, "Scanning—put the controller in pairing mode now…");
+});
+$("bluetooth-pair-button").addEventListener("click", () => {
+  bluetoothCommand(
+    "/api/bluetooth/pair",
+    { address: $("bluetooth-device-select").value },
+    "Pairing, trusting, and connecting controller…",
+  );
+});
+$("bluetooth-connect-button").addEventListener("click", () => {
+  bluetoothCommand(
+    "/api/bluetooth/connect",
+    { address: $("bluetooth-device-select").value },
+    "Connecting controller…",
+  );
+});
+$("bluetooth-disconnect-button").addEventListener("click", () => {
+  bluetoothCommand(
+    "/api/bluetooth/disconnect",
+    { address: $("bluetooth-device-select").value },
+    "Disconnecting controller…",
+  );
+});
+$("bluetooth-remove-button").addEventListener("click", () => {
+  if (!window.confirm("Forget this controller from Reachy Pi?")) return;
+  bluetoothCommand(
+    "/api/bluetooth/remove",
+    { address: $("bluetooth-device-select").value },
+    "Removing paired controller…",
+  );
+});
+$("gamepad-enabled").addEventListener("change", (event) => {
+  const enabled = event.target.checked;
+  if (enabled && !window.confirm("Enable controller movement? Keep Reachy clear of obstacles.")) {
+    event.target.checked = false;
+    return;
+  }
+  bluetoothCommand(
+    "/api/bluetooth/gamepad",
+    { enabled },
+    enabled ? "Enabling safe controller input…" : "Disabling controller input…",
+  );
+});
+
 async function sendPrecisionRobotAction(axis, delta) {
   const message = $("robot-message");
   manualActionPending = true;
@@ -1065,3 +1221,6 @@ async function startUi() {
 
 startUi();
 setInterval(refreshStatus, 1500);
+setInterval(() => {
+  if (!$("panel-robot").hidden) refreshBluetooth();
+}, 5000);
