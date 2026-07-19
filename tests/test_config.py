@@ -55,3 +55,10 @@ def test_face_tracking_weight_must_be_bounded(weight: float) -> None:
 def test_bridge_url_must_be_http(url: str) -> None:
     with pytest.raises(ValueError):
         AppConfig(bridge_url=url)
+
+
+def test_capability_profile_is_bounded_to_conversation_or_agent() -> None:
+    assert AppConfig().capability_profile == "conversation"
+    assert AppConfig(capability_profile=" Agent ").capability_profile == "agent"
+    with pytest.raises(ValueError, match="capability profile"):
+        AppConfig(capability_profile="maintenance")

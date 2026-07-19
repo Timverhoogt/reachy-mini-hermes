@@ -42,6 +42,9 @@ _KIDS_SPEECH_APPROVAL_TTL_SECONDS = 5 * 60
 _KIDS_SPEECH_APPROVAL_LIMIT = 256
 _KIDS_MEDIA_TAG = re.compile(r"(?m)^\s*(?:\[\[audio_as_voice\]\]\s*)?MEDIA:\S+\s*$")
 _KIDS_MARKDOWN = re.compile(r"[`*_#>|]+")
+_REACHY_PROHIBITED_TOOLS = frozenset(
+    {"terminal", "process", "execute_code", "read_file", "write_file", "search_files", "patch"}
+)
 
 _KIDS_ACTIVITY_INSTRUCTIONS = {
     "buddy": "Be a cheerful conversation buddy. Ask one simple open question at a time and use light humor.",
@@ -494,10 +497,37 @@ class Bridge:
             )
         return web.json_response(options)
 
+    async def _require_reachy_tool_boundary(self) -> None:
+        """Fail closed unless this Hermes API profile excludes broad host authority."""
+        if self.http is None:
+            raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        try:
+            async with self.http.get(f"{self.hermes_url}/v1/toolsets", headers=headers) as response:
+                if response.status != 200:
+                    raise RuntimeError("capability discovery failed")
+                payload = await response.json(content_type=None)
+        except web.HTTPException:
+            raise
+        except Exception as exc:
+            raise web.HTTPServiceUnavailable(text="Reachy capability boundary is unavailable") from exc
+        if not isinstance(payload, list):
+            raise web.HTTPServiceUnavailable(text="Reachy capability boundary is unavailable")
+        enabled_tools = {
+            str(tool)
+            for toolset in payload
+            if isinstance(toolset, dict) and toolset.get("enabled") is True
+            for tool in toolset.get("tools", [])
+            if isinstance(tool, str)
+        }
+        if enabled_tools & _REACHY_PROHIBITED_TOOLS:
+            raise web.HTTPForbidden(text="Reachy requests are blocked from broad host capabilities")
+
     async def chat(self, request: web.Request) -> web.Response:
         self.require_auth(request)
         if self.http is None:
             raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        await self._require_reachy_tool_boundary()
         try:
             payload = await request.json()
         except Exception as exc:
@@ -675,6 +705,7 @@ class Bridge:
     ) -> str:
         if self.http is None:
             raise RuntimeError("Bridge HTTP client is not ready")
+        await self._require_reachy_tool_boundary()
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

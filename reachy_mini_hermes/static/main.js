@@ -23,6 +23,7 @@ let kidsRequestPending = false;
 let selectedKidsActivity = "buddy";
 let bluetoothRefreshPending = false;
 let bluetoothState = null;
+let agentRequestPending = false;
 
 const kidsActivityLabels = {
   buddy: "Buddy chat",
@@ -44,6 +45,9 @@ $("kids-start-button").disabled = true;
 $("kids-stop-button").disabled = true;
 $("kids-pin-setup-button").disabled = true;
 $("kids-parent-unlock-button").disabled = true;
+$("agent-conversation-button").disabled = true;
+$("agent-enable-button").disabled = true;
+$("agent-stop-button").disabled = true;
 [
   "bluetooth-scan-button", "bluetooth-pair-button", "bluetooth-connect-button",
   "bluetooth-disconnect-button", "bluetooth-remove-button", "gamepad-enabled",
@@ -226,6 +230,24 @@ function updateStatus(payload) {
   const kidsActive = Boolean(kidsMode.active);
   const kidsLocked = Boolean(kidsMode.locked);
   const kidsPinConfigured = Boolean(payload.config?.kids_parent_pin_configured);
+  const agent = runtime.agent || {};
+  const agentProfile = agent.profile || "conversation";
+  $("agent-profile-badge").textContent = agentProfile;
+  $("agent-capabilities").textContent = (agent.enabled_capabilities || []).join(", ") || "None — Phase 0";
+  $("agent-current-task").textContent = agent.current_task || "—";
+  $("agent-pending-approval").textContent = agent.pending_approval ? "Waiting for adult approval" : "None";
+  const activity = $("agent-activity");
+  activity.replaceChildren();
+  const recentActivity = agent.recent_activity || [];
+  (recentActivity.length ? recentActivity : [{ event: "No activity yet" }]).forEach((item) => {
+    const row = document.createElement("li");
+    row.textContent = String(item.event || "activity").replaceAll("_", " ");
+    activity.appendChild(row);
+  });
+  const agentBlocked = kidsActive || kidsLocked || ["meeting", "sleep"].includes(powerMode) || agentRequestPending;
+  $("agent-conversation-button").disabled = agentBlocked || agentProfile === "conversation";
+  $("agent-enable-button").disabled = agentBlocked || agentProfile === "agent";
+  $("agent-stop-button").disabled = agentRequestPending;
   const robotBusy = Boolean(runtime.robot_action_busy);
   const motorsEnabled = runtime.motors_enabled;
   const headSafelyFolded = Boolean(runtime.head_safely_folded);
@@ -1096,6 +1118,54 @@ $("robot-stop-button").addEventListener("click", async () => {
     message.className = "message error";
   } finally {
     button.disabled = false;
+    await refreshStatus();
+  }
+});
+
+async function setAgentProfile(profile) {
+  if (agentRequestPending) return;
+  agentRequestPending = true;
+  const message = $("agent-message");
+  message.textContent = profile === "agent" ? "Starting a fresh Agent session…" : "Returning to Conversation…";
+  message.className = "message";
+  try {
+    const response = await fetch("/api/agent/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Reachy-Adult-UI": "unlocked" },
+      body: JSON.stringify({ profile }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = profile === "agent"
+      ? "Agent profile active. Phase 0 has no additional action capabilities."
+      : "Conversation profile active.";
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    agentRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+$("agent-enable-button").addEventListener("click", () => setAgentProfile("agent"));
+$("agent-conversation-button").addEventListener("click", () => setAgentProfile("conversation"));
+$("agent-stop-button").addEventListener("click", async () => {
+  if (agentRequestPending) return;
+  agentRequestPending = true;
+  const message = $("agent-message");
+  try {
+    const response = await fetch("/api/agent/stop", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = "Agent work stopped; pending approvals and late results are invalid.";
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    agentRequestPending = false;
     await refreshStatus();
   }
 });

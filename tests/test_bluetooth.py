@@ -258,4 +258,4 @@ def test_bluetooth_ui_exposes_pairing_mapping_and_v21_assets() -> None:
     assert "/api/bluetooth/scan" in script
     assert "/api/bluetooth/gamepad" in script
     assert "if (body.last_error) throw new Error(body.last_error);" in script
-    assert "reachy-hermes-shell-v21" in worker
+    assert "reachy-hermes-shell-v22" in worker

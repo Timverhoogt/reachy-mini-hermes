@@ -56,3 +56,21 @@ def test_dashboard_exposes_native_install_prompt_with_http_fallback() -> None:
     assert '@self.settings_app.get("/manifest.webmanifest"' in backend
     assert '@self.settings_app.get("/service-worker.js"' in backend
     assert '"Service-Worker-Allowed": "/"' in backend
+
+
+def test_dashboard_exposes_phase_zero_agent_status_and_stop_controls() -> None:
+    html = (STATIC / "index.html").read_text()
+    javascript = (STATIC / "main.js").read_text()
+
+    for element_id in (
+        "agent-profile-badge",
+        "agent-capabilities",
+        "agent-current-task",
+        "agent-pending-approval",
+        "agent-stop-button",
+        "agent-activity",
+    ):
+        assert f'id="{element_id}"' in html
+    assert 'fetch("/api/agent/profile"' in javascript
+    assert 'fetch("/api/agent/stop"' in javascript
+    assert "None — Phase 0" in javascript

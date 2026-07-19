@@ -30,6 +30,7 @@ class AppConfig:
     api_key: str = ""
     model: str = "hermes-agent"
     conversation_mode: str = "pipeline"
+    capability_profile: str = "conversation"
     language: str = "en"
     stt_provider: str = "configured"
     stt_model: str = "base"
@@ -76,6 +77,7 @@ class AppConfig:
         self.api_key = self.api_key.strip()
         self.model = self.model.strip() or "hermes-agent"
         self.conversation_mode = self.conversation_mode.strip().lower() or "pipeline"
+        self.capability_profile = self.capability_profile.strip().lower() or "conversation"
         self.language = self.language.strip() or "en"
         self.stt_provider = self.stt_provider.strip().lower() or "configured"
         self.stt_model = self.stt_model.strip() or "base"
@@ -115,6 +117,8 @@ class AppConfig:
             raise ValueError("Unsupported TTS provider")
         if self.conversation_mode not in {"pipeline", "realtime"}:
             raise ValueError("Unsupported conversation mode")
+        if self.capability_profile not in {"conversation", "agent"}:
+            raise ValueError("Unsupported capability profile")
         if self.realtime_reasoning_effort not in {"minimal", "low", "medium", "high", "xhigh"}:
             raise ValueError("Unsupported realtime reasoning effort")
         if self.kids_mode_enabled:

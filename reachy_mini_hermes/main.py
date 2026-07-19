@@ -9,14 +9,16 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from reachy_mini import ReachyMini, ReachyMiniApp
 
+from .agent_audit import AgentAuditLog
 from .bluetooth import BluetoothGamepadService
-from .config import AppConfig, load_config, merge_config, save_config
+from .config import AppConfig, default_config_path, load_config, merge_config, save_config
 from .hermes_client import HermesBridgeClient
 from .kids_mode import KidsProfile, hash_parent_pin, verify_parent_pin
 from .robot_tools import robot_control_options
@@ -122,6 +124,10 @@ class ParentPinRequest(BaseModel):
     parent_pin: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
 
 
+class AgentProfileRequest(BaseModel):
+    profile: Literal["conversation", "agent"]
+
+
 class ReachyMiniHermes(ReachyMiniApp):
     """Embodied voice frontend for a user's own Hermes Agent."""
 
@@ -179,6 +185,7 @@ class ReachyMiniHermes(ReachyMiniApp):
                 "/api/kids/stop",
                 "/api/kids/parent/unlock",
                 "/api/robot/stop",
+                "/api/agent/stop",
             }
             if (
                 request.url.path.startswith("/api/")
@@ -249,6 +256,31 @@ class ReachyMiniHermes(ReachyMiniApp):
                     "Wake-model tuning applies after an app restart."
                 ),
             }
+
+        @self.settings_app.post("/api/agent/profile")
+        def set_agent_profile(
+            update: AgentProfileRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                agent = self._runtime.set_capability_profile(update.profile, adult_ui_unlocked=True)
+                current = load_config()
+                save_config(merge_config(current, {"capability_profile": update.profile}))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            return {"ok": True, "agent": agent}
+
+        @self.settings_app.post("/api/agent/stop")
+        def stop_agent() -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            return {"ok": True, "agent": self._runtime.cancel_agent_work("stopped")}
 
         @self.settings_app.post("/api/test-connection")
         def test_connection(update: SettingsUpdate | None = None) -> dict[str, object]:
@@ -408,7 +440,9 @@ class ReachyMiniHermes(ReachyMiniApp):
                 )
             try:
                 profile = KidsProfile(**request.model_dump(exclude={"parent_pin"}))
-                return {"ok": True, "kids_mode": self._runtime.start_kids_mode(profile)}
+                kids_mode = self._runtime.start_kids_mode(profile)
+                save_config(merge_config(config, {"capability_profile": "conversation"}))
+                return {"ok": True, "kids_mode": kids_mode}
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:
@@ -592,7 +626,11 @@ class ReachyMiniHermes(ReachyMiniApp):
 
     def run(self, reachy_mini: ReachyMini, stop_event: threading.Event) -> None:
         """Run wake detection, gamepad monitoring, and serialized Hermes voice turns."""
-        self._runtime = HermesVoiceRuntime(reachy_mini, stop_event)
+        current = load_config()
+        if current.capability_profile != "conversation":
+            save_config(merge_config(current, {"capability_profile": "conversation"}))
+        audit = AgentAuditLog(default_config_path().with_name("agent-audit.jsonl"))
+        self._runtime = HermesVoiceRuntime(reachy_mini, stop_event, agent_audit=audit)
         try:
             if load_config().gamepad_enabled:
                 self._bluetooth.set_gamepad_enabled(True)

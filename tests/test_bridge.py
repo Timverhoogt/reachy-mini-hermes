@@ -281,6 +281,49 @@ def test_realtime_robot_tools_are_curated_and_can_be_disabled() -> None:
     assert duration["maximum"] == 480
 
 
+def test_reachy_agent_path_fails_closed_on_broad_or_unknown_tool_inventory() -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret",
+        hermes_url="http://127.0.0.1:8642",
+        profile=None,
+    )
+
+    class ToolsetResponse:
+        def __init__(self, status: int, payload: object) -> None:
+            self.status = status
+            self.payload = payload
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def json(self, **_kwargs) -> object:
+            return self.payload
+
+    class FakeHttp:
+        def __init__(self, response: ToolsetResponse) -> None:
+            self.response = response
+
+        def get(self, *_args, **_kwargs) -> ToolsetResponse:
+            return self.response
+
+    bridge.http = FakeHttp(
+        ToolsetResponse(200, [{"enabled": True, "tools": ["web_search", "terminal"]}])
+    )
+    with pytest.raises(bridge_module.web.HTTPForbidden):
+        asyncio.run(bridge._require_reachy_tool_boundary())
+
+    bridge.http = FakeHttp(ToolsetResponse(503, {}))
+    with pytest.raises(bridge_module.web.HTTPServiceUnavailable):
+        asyncio.run(bridge._require_reachy_tool_boundary())
+
+    bridge.http = FakeHttp(ToolsetResponse(200, [{"enabled": True, "tools": ["web_search"]}]))
+    asyncio.run(bridge._require_reachy_tool_boundary())
+
+
 def test_ask_hermes_requires_completed_output_item() -> None:
     bridge = load_bridge_module()
     completed = {

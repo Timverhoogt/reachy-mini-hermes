@@ -87,3 +87,18 @@ def test_parent_pin_failures_trigger_server_side_lockout() -> None:
     assert int(raised.value.headers["Retry-After"]) >= 299
     app._record_kids_pin_result(valid=True)
     app._require_kids_pin_attempt_allowed()
+
+
+def test_locked_child_status_omits_agent_session_details(monkeypatch) -> None:
+    app = ReachyMiniHermes(False)
+    runtime = HermesVoiceRuntime(SimpleNamespace(), threading.Event())
+    runtime.set_capability_profile("agent", adult_ui_unlocked=True)
+    runtime._kids_locked = True
+    app._runtime = runtime
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig(api_key="secret-value"))
+    assert app.settings_app is not None
+
+    payload = TestClient(app.settings_app).get("/api/status").json()
+
+    assert "agent" not in payload["runtime"]
+    assert "secret-value" not in str(payload)

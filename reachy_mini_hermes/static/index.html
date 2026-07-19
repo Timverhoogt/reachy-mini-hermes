@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=21" />
+  <link rel="stylesheet" href="/static/style.css?v=22" />
 </head>
 <body>
   <main>
@@ -61,6 +61,27 @@
       <section class="card conversation-card">
         <div><p class="label">Last heard</p><p id="last-transcript" class="quote">—</p></div>
         <div><p class="label">Last response</p><p id="last-response" class="quote">—</p></div>
+      </section>
+
+      <section class="card agent-card">
+        <div class="section-heading">
+          <div><p class="label">Adult capability profile</p><h2>Agent Mode</h2></div>
+          <span id="agent-profile-badge" class="badge">Conversation</span>
+        </div>
+        <p class="muted">Phase 0 establishes cancellation, approval, audit, and policy boundaries. No additional action capability is enabled yet.</p>
+        <div class="actions left-actions">
+          <button type="button" id="agent-conversation-button" class="secondary">Conversation</button>
+          <button type="button" id="agent-enable-button">Start fresh Agent session</button>
+          <button type="button" id="agent-stop-button" class="danger">Stop Agent</button>
+        </div>
+        <div class="agent-status-grid">
+          <div><span class="label">Enabled capabilities</span><p id="agent-capabilities" class="quote">None</p></div>
+          <div><span class="label">Current task</span><p id="agent-current-task" class="quote">—</p></div>
+          <div><span class="label">Pending approval</span><p id="agent-pending-approval" class="quote">None</p></div>
+        </div>
+        <p class="label">Recent sanitized activity</p>
+        <ol id="agent-activity" class="agent-activity"><li>No activity yet</li></ol>
+        <p id="agent-message" class="message" role="status" aria-live="polite"></p>
       </section>
 
       <section id="install-card" class="card install-card">
@@ -503,7 +524,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=21"></script>
-  <script src="/static/main.js?v=21"></script>
+  <script src="/static/camera.js?v=22"></script>
+  <script src="/static/main.js?v=22"></script>
 </body>
 </html>

@@ -242,6 +242,23 @@ def test_meeting_mode_has_bounded_timer() -> None:
     assert 59 <= remaining <= 60
 
 
+@pytest.mark.parametrize("mode", ["standby", "meeting", "sleep"])
+def test_privacy_power_modes_invalidate_agent_session(mode: str) -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._set_motor_mode = lambda enabled, wake=False: None  # type: ignore[method-assign]
+    runtime.set_capability_profile("agent", adult_ui_unlocked=True)
+    agent = runtime.status()["agent"]
+    assert isinstance(agent, dict)
+    generation = int(agent["session_generation"])
+
+    runtime.set_power_mode(mode, duration_seconds=60)
+
+    assert runtime.agent_session_is_current(generation) is False
+    current = runtime.status()["agent"]
+    assert isinstance(current, dict)
+    assert current["current_task"] == ""
+
+
 def test_awake_runs_physical_wake_motion() -> None:
     runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
     calls: list[tuple[bool, bool]] = []
@@ -517,6 +534,10 @@ def test_manual_robot_action_auto_wakes_and_manual_stop_preserves_audio_pipeline
     runtime._set_motor_mode = set_motor_mode  # type: ignore[method-assign]
     actions = Actions()
     runtime._actions = actions  # type: ignore[assignment]
+    runtime.set_capability_profile("agent", adult_ui_unlocked=True)
+    agent = runtime.status()["agent"]
+    assert isinstance(agent, dict)
+    agent_generation = int(agent["session_generation"])
 
     result = runtime.queue_manual_robot_action("look", "left")
 
@@ -532,6 +553,7 @@ def test_manual_robot_action_auto_wakes_and_manual_stop_preserves_audio_pipeline
         "active_cancelled": True,
         "queued_cancelled": 0,
     }
+    assert runtime.agent_session_is_current(agent_generation) is False
     assert robot.media.playing_starts == 0
 
 

@@ -18,6 +18,8 @@ from pathlib import Path
 import httpx
 import numpy as np
 
+from .agent_audit import AgentAuditLog
+from .agent_policy import AgentPolicy
 from .audio import (
     AdaptiveEndpointRecorder,
     EndpointResult,
@@ -223,11 +225,13 @@ class HermesVoiceRuntime:
         *,
         config_loader: Callable[[], AppConfig] = load_config,
         assets_directory: Path | None = None,
+        agent_audit: AgentAuditLog | None = None,
     ) -> None:
         self.robot = robot
         self.stop_event = stop_event
         self.config_loader = config_loader
         self.assets = assets_directory or Path(__file__).resolve().parent / "assets"
+        self._agent_audit = agent_audit
         self._status = RuntimeStatus()
         self._status_lock = threading.RLock()
         self._noise = NoiseFloor()
@@ -277,6 +281,15 @@ class HermesVoiceRuntime:
         self._kids_generation = 0
         self._kids_last_end_reason = ""
         self._kids_last_fold_succeeded: bool | None = None
+        self._agent_lock = threading.RLock()
+        # Agent authority is never restored across process/session boundaries;
+        # an unlocked adult UI must explicitly start each fresh Agent session.
+        self._capability_profile = "conversation"
+        self._agent_session_generation = 0
+        self._agent_current_task = ""
+        self._agent_pending_approval = False
+        self._agent_activity: list[dict[str, object]] = []
+        self._agent_policy = AgentPolicy()
 
     def set_power_mode(
         self,
@@ -289,6 +302,8 @@ class HermesVoiceRuntime:
         mode = mode.strip().lower()
         if mode not in _POWER_MODES:
             raise ValueError(f"Unsupported power mode: {mode}")
+        if mode in {"standby", "meeting", "sleep"}:
+            self.cancel_agent_work(f"power_{mode}")
         if cancel_announcements and mode in {"standby", "meeting", "sleep"}:
             self._cancel_announcements(clear_queue=mode in {"meeting", "sleep"})
             if mode in {"meeting", "sleep"}:
@@ -516,6 +531,8 @@ class HermesVoiceRuntime:
         payload["motors_enabled"] = self._motors_enabled
         payload["head_safely_folded"] = self._head_safely_folded
         payload["announcement_queue_depth"] = self._announcement_queue.qsize()
+        with self._agent_lock:
+            payload["agent"] = self._agent_status_unlocked()
         with self._kids_lock:
             remaining = max(0, int(self._kids_ends_at - time.monotonic())) if self._kids_active else 0
             kids_payload = {
@@ -548,6 +565,79 @@ class HermesVoiceRuntime:
                 }
         return payload
 
+    def set_capability_profile(self, profile: str, *, adult_ui_unlocked: bool) -> dict[str, object]:
+        """Switch profiles only from the unlocked adult UI and start a fresh generation."""
+        profile = profile.strip().lower()
+        if profile not in {"conversation", "agent"}:
+            raise ValueError("Unsupported capability profile")
+        with self._kids_lock:
+            if self._kids_active or self._kids_locked:
+                raise RuntimeError("Agent profile is unavailable while Kids Mode is active or locked")
+        if profile == "agent":
+            if not adult_ui_unlocked:
+                raise RuntimeError("Agent profile requires an unlocked adult UI action")
+            if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
+                raise RuntimeError("Agent profile is blocked by the current privacy mode")
+        with self._agent_lock:
+            self._agent_session_generation += 1
+            self._capability_profile = profile
+            self._agent_current_task = ""
+            self._agent_pending_approval = False
+            self._record_agent_activity_unlocked("profile_changed")
+            payload = self._agent_status_unlocked()
+        self._conversation_stop_requested.set()
+        return payload
+
+    def cancel_agent_work(self, reason: str = "stopped") -> dict[str, object]:
+        """Invalidate pending work/results by advancing the session generation."""
+        allowed_reasons = {
+            "stopped",
+            "profile_changed",
+            "power_standby",
+            "power_meeting",
+            "power_sleep",
+            "kids_mode",
+            "privacy",
+            "emergency_stop",
+            "session_changed",
+        }
+        safe_reason = reason if reason in allowed_reasons else "session_changed"
+        with self._agent_lock:
+            self._agent_session_generation += 1
+            self._agent_current_task = ""
+            self._agent_pending_approval = False
+            self._record_agent_activity_unlocked(safe_reason)
+            payload = self._agent_status_unlocked()
+        self._conversation_stop_requested.set()
+        return payload
+
+    def agent_session_is_current(self, generation: int) -> bool:
+        with self._agent_lock:
+            return generation == self._agent_session_generation
+
+    def _record_agent_activity_unlocked(self, event: str) -> None:
+        self._agent_activity.append({"event": event, "generation": self._agent_session_generation})
+        del self._agent_activity[:-20]
+        if self._agent_audit is not None:
+            self._agent_audit.append(
+                "agent_session",
+                reason=event,
+                session_generation=self._agent_session_generation,
+                result_class="profile_updated" if event == "profile_changed" else "cancelled",
+            )
+
+    def _agent_status_unlocked(self) -> dict[str, object]:
+        return {
+            "profile": self._capability_profile,
+            "session_generation": self._agent_session_generation,
+            "enabled_capabilities": [
+                definition.capability_id.value for definition in self._agent_policy.enabled_capabilities()
+            ],
+            "current_task": self._agent_current_task,
+            "pending_approval": self._agent_pending_approval,
+            "recent_activity": [dict(item) for item in self._agent_activity[-20:]],
+        }
+
     @property
     def kids_controls_locked(self) -> bool:
         with self._kids_lock:
@@ -567,6 +657,9 @@ class HermesVoiceRuntime:
 
     def start_kids_mode(self, profile: KidsProfile, *, greet: bool = True) -> dict[str, object]:
         """Start one time-bounded, camera-free, private-tool-free Realtime session."""
+        self.cancel_agent_work("kids_mode")
+        with self._agent_lock:
+            self._capability_profile = "conversation"
         if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
             raise RuntimeError("Kids Mode is blocked in Meeting and Sleep")
         if not self._audio_ready:
@@ -940,6 +1033,9 @@ class HermesVoiceRuntime:
 
     def stop_manual_robot_action(self) -> dict[str, object]:
         """Cancel physical movement without changing power mode or starting new motion."""
+        # Every physical Stop entry point (PWA, gamepad, or future local control)
+        # must invalidate agent work before checking motion-controller readiness.
+        self.cancel_agent_work("emergency_stop")
         if self._actions is None:
             raise RuntimeError("Robot action controller is not ready")
         pending_before = self._actions.pending_count
@@ -1323,6 +1419,7 @@ class HermesVoiceRuntime:
                     ):
                         _LOGGER.info("Discarding stale wake after announcement/power arbitration")
                         continue
+                    self.cancel_agent_work("session_changed")
                     self._orient_to_voice(config)
                     self._face_tracking_desired = config.face_tracking_enabled
                     self._face_tracking_weight = config.face_tracking_weight
