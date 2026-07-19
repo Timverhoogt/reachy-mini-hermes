@@ -12,6 +12,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "Tim Verhoogt and contributors" }]
 dependencies = [
+    "evdev==1.9.3",
     "httpx>=0.28,<1",
     "mutagen>=1.47,<2",
     "numpy>=1.26",

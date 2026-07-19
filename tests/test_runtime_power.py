@@ -557,6 +557,27 @@ def test_manual_robot_action_auto_wakes_and_manual_stop_preserves_audio_pipeline
     assert robot.media.playing_starts == 0
 
 
+def test_manual_stop_raises_when_action_worker_does_not_become_idle() -> None:
+    class Actions:
+        pending_count = 1
+
+        @staticmethod
+        def cancel(*, stop_media: bool = True) -> bool:
+            assert stop_media is False
+            return True
+
+        @staticmethod
+        def wait_idle(timeout: float = 5.0) -> bool:
+            assert timeout == 5.0
+            return False
+
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._actions = Actions()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="did not become idle after Stop"):
+        runtime.stop_manual_robot_action()
+
+
 def test_manual_robot_action_is_blocked_in_privacy_modes() -> None:
     class Actions:
         pending_count = 0

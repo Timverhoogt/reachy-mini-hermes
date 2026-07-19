@@ -9,10 +9,13 @@ import shutil
 import struct
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
+
+from .controller_features import ControllerFeatureInterpreter, PlayStationEvdevFeatures
 
 _DEVICE_RE = re.compile(r"^Device\s+([0-9A-Fa-f:]{17})\s+(.+)$")
 _MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}$")
@@ -39,7 +42,24 @@ class CommandResult(Protocol):
 
 
 CommandRunner = Callable[[list[str], str | None, float], CommandResult]
-ActionCallback = Callable[[str, str, str], None]
+ActionCallback = Callable[[str, str, str], bool | None]
+
+
+class ControllerFeatures(Protocol):
+    def discovery_complete(self) -> bool: ...
+
+    def status(self) -> dict[str, object]: ...
+
+    def handle_l2(self, pressed: bool) -> None: ...
+
+    def play_feedback(self, pattern: str) -> None: ...
+
+    def poll(self) -> bool: ...
+
+    def close(self) -> None: ...
+
+
+FeatureFactory = Callable[[str, ActionCallback], ControllerFeatures]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +81,14 @@ def _default_command_runner(command: list[str], input_text: str | None, timeout:
         check=False,
         timeout=timeout,
     )
+
+
+def _default_feature_factory(joystick_path: str, dispatch: ActionCallback) -> ControllerFeatures:
+    holder: dict[str, PlayStationEvdevFeatures] = {}
+    interpreter = ControllerFeatureInterpreter(dispatch, lambda pattern: holder["features"].rumble(pattern))
+    features = PlayStationEvdevFeatures.discover(joystick_path, interpreter)
+    holder["features"] = features
+    return features
 
 
 def _clean_output(text: str) -> str:
@@ -96,14 +124,18 @@ class BluetoothGamepadService:
         *,
         command_runner: CommandRunner = _default_command_runner,
         joystick_glob: Callable[[], list[str]] | None = None,
+        feature_factory: FeatureFactory = _default_feature_factory,
         adapter_available: bool | None = None,
     ) -> None:
         self._action_callback = action_callback
         self._command_runner = command_runner
         self._joystick_glob = joystick_glob or (lambda: sorted(glob.glob("/dev/input/js*")))
+        self._feature_factory = feature_factory
         self._lock = threading.RLock()
         self._bluez_lock = threading.RLock()
         self._lifecycle_lock = threading.Lock()
+        self._controller_transition_lock = threading.RLock()
+        self._dispatch_lock = threading.RLock()
         self._devices: dict[str, BluetoothDevice] = {}
         self._adapter_available = (
             shutil.which("bluetoothctl") is not None if adapter_available is None else adapter_available
@@ -118,6 +150,9 @@ class BluetoothGamepadService:
         self._last_gamepad_action = ""
         self._gamepad_stop = threading.Event()
         self._gamepad_thread: threading.Thread | None = None
+        self._controller_features: ControllerFeatures | None = None
+        self._feature_error = ""
+        self._dispatch_suspended = True
         self._axes: dict[int, int] = {}
         self._last_direction = ""
         self._last_base_direction = ""
@@ -234,6 +269,10 @@ class BluetoothGamepadService:
         return properties
 
     def pair(self, address: str) -> dict[str, object]:
+        with self._controller_transition_lock:
+            return self._pair_serialized(address)
+
+    def _pair_serialized(self, address: str) -> dict[str, object]:
         address = _validate_address(address)
         with self._bluez_lock:
             existing = self._device_properties(address)
@@ -267,6 +306,7 @@ class BluetoothGamepadService:
                 properties = self._device_properties(address)
                 if properties.get("connected") != "yes":
                     raise RuntimeError(f"BlueZ did not confirm connection for {address}")
+                self._resume_controller_dispatch_if_enabled()
                 with self._lock:
                     self._last_error = ""
                 return self._refresh_locked(strict=True)
@@ -276,6 +316,10 @@ class BluetoothGamepadService:
                 raise
 
     def connect(self, address: str) -> dict[str, object]:
+        with self._controller_transition_lock:
+            return self._connect_serialized(address)
+
+    def _connect_serialized(self, address: str) -> dict[str, object]:
         address = _validate_address(address)
         with self._bluez_lock:
             self._run(["trust", address], timeout=8.0)
@@ -287,35 +331,87 @@ class BluetoothGamepadService:
                 or properties.get("connected") != "yes"
             ):
                 raise RuntimeError(f"BlueZ did not confirm a bonded, trusted connection for {address}")
+            self._resume_controller_dispatch_if_enabled()
             return self._refresh_locked(strict=True)
 
     def disconnect(self, address: str) -> dict[str, object]:
+        with self._controller_transition_lock:
+            return self._disconnect_serialized(address)
+
+    def _disconnect_serialized(self, address: str) -> dict[str, object]:
         address = _validate_address(address)
-        self._dispatch("stop", "", "")
-        with self._bluez_lock:
-            self._run(["disconnect", address], timeout=10.0)
-            properties = self._device_properties(address)
-            if properties.get("connected") == "yes":
-                raise RuntimeError(f"BlueZ still reports {address} as connected")
-            return self._refresh_locked(strict=True)
+        self._quiesce_controller("disconnect")
+        try:
+            with self._bluez_lock:
+                self._run(["disconnect", address], timeout=10.0)
+                properties = self._device_properties(address)
+                if properties.get("connected") == "yes":
+                    raise RuntimeError(f"BlueZ still reports {address} as connected")
+                return self._refresh_locked(strict=True)
+        except Exception:
+            self._resume_controller_dispatch_if_enabled()
+            raise
 
     def remove(self, address: str) -> dict[str, object]:
+        with self._controller_transition_lock:
+            return self._remove_serialized(address)
+
+    def _remove_serialized(self, address: str) -> dict[str, object]:
         address = _validate_address(address)
-        self._dispatch("stop", "", "")
-        with self._bluez_lock:
-            self._run(["remove", address], timeout=10.0)
-            status = self._refresh_locked(strict=True)
-            devices = status.get("devices", [])
-            if isinstance(devices, list) and any(
-                isinstance(device, dict) and device.get("address") == address and device.get("paired")
-                for device in devices
-            ):
-                raise RuntimeError(f"BlueZ still reports {address} as paired")
-            return status
+        self._quiesce_controller("remove")
+        try:
+            with self._bluez_lock:
+                self._run(["remove", address], timeout=10.0)
+                try:
+                    properties = self._device_properties(address)
+                except RuntimeError as exc:
+                    message = str(exc).lower()
+                    if "not available" not in message and "not found" not in message:
+                        raise
+                    properties = {}
+                if any(properties.get(key) == "yes" for key in ("paired", "bonded", "trusted", "connected")):
+                    raise RuntimeError(f"BlueZ still reports {address} as paired, bonded, trusted, or connected")
+                status = self._refresh_locked(strict=True)
+                devices = status.get("devices", [])
+                if isinstance(devices, list) and any(
+                    isinstance(device, dict) and device.get("address") == address
+                    for device in devices
+                ):
+                    raise RuntimeError(f"BlueZ still reports {address} as a known device")
+                return status
+        except Exception:
+            self._resume_controller_dispatch_if_enabled()
+            raise
+
+    def _resume_controller_dispatch_if_enabled(self) -> None:
+        with self._dispatch_lock:
+            with self._lock:
+                self._dispatch_suspended = not self._gamepad_enabled
+
+    def _quiesce_controller(self, operation: str) -> None:
+        with self._dispatch_lock:
+            self._dispatch_suspended = True
+            if self._dispatch("stop", "", ""):
+                return
+            with self._lock:
+                reason = self._last_error or "Stop was rejected"
+                self._dispatch_suspended = not self._gamepad_enabled
+            raise RuntimeError(f"Cannot {operation} controller because Stop failed: {reason}")
 
     def status(self) -> dict[str, object]:
         with self._lock:
             devices = [asdict(device) for device in sorted(self._devices.values(), key=lambda item: item.name.lower())]
+            feature_status: dict[str, object] = {
+                "rumble_available": False,
+                "gyro_available": False,
+                "touchpad_available": False,
+                "gyro_active": False,
+                "gyro_calibrating": False,
+                "feature_input_error": "",
+            }
+            if self._controller_features is not None:
+                feature_status.update(self._controller_features.status())
+            feature_error = self._feature_error or str(feature_status.pop("feature_input_error", ""))
             return {
                 "adapter_available": self._adapter_available,
                 "adapter_powered": self._adapter_powered,
@@ -326,6 +422,8 @@ class BluetoothGamepadService:
                 "gamepad_name": self._gamepad_name,
                 "gamepad_path": self._gamepad_path,
                 "last_gamepad_action": self._last_gamepad_action,
+                "feature_error": feature_error,
+                **feature_status,
                 "last_error": self._last_error,
             }
 
@@ -337,18 +435,31 @@ class BluetoothGamepadService:
         self._last_direction = ""
         self._last_base_direction = ""
 
+    def _close_controller_features(self) -> None:
+        with self._lock:
+            features = self._controller_features
+            self._controller_features = None
+        if features is not None:
+            features.close()
+
     def set_gamepad_enabled(self, enabled: bool) -> dict[str, object]:
+        with self._controller_transition_lock:
+            return self._set_gamepad_enabled_serialized(enabled)
+
+    def _set_gamepad_enabled_serialized(self, enabled: bool) -> dict[str, object]:
         enabled = bool(enabled)
         with self._lifecycle_lock:
             thread = self._gamepad_thread
             if enabled:
                 if thread is not None and thread.is_alive():
                     if self._gamepad_enabled and not self._gamepad_stop.is_set():
+                        self._resume_controller_dispatch_if_enabled()
                         return self.status()
                     raise RuntimeError("Previous gamepad reader is still stopping")
                 self._gamepad_stop.clear()
                 with self._lock:
                     self._gamepad_enabled = True
+                    self._feature_error = ""
                     self._reset_gamepad_state_locked()
                 thread = threading.Thread(
                     target=self._gamepad_loop,
@@ -357,15 +468,19 @@ class BluetoothGamepadService:
                 )
                 self._gamepad_thread = thread
                 thread.start()
+                self._resume_controller_dispatch_if_enabled()
             else:
-                with self._lock:
-                    self._gamepad_enabled = False
+                with self._dispatch_lock:
+                    self._dispatch_suspended = True
+                    with self._lock:
+                        self._gamepad_enabled = False
                 self._gamepad_stop.set()
                 if thread is not None and thread is not threading.current_thread():
                     thread.join(timeout=2.0)
                     if thread.is_alive():
                         raise RuntimeError("Gamepad reader did not stop within two seconds")
                 self._gamepad_thread = None
+                self._close_controller_features()
                 with self._lock:
                     self._reset_gamepad_state_locked()
         return self.status()
@@ -413,6 +528,33 @@ class BluetoothGamepadService:
                 return path
         return ""
 
+    def _open_controller_features(self, path: str) -> None:
+        with self._lock:
+            if self._controller_features is not None:
+                return
+        try:
+            features = self._feature_factory(path, self._dispatch_feature)
+        except Exception as exc:
+            with self._lock:
+                self._feature_error = f"Extended controller features unavailable: {exc}"
+            return
+        if not features.discovery_complete():
+            features.close()
+            with self._lock:
+                self._feature_error = "Waiting for the DualShock 4 evdev feature nodes"
+            return
+        with self._lock:
+            if self._controller_features is not None:
+                duplicate = True
+            else:
+                duplicate = False
+                self._controller_features = features
+                self._feature_error = ""
+        if duplicate:
+            features.close()
+        else:
+            features.play_feedback("connected")
+
     def _gamepad_loop(self) -> None:
         while not self._gamepad_stop.is_set():
             path = self._select_joystick()
@@ -436,8 +578,10 @@ class BluetoothGamepadService:
                     self._gamepad_name = name
                     self._gamepad_path = path
                     self._last_error = ""
-                self._read_joystick(fd)
+                self._open_controller_features(path)
+                self._read_joystick(fd, path)
             finally:
+                self._close_controller_features()
                 os.close(fd)
                 with self._lock:
                     was_connected = self._gamepad_connected
@@ -446,9 +590,28 @@ class BluetoothGamepadService:
                     self._dispatch("stop", "", "")
             self._gamepad_stop.wait(0.5)
 
-    def _read_joystick(self, fd: int) -> None:
+    def _read_joystick(self, fd: int, path: str) -> None:
         pending = b""
+        next_feature_retry = 0.0
         while not self._gamepad_stop.is_set():
+            now = time.monotonic()
+            with self._lock:
+                features = self._controller_features
+            if features is None and now >= next_feature_retry:
+                self._open_controller_features(path)
+                next_feature_retry = now + 1.0
+                with self._lock:
+                    features = self._controller_features
+            if features is not None:
+                try:
+                    feature_healthy = features.poll()
+                except Exception as exc:
+                    feature_healthy = False
+                    with self._lock:
+                        self._feature_error = f"Extended controller feature reader failed: {exc}"
+                if not feature_healthy:
+                    self._close_controller_features()
+                    next_feature_retry = now + 1.0
             try:
                 chunk = os.read(fd, _JS_EVENT.size * 32)
             except BlockingIOError:
@@ -464,11 +627,23 @@ class BluetoothGamepadService:
                 _timestamp, value, event_type, number = _JS_EVENT.unpack(event)
                 self.handle_joystick_event(event_type, number, value)
 
+    def _play_feature_feedback(self, pattern: str) -> None:
+        with self._lock:
+            features = self._controller_features
+        if features is not None:
+            features.play_feedback(pattern)
+
     def handle_joystick_event(self, event_type: int, number: int, value: int) -> None:
         """Handle one Linux joystick event; public for deterministic hardware-free tests."""
         if event_type & _JS_EVENT_INIT:
             return
         kind = event_type & ~_JS_EVENT_INIT
+        if kind == _JS_EVENT_BUTTON and number == 6 and value in {0, 1}:
+            with self._lock:
+                features = self._controller_features
+            if features is not None:
+                features.handle_l2(value == 1)
+            return
         if kind == _JS_EVENT_BUTTON and value == 1:
             mapping = {
                 0: ("action", "emotion", "happy"),
@@ -482,7 +657,9 @@ class BluetoothGamepadService:
             }
             command = mapping.get(number)
             if command:
-                self._dispatch(*command)
+                accepted = self._dispatch(*command)
+                pattern = "stop" if accepted and command[0] == "stop" else "accepted" if accepted else "rejected"
+                self._play_feature_feedback(pattern)
             return
         if kind != _JS_EVENT_AXIS or number not in {0, 1, 2, 6, 7}:
             return
@@ -514,16 +691,31 @@ class BluetoothGamepadService:
         if direction:
             self._dispatch("action", "look", direction)
 
-    def _dispatch(self, kind: str, action: str, value: str) -> None:
+    def _dispatch_feature(self, kind: str, action: str, value: str) -> None:
+        if not self._dispatch(kind, action, value):
+            with self._lock:
+                reason = self._last_error or "Controller command was rejected"
+            raise RuntimeError(reason)
+
+    def _dispatch(self, kind: str, action: str, value: str) -> bool:
         label = "stop" if kind == "stop" else f"{action}:{value}"
-        try:
-            self._action_callback(kind, action, value)
-            with self._lock:
-                self._last_gamepad_action = label
-                self._last_error = ""
-        except Exception as exc:
-            with self._lock:
-                self._last_error = str(exc)
+        with self._dispatch_lock:
+            if self._dispatch_suspended and kind != "stop":
+                with self._lock:
+                    self._last_error = "Controller movement dispatch is quiesced"
+                return False
+            try:
+                accepted = self._action_callback(kind, action, value)
+                if accepted is False:
+                    raise RuntimeError("Controller command was rejected")
+                with self._lock:
+                    self._last_gamepad_action = label
+                    self._last_error = ""
+                return True
+            except Exception as exc:
+                with self._lock:
+                    self._last_error = str(exc)
+                return False
 
     def close(self) -> None:
         self.set_gamepad_enabled(False)

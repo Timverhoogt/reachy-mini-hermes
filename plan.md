@@ -104,9 +104,9 @@ Implemented:
 Automated and packaging:
 
 - Ruff, Python compilation, JavaScript syntax, and `git diff --check` pass.
-- **143 pytest tests pass** in a clean Reachy SDK 1.9 environment with GStreamer bindings.
+- The current pytest suite passes in a clean Reachy SDK 1.9 environment with GStreamer bindings; run the release command for the current count.
 - Wheel and source distributions build successfully.
-- `reachy-mini-app-assistant check .` passes all repository structure and metadata checks; its isolated-install phase is blocked on this workstation by the upstream Reachy Mini `PyGObject` dependency requiring Cairo development headers. The complete app suite is instead exercised in the Reachy SDK 1.9 environment with GStreamer bindings above.
+- `reachy-mini-app-assistant check .` passes all repository structure, metadata, isolated-install, entrypoint, and uninstall checks.
 - Tracked and untracked publication files pass provider-key/token-prefix scanning.
 
 Live bridge and cloud providers:

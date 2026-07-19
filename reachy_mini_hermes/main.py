@@ -138,22 +138,26 @@ class ReachyMiniHermes(ReachyMiniApp):
         super().__init__(running_on_wireless=running_on_wireless)
         self._runtime: HermesVoiceRuntime | None = None
         self._bluetooth = BluetoothGamepadService(self._handle_gamepad_action)
+        self._gamepad_config_lock = threading.Lock()
         self._kids_pin_lock = threading.Lock()
         self._kids_pin_failures = 0
         self._kids_pin_locked_until = 0.0
         self._register_settings_routes()
 
-    def _handle_gamepad_action(self, kind: str, action: str, value: str) -> None:
+    def _handle_gamepad_action(self, kind: str, action: str, value: str) -> bool:
         """Route controller input through the same safety gates as the Robot tab."""
         if self._runtime is None:
             raise RuntimeError("Voice runtime has not started")
         if kind == "stop":
-            self._runtime.stop_manual_robot_action()
-            return
+            result = self._runtime.stop_manual_robot_action()
+            if result.get("robot_stopped") is not True:
+                raise RuntimeError("Robot action controller did not confirm Stop completion")
+            return True
         if kind == "precision":
             self._runtime.queue_precision_robot_action(action, float(value))
-            return
+            return True
         self._runtime.queue_manual_robot_action(action, value)
+        return True
 
     def _require_kids_pin_attempt_allowed(self) -> None:
         with self._kids_pin_lock:
@@ -512,12 +516,28 @@ class ReachyMiniHermes(ReachyMiniApp):
 
         @self.settings_app.post("/api/bluetooth/gamepad")
         def bluetooth_gamepad(request: GamepadEnabledRequest) -> dict[str, object]:
-            try:
+            with self._gamepad_config_lock:
                 current = load_config()
-                save_config(merge_config(current, {"gamepad_enabled": request.enabled}))
-                return {"ok": True, **self._bluetooth.set_gamepad_enabled(request.enabled)}
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                try:
+                    if request.enabled:
+                        status = self._bluetooth.set_gamepad_enabled(True)
+                        try:
+                            save_config(merge_config(current, {"gamepad_enabled": True}))
+                        except Exception:
+                            self._bluetooth.set_gamepad_enabled(False)
+                            raise
+                    else:
+                        # Persist the fail-safe disabled state before stopping the reader.
+                        save_config(merge_config(current, {"gamepad_enabled": False}))
+                        status = self._bluetooth.set_gamepad_enabled(False)
+                    return {"ok": True, **status}
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                except RuntimeError as exc:
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+                except OSError as exc:
+                    detail = f"Could not persist controller setting: {exc}"
+                    raise HTTPException(status_code=500, detail=detail) from exc
 
         @self.settings_app.get("/api/robot/options")
         def robot_options() -> dict[str, object]:

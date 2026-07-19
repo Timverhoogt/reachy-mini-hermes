@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -243,6 +244,7 @@ def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
         lambda kind, action, value: actions.append((kind, action, value)),
         adapter_available=False,
     )
+    service._dispatch_suspended = False
 
     service.handle_joystick_event(0x82, 0, 32_000)  # Initial-state event is ignored.
     service.handle_joystick_event(0x02, 0, 32_000)
@@ -281,7 +283,286 @@ def test_gamepad_mapping_is_allowlisted_debounced_and_stoppable() -> None:
     ]
 
 
-def test_bluetooth_ui_exposes_pairing_mapping_and_v24_assets() -> None:
+def test_incomplete_evdev_discovery_is_closed_and_retried() -> None:
+    class FakeFeatures:
+        def __init__(self, complete: bool) -> None:
+            self.complete = complete
+            self.closed = False
+
+        def discovery_complete(self) -> bool:
+            return self.complete
+
+        def status(self) -> dict[str, object]:
+            return {}
+
+        def handle_l2(self, _pressed: bool) -> None:
+            return None
+
+        def play_feedback(self, _pattern: str) -> None:
+            return None
+
+        def poll(self) -> bool:
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+    attempts = [FakeFeatures(False), FakeFeatures(True)]
+    service = BluetoothGamepadService(
+        lambda *_args: None,
+        feature_factory=lambda _path, _dispatch: attempts.pop(0),  # type: ignore[arg-type]
+        adapter_available=False,
+    )
+    first = attempts[0]
+    service._open_controller_features("/dev/input/js0")
+    assert first.closed is True
+    assert "Waiting" in str(service.status()["feature_error"])
+    service._open_controller_features("/dev/input/js0")
+    assert service._controller_features is not None
+    assert service.status()["feature_error"] == ""
+
+
+def test_extended_feature_failure_does_not_break_legacy_joydev_actions() -> None:
+    actions: list[tuple[str, str, str]] = []
+
+    def broken_features(_path: str, _dispatch: object) -> object:
+        raise RuntimeError("evdev unavailable")
+
+    service = BluetoothGamepadService(
+        lambda kind, action, value: actions.append((kind, action, value)),
+        feature_factory=broken_features,  # type: ignore[arg-type]
+        adapter_available=False,
+    )
+    service._dispatch_suspended = False
+    service._open_controller_features("/dev/input/js0")
+    service.handle_joystick_event(0x01, 1, 1)
+
+    assert actions == [("action", "look", "center")]
+    assert "evdev unavailable" in str(service.status()["feature_error"])
+    assert service.status()["gyro_available"] is False
+
+
+def test_extended_features_are_status_visible_and_l2_is_hold_to_enable() -> None:
+    actions: list[tuple[str, str, str]] = []
+
+    class FakeFeatures:
+        def __init__(self) -> None:
+            self.l2: list[bool] = []
+            self.feedback: list[str] = []
+            self.closed = False
+
+        def poll(self) -> bool:
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+        def handle_l2(self, pressed: bool) -> None:
+            self.l2.append(pressed)
+
+        def status(self) -> dict[str, bool]:
+            return {
+                "rumble_available": True,
+                "gyro_available": True,
+                "touchpad_available": True,
+                "gyro_active": bool(self.l2 and self.l2[-1]),
+            }
+
+        def play_feedback(self, pattern: str) -> None:
+            self.feedback.append(pattern)
+
+    features = FakeFeatures()
+    service = BluetoothGamepadService(
+        lambda kind, action, value: actions.append((kind, action, value)),
+        adapter_available=False,
+    )
+    service._controller_features = features  # type: ignore[assignment]
+
+    service.handle_joystick_event(0x01, 6, 1)
+    service.handle_joystick_event(0x01, 6, 0)
+    service.handle_joystick_event(0x01, 2, 1)
+
+    assert features.l2 == [True, False]
+    assert features.feedback == ["stop"]
+    assert actions == [("stop", "", "")]
+    status = service.status()
+    assert status["rumble_available"] is True
+    assert status["gyro_available"] is True
+    assert status["touchpad_available"] is True
+    assert status["gyro_active"] is False
+
+    service.set_gamepad_enabled(False)
+    assert features.closed is True
+    assert service.status()["gyro_available"] is False
+
+
+def test_rejected_stop_uses_rejected_feedback_not_stop_confirmation() -> None:
+    class FakeFeatures:
+        def status(self) -> dict[str, object]:
+            return {}
+
+        def play_feedback(self, pattern: str) -> None:
+            feedback.append(pattern)
+
+    def reject_stop(_kind: str, _action: str, _value: str) -> None:
+        raise RuntimeError("stop rejected")
+
+    feedback: list[str] = []
+    service = BluetoothGamepadService(reject_stop, adapter_available=False)
+    service._controller_features = FakeFeatures()  # type: ignore[assignment]
+    service.handle_joystick_event(0x01, 2, 1)
+
+    assert feedback == ["rejected"]
+    assert service.status()["last_error"] == "stop rejected"
+
+
+def test_explicit_false_callback_result_is_rejected() -> None:
+    service = BluetoothGamepadService(lambda *_args: False, adapter_available=False)
+
+    assert service._dispatch("stop", "", "") is False
+    assert service.status()["last_error"] == "Controller command was rejected"
+    assert service.status()["last_gamepad_action"] == ""
+
+
+def test_disconnect_and_remove_abort_before_bluez_when_stop_fails() -> None:
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], _input: str | None, _timeout: float) -> FakeResult:
+        calls.append(command)
+        return FakeResult(returncode=0, stdout="Command successful")
+
+    def reject_stop(_kind: str, _action: str, _value: str) -> None:
+        raise RuntimeError("motion cancellation failed")
+
+    service = BluetoothGamepadService(reject_stop, command_runner=runner, adapter_available=True)
+    for operation in (service.disconnect, service.remove):
+        with pytest.raises(RuntimeError, match="Stop failed: motion cancellation failed"):
+            operation("AA:BB:CC:DD:EE:FF")
+    assert calls == []
+
+
+def test_remove_rejects_device_that_bluez_still_reports_connected_or_trusted() -> None:
+    calls: list[list[str]] = []
+
+    def runner(command: list[str], _input: str | None, _timeout: float) -> FakeResult:
+        calls.append(command)
+        if command[1:2] == ["info"]:
+            return FakeResult(returncode=0, stdout="Paired: no\nBonded: no\nTrusted: yes\nConnected: yes")
+        return FakeResult(returncode=0, stdout="Command successful")
+
+    service = BluetoothGamepadService(lambda *_args: None, command_runner=runner, adapter_available=True)
+    with pytest.raises(RuntimeError, match="paired, bonded, trusted, or connected"):
+        service.remove("AA:BB:CC:DD:EE:FF")
+
+    assert calls[0][1:2] == ["remove"]
+    assert calls[1][1:2] == ["info"]
+
+
+def test_disconnect_quiesces_new_controller_input_until_bluez_finishes() -> None:
+    actions: list[tuple[str, str, str]] = []
+    disconnect_started = threading.Event()
+    allow_disconnect = threading.Event()
+    errors: list[Exception] = []
+
+    def runner(command: list[str], _input: str | None, _timeout: float) -> FakeResult:
+        if command[1:2] == ["disconnect"]:
+            disconnect_started.set()
+            assert allow_disconnect.wait(timeout=2.0)
+            return FakeResult(returncode=0, stdout="Disconnected")
+        if command[1:2] == ["info"]:
+            return FakeResult(returncode=0, stdout="Paired: yes\nBonded: yes\nTrusted: yes\nConnected: no")
+        if command[1:2] == ["show"]:
+            return FakeResult(returncode=0, stdout="Powered: yes")
+        return FakeResult(returncode=0, stdout="")
+
+    service = BluetoothGamepadService(
+        lambda kind, action, value: actions.append((kind, action, value)),
+        command_runner=runner,
+        adapter_available=True,
+    )
+    service._gamepad_enabled = True
+    service._dispatch_suspended = False
+
+    def run_disconnect() -> None:
+        try:
+            service.disconnect("AA:BB:CC:DD:EE:FF")
+        except Exception as exc:  # pragma: no cover - assertion below reports it
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_disconnect)
+    worker.start()
+    assert disconnect_started.wait(timeout=2.0)
+    service.handle_joystick_event(0x02, 2, -32_000)
+    allow_disconnect.set()
+    worker.join(timeout=2.0)
+
+    assert not worker.is_alive()
+    assert errors == []
+    assert actions == [("stop", "", "")]
+    assert service._dispatch_suspended is True
+
+
+def test_connect_cannot_resume_dispatch_inside_a_newer_disconnect_transition() -> None:
+    actions: list[tuple[str, str, str]] = []
+    connect_started = threading.Event()
+    allow_connect = threading.Event()
+    disconnect_started = threading.Event()
+    allow_disconnect = threading.Event()
+    errors: list[Exception] = []
+
+    def runner(command: list[str], _input: str | None, _timeout: float) -> FakeResult:
+        if command[1:2] == ["connect"]:
+            connect_started.set()
+            assert allow_connect.wait(timeout=2.0)
+            return FakeResult(returncode=0, stdout="Connection successful")
+        if command[1:2] == ["disconnect"]:
+            disconnect_started.set()
+            assert allow_disconnect.wait(timeout=2.0)
+            return FakeResult(returncode=0, stdout="Disconnected")
+        if command[1:2] == ["info"]:
+            connected = "no" if disconnect_started.is_set() else "yes"
+            return FakeResult(
+                returncode=0,
+                stdout=f"Paired: yes\nBonded: yes\nTrusted: yes\nConnected: {connected}",
+            )
+        if command[1:2] == ["show"]:
+            return FakeResult(returncode=0, stdout="Powered: yes")
+        return FakeResult(returncode=0, stdout="")
+
+    service = BluetoothGamepadService(
+        lambda kind, action, value: actions.append((kind, action, value)),
+        command_runner=runner,
+        adapter_available=True,
+    )
+    service._gamepad_enabled = True
+    service._dispatch_suspended = False
+
+    def run(operation: str) -> None:
+        try:
+            getattr(service, operation)("AA:BB:CC:DD:EE:FF")
+        except Exception as exc:  # pragma: no cover - assertion below reports it
+            errors.append(exc)
+
+    connect_worker = threading.Thread(target=run, args=("connect",))
+    disconnect_worker = threading.Thread(target=run, args=("disconnect",))
+    connect_worker.start()
+    assert connect_started.wait(timeout=2.0)
+    disconnect_worker.start()
+    allow_connect.set()
+    assert disconnect_started.wait(timeout=2.0)
+
+    service.handle_joystick_event(0x02, 2, -32_000)
+    allow_disconnect.set()
+    connect_worker.join(timeout=2.0)
+    disconnect_worker.join(timeout=2.0)
+
+    assert not connect_worker.is_alive() and not disconnect_worker.is_alive()
+    assert errors == []
+    assert actions == [("stop", "", "")]
+    assert service._dispatch_suspended is True
+
+
+def test_bluetooth_ui_exposes_pairing_mapping_and_v25_assets() -> None:
     static = Path(__file__).resolve().parents[1] / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
     script = (static / "main.js").read_text(encoding="utf-8")
@@ -303,9 +584,14 @@ def test_bluetooth_ui_exposes_pairing_mapping_and_v24_assets() -> None:
     assert "L1 / R1" in html
     assert "L3 centers the head" in html
     assert "R3 centers the base" in html
+    assert "Touchpad click centers all" in html
+    assert "Hold L2 still for gyro calibration" in html
+    assert "Rumble acknowledges selected commands" in html
+    assert "feature_error" in script
+    assert "gyro_calibrating" in script
     assert "Reachy Mini Wireless only" in html
     assert "not supported on Reachy Mini Lite" in html
     assert "/api/bluetooth/scan" in script
     assert "/api/bluetooth/gamepad" in script
     assert "if (body.last_error) throw new Error(body.last_error);" in script
-    assert "reachy-hermes-shell-v24" in worker
+    assert "reachy-hermes-shell-v25" in worker

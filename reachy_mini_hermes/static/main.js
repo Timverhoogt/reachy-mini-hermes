@@ -885,8 +885,13 @@ function renderBluetooth(state) {
   $("bluetooth-adapter-state").textContent = !state.adapter_available
     ? "BlueZ unavailable"
     : state.adapter_powered ? "Powered on" : "Powered off";
+  const features = [
+    state.rumble_available ? "rumble" : "",
+    state.gyro_available ? state.gyro_calibrating ? "gyro calibrating" : state.gyro_active ? "gyro active" : "gyro" : "",
+    state.touchpad_available ? "touchpad" : "",
+  ].filter(Boolean).join(", ");
   $("gamepad-state").textContent = state.gamepad_connected
-    ? state.gamepad_name || "Connected"
+    ? `${state.gamepad_name || "Connected"}${features ? ` · ${features}` : ""}`
     : state.gamepad_enabled ? "Waiting for /dev/input/js*" : "Disabled";
   $("gamepad-last-action").textContent = state.last_gamepad_action || "—";
   $("gamepad-enabled").checked = Boolean(state.gamepad_enabled);
@@ -902,6 +907,9 @@ function renderBluetooth(state) {
   const message = $("bluetooth-message");
   if (state.last_error) {
     message.textContent = state.last_error;
+    message.className = "message error";
+  } else if (state.feature_error) {
+    message.textContent = state.feature_error;
     message.className = "message error";
   } else if (!message.classList.contains("ok")) {
     message.textContent = "";

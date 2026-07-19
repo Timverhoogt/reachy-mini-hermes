@@ -223,13 +223,20 @@ Kids Mode is deliberately separate from the normal Hermes agent session. A paren
 
 > **Hardware scope:** Bluetooth controller management is supported only on **Reachy Mini Wireless**, using its Raspberry Pi Bluetooth radio. It is not supported on Reachy Mini Lite or wired-only installations.
 
-The Robot tab can pair and manage Sony DualShock 4 and DualSense controllers through Reachy Pi's BlueZ adapter. Other controller identities and layouts—including Xbox, Switch, and generic USB gamepads—are rejected until they have a separately validated mapping. Put a DualShock 4 into pairing mode with **Share + PS**, or a DualSense with **Create + PS**, then use **Scan**, **Pair & connect**, and **Enable controller movement**. Controller movement is opt-in and uses the same allow-listed action queue as the browser:
+The Robot tab can pair and manage Sony DualShock 4 and DualSense controllers through Reachy Pi's BlueZ adapter. Other controller identities and layouts—including Xbox, Switch, and generic USB gamepads—are rejected until they have a separately validated mapping. Put a DualShock 4 into pairing mode with **Share + PS**, or a DualSense with **Create + PS**, then use **Scan**, **Pair & connect**, and **Enable controller movement**. Controller movement is opt-in and uses the same allow-listed action queue as the browser. The richer evdev features (rumble, calibrated gyro, and multitouch) are deliberately restricted to the validated Bluetooth DualShock 4 identity `054c:09cc`; other Sony controllers retain the basic joydev mapping until separately accepted:
 
 - Left stick or D-pad: bounded eight-way head look.
+- Right stick horizontal: one bounded 5° base-yaw step per neutral-to-deflection transition.
+- L1 / R1: bounded 5° base-yaw steps.
+- L3 / R3: nominally center the head / base.
 - Cross: center the head.
 - Square: Happy expression.
 - Triangle: Surprised expression.
 - Circle: cooperatively stop the active and queued robot action.
+- DualShock 4 touchpad click: nominally center head and base.
+- DualShock 4 single-finger touchpad swipe: look up/down or request one bounded 5° base-yaw step; short, long, diagonal, and multitouch gestures are ignored.
+- DualShock 4 L2 + gyro: hold the controller still for calibration, then use deliberate wrist gestures for bounded 2.5° head pitch/yaw/roll steps. Gyro input never controls the base.
+- DualShock 4 rumble: restrained acknowledgements for selected accepted, rejected, gyro, and Stop events; feedback is rate-limited and optional.
 
 Kids Mode, Meeting, Sleep, privacy mode, motor transitions, and the existing robot-action queue remain authoritative. The controller cannot submit raw joints, calibration, shell commands, power changes, dances, camera requests, agent tools, or Home Assistant actions.
 
@@ -337,7 +344,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **143 tests**.
+The automated suite is validated against Raspberry Pi SDK 1.9 during release checks; run `uv run pytest` for the current test count.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -1049,6 +1049,8 @@ class HermesVoiceRuntime:
             active_cancelled,
             queued_cancelled,
         )
+        if not robot_stopped:
+            raise RuntimeError("Robot action controller did not become idle after Stop")
         return {
             "ok": True,
             "robot_stopped": robot_stopped,
