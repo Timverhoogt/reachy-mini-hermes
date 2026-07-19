@@ -5,7 +5,7 @@ colorFrom: indigo
 colorTo: yellow
 sdk: static
 pinned: false
-short_description: Embodied Hermes voice, vision, memory, and tools
+short_description: Embodied Hermes voice, vision, tools, and supervised Kids Mode
 suggested_storage: medium
 tags:
   - reachy_mini
@@ -15,11 +15,13 @@ tags:
   - openai-realtime
   - camera
   - home-assistant
+  - kids-mode
+  - elevenlabs
 ---
 
 # Reachy Mini Hermes
 
-Say **“Hey Hermes”** and give Reachy Mini the voice, vision, memory, skills, and tools of your own [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+Say **“Hey Hermes”**, **“Okay Nabu”**, or **“Hey Reachy”** and give Reachy Mini the voice, vision, memory, skills, and tools of your own [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
 [**Open the app page**](https://huggingface.co/spaces/Timbo89/reachy_mini_hermes) · [**View the source**](https://github.com/Timverhoogt/reachy-mini-hermes)
 
@@ -33,7 +35,7 @@ Wake-word detection stays local on the robot. After wake-up, choose between a co
 
 ```text
 Reachy microphone
-  → local “HEY HERMES” keyword spotting
+  → local configured wake-phrase spotting
   → authenticated private WebSocket bridge
   → OpenAI gpt-realtime-2.1 speech-to-speech
        ↳ ask_hermes tool when memory, current information,
@@ -49,7 +51,7 @@ This is the recommended interactive mode. Ordinary conversation remains on the f
 
 ```text
 Reachy microphone
-  → local “HEY HERMES” keyword spotting
+  → local configured wake-phrase spotting
   → adaptive utterance endpointing
   → configured STT provider
   → Hermes API Server agent, memory, and tools
@@ -61,11 +63,11 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 
 ## Features
 
-- Local **Hey Hermes** wake phrase; cloud audio starts only after wake detection.
+- Local **Hey Hermes**, **Okay Nabu**, and **Hey Reachy** wake phrases; cloud audio starts only after local detection.
 - Apache-2.0 open-vocabulary sherpa-onnx KWS model, downloaded and checksum-verified on first start.
 - Dual conversation modes: configurable Hermes pipeline and `gpt-realtime-2.1`.
 - Realtime semantic VAD, streaming audio, reasoning-effort selection, and natural interruption.
-- Pipeline interruption by saying **“Hey Hermes”** while Reachy is speaking.
+- Pipeline interruption by saying **“Hey Hermes”**, **“Okay Nabu”**, or **“Hey Reachy”** while Reachy is speaking.
 - `ask_hermes` tool delegation for memory, Home Assistant, current information, files, and actions.
 - Curated Realtime embodiment tools for looking, emotions, and authentic recorded Reachy dances.
 - Optional daemon-local face following, active only after the wake phrase for the current conversation.
@@ -73,6 +75,8 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Privacy-preserving cameras: one JPEG is captured only when a visual request needs it, while an independent opt-in UI viewer connects directly to Reachy's local WebRTC feed.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
 - Full announcement console with typed TTS, per-announcement provider/model/voice overrides, quick templates, repeat/pause controls, a bounded queue, independent Stop, and voice-only or safe wake/fold behavior.
+- Supervised **Kids Mode** with five age-aware activities, English/Dutch profiles, 15–60 minute parent-selected sessions, automatic safe folding, optional gentle voice-state motion, and a dedicated moderated no-agent pipeline that removes camera, personal memory, files, messaging, devices, purchases, and power controls.
+- Kids replies use ElevenLabs Flash v2.5 through a fixed private streaming endpoint; 24 kHz PCM is pushed to Reachy's speaker as chunks arrive, with the configured app voice retained as a failure fallback.
 - Stable Hermes memory scope plus rotating conversation sessions after inactivity.
 - Listening, processing, speaking, and error cues with optional voice-state motion.
 - Standby, Awake, timed Meeting, Sleep, app-off, and confirmed Pi shutdown controls.
@@ -88,6 +92,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - A reachable Hermes Agent installation with the API Server enabled.
 - Pipeline mode: configured STT and TTS providers.
 - Realtime mode: an OpenAI API project key with access to `gpt-realtime-2.1`.
+- Kids Mode: OpenAI moderation/chat access plus an `ELEVENLABS_API_KEY` for fixed-policy Flash v2.5 streaming TTS.
 - Reachy and Hermes on a trusted LAN/VPN, or protected by TLS and an authenticated reverse proxy.
 
 ## 1. Prepare Hermes Agent
@@ -149,6 +154,8 @@ A Realtime-ready response includes:
   "status": "ok",
   "hermes_api": true,
   "realtime_available": true,
+  "kids_chat_available": true,
+  "kids_tts_streaming_available": true,
   "realtime_model": "gpt-realtime-2.1"
 }
 ```
@@ -196,18 +203,21 @@ Enter:
 
 Press **Test connection**, save, then say:
 
-> **Hey Hermes**
+> **Hey Hermes**, **Okay Nabu**, or **Hey Reachy**
 
 ### Browser controls
 
-The in-app UI is organized into four keyboard-accessible tabs:
+The in-app UI is organized into five keyboard-accessible tabs:
 
 - **Dashboard** — live state, power/privacy modes, app lifecycle, and the latest conversation.
+- **Kids** — supervised, time-boxed child sessions with age/language profiles, five activities, optional gentle voice-state motion, automatic safe folding, and child-specific privacy/tool restrictions.
 - **Announce** — exact-text TTS announcements with provider, voice, queue, repeat, and physical-behavior controls.
 - **Robot** — safe manual look directions, 1/2.5/5/10 mm or degree precision controls for Cartesian head pose and rotating-base yaw, live pose readout, independent centering, curated emotions, three recorded dances, stop movement, and an opt-in local WebRTC camera viewer.
 - **Settings** — Hermes bridge, voice, embodiment, privacy, and advanced timing configuration.
 
 Remote motor controls expose the confirmed torque/fold state and keep **Wake & enable**, **Fold & disable**, and cooperative **Stop action** together at the top of the Robot tab. A nine-way bounded head pad adds diagonal looks. Precision controls can nudge X/Y/Z in 1, 2.5, 5, or 10 mm steps and roll/pitch/yaw or rotating-base yaw by the same number of degrees; conservative Cartesian limits and measured pose readback remain visible beside the controls. Head, base, or both can be centered independently. Expression presets describe their motion character; dance presets label compact, medium, and wide movement, with an extra clear-space confirmation for the wide Energetic move. Controls use the same serialized semantic action worker as Realtime—the browser cannot submit raw joints, arbitrary move names, shell commands, or motor calibration. A manual movement from Standby first completes Reachy's native wake motion and leaves it Awake. Power transitions pause all presets, additional taps are rejected while an action is active, privacy is rechecked immediately before execution, and Meeting/Sleep block movement. **Stop action** remains available during semantic movement, cancels active plus queued work without changing power mode or initiating a new pose, and preserves the voice playback pipeline. Safe folding is never interrupted. The UI is intended only for a trusted LAN/VPN.
+
+Kids Mode is deliberately separate from the normal Hermes agent session. A parent selects an optional nickname, age band (4–6, 7–9, or 10–12), English or Dutch, a 15/30/45/60-minute limit, and one of Buddy chat, Story maker, Quiz quest, Riddle box, or Calm corner. Set the initial PIN from a trusted parent device before giving a child access because the first caller can claim an unset PIN. Parent management is protected by a 6–8 digit PIN stored only as a salted `scrypt` verifier; the plaintext PIN is not persisted in the browser, public status, logs, or configuration responses. Starting the mode opens a fresh, bounded child pipeline through the private `/v1/kids/chat` route, with pre/post moderation and no normal Hermes memory or tool session. Camera, agent/delegation tools, files, messaging, Home Assistant, purchases, power tools, and explicit robot actions remain unavailable. Normalized, approved complete responses receive separate short-lived, single-use bridge capabilities for streaming and configured-TTS fallback, each bound to the child session and exact text, then stream through fixed-policy ElevenLabs Flash v2.5 as 24 kHz PCM—unmoderated model tokens are never sent directly to speech. Optional motion is limited to gentle local listening/thinking/speaking cues. Starting Kids Mode closes any prior conversation; ending it immediately invalidates the child session; synchronous STT/chat HTTP calls are not transport-aborted and may run until their bounded timeout, but their returned output is discarded. Ending also interrupts active streaming TTS and audio playback, cancels movement, clears queued speech, and runs the verified safe fold before torque release. A monotonic server timer enforces the limit and gives a five-minute warning. This is a supervised beta feature, not a babysitter, therapist, medical service, or emergency service; generative replies can still be wrong. Child audio goes to the configured STT provider, moderated child text goes to OpenAI, and approved reply text goes to ElevenLabs; the optional nickname is included in the deterministic ElevenLabs greeting. Exclusion from Hermes memory is not a provider-retention guarantee—review each provider's data controls before use.
 
 The Dashboard is also a Progressive Web App. Android Chrome exposes an **Install app** button when the page is served from a trusted HTTPS origin; the manifest, standalone display mode, icons, root-scoped service worker, and Android shortcuts are bundled with the app. The service worker caches only the static application shell and never intercepts `/api/` requests. On the direct `http://<reachy-address>:8042` LAN URL, use Chrome's **⋮ → Add to Home screen** fallback; robot controls still require a live connection to Reachy. For private trusted HTTPS, install Tailscale on Reachy and expose the UI with `tailscale serve --bg --https=443 http://127.0.0.1:8042`. Expose camera signaling separately with `tailscale serve --bg --tls-terminated-tcp=8443 tcp://127.0.0.1:8443`; the viewer automatically selects `wss://` from an HTTPS page and retains `ws://` on direct LAN HTTP. Use **Serve**, never Funnel, so the dashboard remains tailnet-only.
 
@@ -224,7 +234,7 @@ The settings server stays available in these modes. **Stop voice app** exits the
 
 Camera access is disabled by default and split into two independent controls. **On-demand camera** allows Realtime to request one fresh frame for prompts such as “What do you see?”; it never creates a continuous cloud stream. **Local live camera** enables an explicit Start button in the Robot tab. That viewer uses the same daemon-local WebRTC producer as Reachy Mini Control, disables the remote audio track, uses no public STUN service, and sends video directly from Reachy to the current browser—not through Hermes or OpenAI. It is available only while Reachy is Awake and disconnects when the Robot tab is left, the page is backgrounded, or power enters Standby, Meeting, or Sleep. The local camera test still reports only JPEG metadata, not image content.
 
-Local face following is a separate opt-in. It uses Reachy SDK 1.9 daemon-side tracking only after **Hey Hermes** and stops when that conversation ends or Meeting/Sleep begins. Tracking frames are not forwarded to Hermes or OpenAI. Optional DOA uses the microphone array's local angle estimate once after wake detection, then discards it after orienting the head.
+Local face following is a separate opt-in. It uses Reachy SDK 1.9 daemon-side tracking only after a configured local wake phrase and stops when that conversation ends or Meeting/Sleep begins. Tracking frames are not forwarded to Hermes or OpenAI. Optional DOA uses the microphone array's local angle estimate once after wake detection, then discards it after orienting the head.
 
 Realtime mode also exposes the local `set_reachy_power_mode` tool. Explicit commands such as **“go to Standby,” “stay Awake,” “Meeting mode for 45 minutes,”** and **“go to Sleep”** change the real microphone, wake-detector, tracking, motion, and motor state. Meeting defaults to 30 minutes when no duration is given. Standby, Meeting, and Sleep end the current conversation immediately. Every transition that releases motor torque—including startup into Standby—first checks the physical head pose and runs Reachy's native `goto_sleep()` movement when needed, so the head folds gently into the body before torque is released. If the movement fails, torque stays enabled rather than allowing the head to drop. Sleep cannot be exited by voice because its microphone and wake detector are off; use the trusted settings UI or a physical control. App-off and Pi shutdown are intentionally not voice tools.
 
@@ -283,6 +293,7 @@ Observed on the reference deployment:
 
 - Native Realtime audio response: approximately **1.2 seconds** for a short test response.
 - ElevenLabs TTS: approximately **0.6 seconds**.
+- Kids ElevenLabs Flash streaming: approximately **0.375 seconds to the first 24 kHz PCM chunk** on the reference network.
 - ElevenLabs STT: approximately **1.1 seconds**.
 - Full Hermes pipeline request: approximately **14 seconds** due primarily to per-request Hermes context preparation.
 - A Realtime request that invokes `ask_hermes` inherits that Hermes agent latency.
@@ -299,7 +310,7 @@ uv build --wheel
 reachy-mini-app-assistant check .
 ```
 
-Current automated suite: **80 tests**.
+Current automated suite: **134 tests**.
 
 The implementation plan and status are in [`plan.md`](plan.md). Changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

@@ -74,6 +74,8 @@ Authorization: Bearer <API_SERVER_KEY>
 | `GET /v1/models` | Reachy-compatible Hermes model routes |
 | `GET /v1/voice-options` | STT/TTS models and account voices |
 | `POST /v1/chat/completions` | Authenticated proxy to Hermes API Server |
+| `POST /v1/kids/chat` | Bounded, pre/post-moderated child chat without Hermes memory/tools |
+| `POST /v1/kids/speech/stream` | Fixed-policy ElevenLabs Flash v2.5 24 kHz PCM stream for approved child text |
 | `POST /v1/audio/transcriptions` | Configured/local/ElevenLabs STT |
 | `POST /v1/audio/speech` | Configured/Edge/ElevenLabs TTS |
 | `GET /v1/realtime` | Authenticated WebSocket proxy to OpenAI Realtime |
@@ -95,6 +97,12 @@ The bridge executes `ask_hermes` through the authenticated local Hermes API Serv
 When Reachy enables camera support, the bridge advertises `capture_reachy_camera`. The tool call is forwarded to Reachy, which captures one bounded JPEG and sends it as an `input_image` conversation item. The bridge never polls or continuously streams the camera.
 
 When Reachy enables robot tools, the bridge advertises `move_reachy_head`, `express_reachy_emotion`, and `dance_reachy`. The bridge never executes these physical actions itself: completed calls are forwarded to the robot, where an allow-listed local worker performs them. Knowledge, Home Assistant, files, memory, and consequential actions continue to route through `ask_hermes`.
+
+### Kids Mode trust boundary
+
+`/v1/kids/chat` is a separate, bounded OpenAI chat route. It does not forward Hermes session headers or normal agent history, and it applies moderation before and after generation. The bridge accepts only age-band/activity/language enums, constructs the child policy itself, and owns bounded ephemeral history keyed by the random child session ID; caller-supplied system prompts and history are rejected. Camera, robot, agent/delegation, Home Assistant, file, messaging, purchase, and power capabilities are absent.
+
+The Kids `/v1/kids/speech/stream` and `/v1/kids/speech/fallback` paths accept only bounded text carrying their own short-lived, single-use bridge approval tied to the exact child session and normalized post-moderated text digest. The streaming provider, model, output format, and default voice are bridge-controlled: ElevenLabs `eleven_flash_v2_5`, 24 kHz PCM, and the configured `ELEVENLABS_KIDS_VOICE_ID` (or bundled child-voice default); fallback ignores caller provider/model/voice fields and invokes the Hermes host's configured TTS. Missing, expired, altered, or replayed approvals are rejected; the route does not accept arbitrary provider/model selection or unmoderated model tokens.
 
 ## Run at boot with systemd
 
@@ -121,6 +129,8 @@ Expected Realtime health fields:
 ```json
 {
   "realtime_available": true,
+  "kids_chat_available": true,
+  "kids_tts_streaming_available": true,
   "realtime_model": "gpt-realtime-2.1"
 }
 ```

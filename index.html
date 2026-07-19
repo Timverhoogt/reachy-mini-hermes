@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Give Reachy Mini the voice, vision, memory, tools, and smart-home access of your own Hermes Agent." />
+  <meta name="description" content="Give Reachy Mini local wake phrases, private Hermes voice and tools, and a supervised moderated Kids Mode." />
   <title>Reachy Mini Hermes — embodied voice, vision, and tools</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -23,14 +23,14 @@
       <div class="hero-copy">
         <p class="eyebrow">REACHY MINI × HERMES AGENT</p>
         <h1>Your agent.<br /><em>Now embodied.</em></h1>
-        <p class="lede">Wake Reachy with <strong>“Hey Hermes”</strong>. Talk naturally, interrupt mid-sentence, let it follow you locally, ask what it sees, dance, control Home Assistant, and keep the memory, skills, and tools of your own Hermes Agent.</p>
+        <p class="lede">Wake Reachy with <strong>“Hey Hermes”</strong>, <strong>“Okay Nabu”</strong>, or <strong>“Hey Reachy”</strong>. Talk naturally, interrupt mid-sentence, use a supervised Kids Mode, ask what it sees, dance, control Home Assistant, and keep the memory, skills, and tools of your own Hermes Agent.</p>
         <div class="hero-actions">
           <a class="button primary" href="https://github.com/Timverhoogt/reachy-mini-hermes">View source on GitHub</a>
           <a class="button secondary" href="#install">Install the app</a>
         </div>
         <div class="proof" aria-label="Project facts">
           <span><strong>Local</strong> pre-wake audio</span>
-          <span><strong>80</strong> automated tests</span>
+          <span><strong>134</strong> automated tests</span>
           <span><strong>Apache-2.0</strong> licensed</span>
         </div>
       </div>
@@ -56,6 +56,11 @@
         <p class="number">02 / PIPELINE</p>
         <h2>Your providers, your agent</h2>
         <p>Choose Hermes, ElevenLabs, or other configured STT/TTS routes. Every request can use Hermes memory, files, web access, Home Assistant, MCP servers, and skills.</p>
+      </article>
+      <article>
+        <p class="number">03 / KIDS</p>
+        <h2>Supervised play, separate boundary</h2>
+        <p>Age-aware English or Dutch activities use a fresh moderated no-agent session, parent PIN controls, a server timer, and interruptible ElevenLabs Flash PCM streaming.</p>
       </article>
     </section>
 
@@ -142,6 +147,18 @@
           <span>Home Assistant</span><span>Memory</span><span>Files</span><span>Web</span><span>Skills</span><span>MCP</span>
         </div>
       </article>
+
+      <article class="feature feature-tools">
+        <div class="feature-index">05</div>
+        <div class="feature-copy">
+          <p class="feature-tag">SUPERVISED KIDS MODE</p>
+          <h3>Playful by design.<br />Bounded by the backend.</h3>
+          <p>Five activities across three age bands run in a dedicated moderated child pipeline with no camera, personal Hermes memory, files, messaging, smart-home access, purchases, or power tools. Parent PIN controls, monotonic time limits, safe folding, and streamed Flash speech are enforced by the server—not just the screen. Child audio/text is processed by the configured STT provider, OpenAI, and ElevenLabs under their respective data terms.</p>
+        </div>
+        <div class="tool-list" aria-label="Kids Mode boundaries and activities">
+          <span>Buddy chat</span><span>Story maker</span><span>Quiz quest</span><span>Riddle box</span><span>Calm corner</span><span>English · Dutch</span><span>Parent PIN</span><span>15–60 min</span><span>No agent tools</span><span>24 kHz PCM</span>
+        </div>
+      </article>
     </section>
 
     <section class="privacy section">
@@ -175,8 +192,8 @@
 <span>$</span> uv build --wheel
 <span>$</span> uv pip install --reinstall dist/reachy_mini_hermes-*.whl
 
-<span class="terminal-comment"># Then open Reachy’s app settings and say:</span>
-<span class="terminal-accent">“Hey Hermes”</span></pre>
+<span class="terminal-comment"># Then open Reachy’s app settings and say any local wake phrase:</span>
+<span class="terminal-accent">“Hey Hermes” · “Okay Nabu” · “Hey Reachy”</span></pre>
     </section>
   </main>
 

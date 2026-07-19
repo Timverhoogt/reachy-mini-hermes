@@ -7,15 +7,17 @@ import secrets
 import socket
 import subprocess
 import threading
+import time
 from pathlib import Path
 
-from fastapi import Header, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi import Header, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from reachy_mini import ReachyMini, ReachyMiniApp
 
 from .config import AppConfig, load_config, merge_config, save_config
 from .hermes_client import HermesBridgeClient
+from .kids_mode import KidsProfile, hash_parent_pin, verify_parent_pin
 from .robot_tools import robot_control_options
 from .runtime import HermesVoiceRuntime
 
@@ -93,6 +95,20 @@ class AnnouncementStopRequest(BaseModel):
     clear_queue: bool = True
 
 
+class KidsModeRequest(BaseModel):
+    parent_pin: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
+    nickname: str = Field(default="", max_length=32)
+    age_band: str = Field(default="7-9", pattern=r"^(4-6|7-9|10-12)$")
+    activity: str = Field(default="buddy", pattern=r"^(buddy|story|quiz|riddles|calm)$")
+    language: str = Field(default="en", pattern=r"^(en|nl)$")
+    duration_minutes: int = Field(default=30, ge=15, le=60)
+    motion_enabled: bool = True
+
+
+class ParentPinRequest(BaseModel):
+    parent_pin: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
+
+
 class ReachyMiniHermes(ReachyMiniApp):
     """Embodied voice frontend for a user's own Hermes Agent."""
 
@@ -102,11 +118,56 @@ class ReachyMiniHermes(ReachyMiniApp):
     def __init__(self, running_on_wireless: bool = False) -> None:
         super().__init__(running_on_wireless=running_on_wireless)
         self._runtime: HermesVoiceRuntime | None = None
+        self._kids_pin_lock = threading.Lock()
+        self._kids_pin_failures = 0
+        self._kids_pin_locked_until = 0.0
         self._register_settings_routes()
+
+    def _require_kids_pin_attempt_allowed(self) -> None:
+        with self._kids_pin_lock:
+            remaining = int(self._kids_pin_locked_until - time.monotonic())
+        if remaining > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many incorrect parent PIN attempts; try again in {remaining + 1} seconds",
+                headers={"Retry-After": str(remaining + 1)},
+            )
+
+    def _record_kids_pin_result(self, *, valid: bool) -> None:
+        with self._kids_pin_lock:
+            if valid:
+                self._kids_pin_failures = 0
+                self._kids_pin_locked_until = 0.0
+                return
+            self._kids_pin_failures += 1
+            if self._kids_pin_failures >= 5:
+                self._kids_pin_locked_until = time.monotonic() + 300.0
+                self._kids_pin_failures = 0
 
     def _register_settings_routes(self) -> None:
         if self.settings_app is None:
             return
+
+        @self.settings_app.middleware("http")
+        async def lock_management_routes(request: Request, call_next):  # type: ignore[no-untyped-def]
+            """Fail closed on management APIs while the child-facing UI is locked."""
+            allowed = {
+                "/api/status",
+                "/api/kids/stop",
+                "/api/kids/parent/unlock",
+                "/api/robot/stop",
+            }
+            if (
+                request.url.path.startswith("/api/")
+                and request.url.path not in allowed
+                and self._runtime is not None
+                and self._runtime.kids_controls_locked
+            ):
+                return JSONResponse(
+                    status_code=423,
+                    content={"detail": "Parent controls are locked while Kids Mode is active"},
+                )
+            return await call_next(request)
 
         @self.settings_app.get("/manifest.webmanifest", include_in_schema=False)
         def web_manifest() -> FileResponse:
@@ -126,17 +187,22 @@ class ReachyMiniHermes(ReachyMiniApp):
 
         @self.settings_app.get("/api/status")
         def status() -> dict[str, object]:
+            runtime_payload = self._runtime.status() if self._runtime is not None else {"state": "not_started"}
+            kids_payload = runtime_payload.get("kids_mode")
+            child_locked = isinstance(kids_payload, dict) and kids_payload.get("locked") is True
             try:
                 config = load_config()
-                config_payload: dict[str, object] = config.redacted_dict()
+                config_payload: dict[str, object] = (
+                    config.child_status_dict() if child_locked else config.redacted_dict()
+                )
                 config_error = ""
             except Exception as exc:
                 config_payload = {}
-                config_error = str(exc)
-            runtime_payload = self._runtime.status() if self._runtime is not None else {"state": "not_started"}
+                config_error = "Configuration is unavailable" if child_locked else str(exc)
             return {
                 "app": "reachy_mini_hermes",
                 "wake_phrase": "Hey Hermes",
+                "wake_phrases": ["Hey Hermes", "Okay Nabu", "Hey Reachy"],
                 "config": config_payload,
                 "config_error": config_error,
                 "runtime": runtime_payload,
@@ -255,6 +321,87 @@ class ReachyMiniHermes(ReachyMiniApp):
             if self._runtime is None:
                 raise HTTPException(status_code=409, detail="Voice runtime has not started")
             return self._runtime.stop_announcements(clear_queue=request.clear_queue)
+
+        @self.settings_app.post("/api/kids/parent/setup")
+        def setup_kids_parent_pin(request: ParentPinRequest) -> dict[str, object]:
+            current = load_config()
+            if current.kids_parent_pin_hash:
+                raise HTTPException(status_code=409, detail="A Kids Mode parent PIN is already configured")
+            try:
+                pin_hash = hash_parent_pin(request.parent_pin)
+                save_config(merge_config(current, {"kids_parent_pin_hash": pin_hash}))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"ok": True, "kids_parent_pin_configured": True}
+
+        @self.settings_app.post("/api/kids/parent/unlock")
+        def unlock_kids_parent_controls(request: ParentPinRequest) -> dict[str, object]:
+            self._require_kids_pin_attempt_allowed()
+            current = load_config()
+            valid = bool(current.kids_parent_pin_hash) and verify_parent_pin(
+                request.parent_pin,
+                current.kids_parent_pin_hash,
+            )
+            self._record_kids_pin_result(valid=valid)
+            if not valid:
+                raise HTTPException(status_code=401, detail="Incorrect parent PIN")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            if self._runtime.status()["kids_mode"].get("active"):  # type: ignore[union-attr]
+                self._runtime.stop_kids_mode(reason="parent_unlock", fold=True)
+            return {"ok": True, "kids_mode": self._runtime.unlock_kids_controls()}
+
+        @self.settings_app.post("/api/kids/start")
+        def start_kids_mode(request: KidsModeRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            config = load_config()
+            if not config.configured:
+                raise HTTPException(status_code=409, detail="Configure the Hermes bridge first")
+            if not config.kids_parent_pin_hash:
+                raise HTTPException(status_code=409, detail="Set a Kids Mode parent PIN first")
+            self._require_kids_pin_attempt_allowed()
+            valid = verify_parent_pin(request.parent_pin, config.kids_parent_pin_hash)
+            self._record_kids_pin_result(valid=valid)
+            if not valid:
+                raise HTTPException(status_code=401, detail="Incorrect parent PIN")
+            client = HermesBridgeClient(config)
+            try:
+                try:
+                    health = client.health()
+                except Exception as exc:
+                    raise HTTPException(status_code=502, detail=str(exc)) from exc
+            finally:
+                client.close()
+            if health.get("kids_chat_available") is not True:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Kids Mode requires the private moderated child bridge route",
+                )
+            if health.get("kids_tts_streaming_available") is not True:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Kids Mode requires ElevenLabs Flash streaming on the private bridge",
+                )
+            try:
+                profile = KidsProfile(**request.model_dump(exclude={"parent_pin"}))
+                return {"ok": True, "kids_mode": self._runtime.start_kids_mode(profile)}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/kids/stop")
+        def stop_kids_mode() -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return {
+                    "ok": True,
+                    "kids_mode": self._runtime.stop_kids_mode(reason="parent", fold=True),
+                }
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
 
         @self.settings_app.get("/api/robot/options")
         def robot_options() -> dict[str, object]:
