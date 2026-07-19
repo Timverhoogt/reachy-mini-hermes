@@ -276,6 +276,7 @@ class HermesVoiceRuntime:
         self._kids_warning_timer: threading.Timer | None = None
         self._kids_generation = 0
         self._kids_last_end_reason = ""
+        self._kids_last_fold_succeeded: bool | None = None
 
     def set_power_mode(
         self,
@@ -517,7 +518,7 @@ class HermesVoiceRuntime:
         payload["announcement_queue_depth"] = self._announcement_queue.qsize()
         with self._kids_lock:
             remaining = max(0, int(self._kids_ends_at - time.monotonic())) if self._kids_active else 0
-            payload["kids_mode"] = {
+            kids_payload = {
                 "active": self._kids_active,
                 "locked": self._kids_locked,
                 "remaining_seconds": remaining,
@@ -528,6 +529,7 @@ class HermesVoiceRuntime:
                     else 0
                 ),
                 "last_end_reason": self._kids_last_end_reason,
+                "last_fold_succeeded": self._kids_last_fold_succeeded,
                 "tool_policy": (
                     "voice-state-motion-only"
                     if self._kids_active and self._kids_profile and self._kids_profile.motion_enabled
@@ -535,9 +537,15 @@ class HermesVoiceRuntime:
                 ),
                 "camera_enabled": False,
             }
+            payload["kids_mode"] = kids_payload
             if self._kids_locked:
-                payload["transcript"] = ""
-                payload["response_preview"] = ""
+                return {
+                    "state": payload.get("state", "waiting_for_wake_word"),
+                    "power_mode": payload.get("power_mode", "standby"),
+                    "motors_enabled": self._motors_enabled,
+                    "head_safely_folded": self._head_safely_folded,
+                    "kids_mode": kids_payload,
+                }
         return payload
 
     @property
@@ -577,10 +585,11 @@ class HermesVoiceRuntime:
             self._kids_profile = profile
             self._kids_started_at = time.monotonic()
             self._kids_ends_at = self._kids_started_at + profile.duration_minutes * 60.0
-            self._kids_session_id = "kids-" + secrets.token_urlsafe(18)
+            self._kids_session_id = "kids-" + secrets.token_hex(16)
             with self._status_lock:
                 self._kids_turns_at_start = self._status.turns_completed
             self._kids_last_end_reason = ""
+            self._kids_last_fold_succeeded = None
             timer = threading.Timer(profile.duration_minutes * 60.0, self._expire_kids_mode, args=(generation,))
             timer.daemon = True
             self._kids_timer = timer
@@ -663,6 +672,7 @@ class HermesVoiceRuntime:
             self._kids_ends_at = 0.0
             self._kids_session_id = ""
             self._kids_last_end_reason = reason[:40]
+            self._kids_last_fold_succeeded = None
         self._conversation_stop_requested.set()
         self._cancel_announcements(clear_queue=True)
         self._clear_streamed_audio()
@@ -676,8 +686,19 @@ class HermesVoiceRuntime:
                 self._motion.enabled = False
         if self._actions is not None:
             self._actions.cancel(stop_media=False)
-        if fold and self._effective_power_mode() not in {"meeting", "sleep"}:
-            self.set_power_mode("standby", cancel_announcements=False)
+        if fold:
+            try:
+                if self._effective_power_mode() not in {"meeting", "sleep"}:
+                    self.set_power_mode("standby", cancel_announcements=False)
+                if not self._head_safely_folded or self._motors_enabled is not False:
+                    raise RuntimeError("Kids Mode ended, but Reachy's safe fold could not be verified")
+            except Exception:
+                with self._kids_lock:
+                    self._kids_last_fold_succeeded = False
+                    self._kids_last_end_reason = f"{reason[:28]}_fold_failed"
+                raise
+            with self._kids_lock:
+                self._kids_last_fold_succeeded = True
         _LOGGER.info("Kids Mode ended (reason=%s, was_active=%s)", reason, was_active)
         return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
 
@@ -692,6 +713,8 @@ class HermesVoiceRuntime:
             conversation_mode="pipeline",
             kids_mode_enabled=True,
             kids_session_id=self._kids_session_id,
+            kids_age_band=profile.age_band,
+            kids_activity=profile.activity,
             language=profile.language,
             system_prompt=build_kids_prompt(profile),
             continuous_conversation=True,
@@ -704,6 +727,11 @@ class HermesVoiceRuntime:
             agent_tools_enabled=False,
             power_tools_enabled=False,
         )
+
+    def _kids_session_is_current(self, session_id: str) -> bool:
+        """Return whether network/audio work still belongs to the active child session."""
+        with self._kids_lock:
+            return bool(session_id) and self._kids_active and self._kids_session_id == session_id
 
     def queue_announcement(
         self,
@@ -1138,9 +1166,12 @@ class HermesVoiceRuntime:
             self._set_status("stopping")
             with self._kids_lock:
                 kids_timer, self._kids_timer = self._kids_timer, None
+                kids_warning_timer, self._kids_warning_timer = self._kids_warning_timer, None
                 self._kids_active = False
             if kids_timer is not None:
                 kids_timer.cancel()
+            if kids_warning_timer is not None:
+                kids_warning_timer.cancel()
             self._audio_ready = False
             self._cancel_announcements(clear_queue=True)
             worker = self._announcement_worker
@@ -1745,17 +1776,27 @@ class HermesVoiceRuntime:
     def _run_conversation(self, initial_config: AppConfig) -> None:
         config = initial_config
         client = HermesBridgeClient(config)
+
+        def conversation_is_current() -> bool:
+            return not initial_config.kids_mode_enabled or self._kids_session_is_current(
+                initial_config.kids_session_id
+            )
+
         try:
             health = client.health()
             self._set_status("listening", "Wake word accepted", bridge_healthy=True, last_error="")
             _LOGGER.debug("Hermes bridge health: %s", health.get("status"))
 
             first_turn = True
-            while not self.stop_event.is_set() and not self._conversation_stop_requested.is_set():
+            while (
+                not self.stop_event.is_set()
+                and not self._conversation_stop_requested.is_set()
+                and conversation_is_current()
+            ):
                 if self._effective_power_mode() in {"meeting", "sleep"}:
                     break
                 if not first_turn:
-                    config = self.config_loader()
+                    config = initial_config if initial_config.kids_mode_enabled else self.config_loader()
                     if not config.continuous_conversation:
                         break
                     self._set_status("listening", "Waiting for a follow-up")
@@ -1781,7 +1822,9 @@ class HermesVoiceRuntime:
                 self._set_status("transcribing", "Command received; transcribing")
                 transcript = client.transcribe(encode_wav(endpoint.samples, 16000))
                 if (
-                    self._conversation_stop_requested.is_set()
+                    not conversation_is_current()
+                    or self.stop_event.is_set()
+                    or self._conversation_stop_requested.is_set()
                     or self._privacy_requested.is_set()
                     or self._effective_power_mode() in {"meeting", "sleep"}
                 ):
@@ -1796,12 +1839,18 @@ class HermesVoiceRuntime:
 
                 response_text = client.chat(transcript)
                 if (
-                    self._conversation_stop_requested.is_set()
+                    not conversation_is_current()
+                    or self.stop_event.is_set()
+                    or self._conversation_stop_requested.is_set()
                     or self._privacy_requested.is_set()
                     or self._effective_power_mode() in {"meeting", "sleep"}
                 ):
                     break
-                spoken_text = self._speech_friendly(response_text)
+                spoken_text = (
+                    response_text
+                    if client.config.kids_mode_enabled
+                    else self._speech_friendly(response_text)
+                )
                 self._set_status(
                     "synthesizing",
                     "Generating speech",
@@ -1819,13 +1868,29 @@ class HermesVoiceRuntime:
                             spoken_text,
                             barge_in=config.barge_in_enabled,
                         )
-                    except HermesBridgeError:
+                    except (HermesBridgeError, httpx.HTTPError):
                         _LOGGER.warning(
-                            "Kids low-latency speech stream failed; using configured TTS fallback",
+                            "Kids low-latency speech stream failed; considering configured TTS fallback",
                             exc_info=True,
                         )
                         self._clear_streamed_audio()
+                        if (
+                            not conversation_is_current()
+                            or self.stop_event.is_set()
+                            or self._conversation_stop_requested.is_set()
+                            or self._privacy_requested.is_set()
+                            or self._effective_power_mode() in {"meeting", "sleep"}
+                        ):
+                            break
                         speech = client.synthesize(spoken_text)
+                        if (
+                            not conversation_is_current()
+                            or self.stop_event.is_set()
+                            or self._conversation_stop_requested.is_set()
+                            or self._privacy_requested.is_set()
+                            or self._effective_power_mode() in {"meeting", "sleep"}
+                        ):
+                            break
                         self._set_status(
                             "speaking",
                             "Reachy is speaking with fallback audio",
@@ -1850,7 +1915,11 @@ class HermesVoiceRuntime:
                         spoken_text,
                         barge_in=config.barge_in_enabled,
                     )
-                if self._conversation_stop_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+                if (
+                    not conversation_is_current()
+                    or self._conversation_stop_requested.is_set()
+                    or self._effective_power_mode() in {"meeting", "sleep"}
+                ):
                     break
                 with self._status_lock:
                     self._status.turns_completed += 1
@@ -1919,87 +1988,133 @@ class HermesVoiceRuntime:
         *,
         barge_in: bool = True,
     ) -> bool:
-        """Push ElevenLabs Flash PCM to Reachy as soon as the first bytes arrive."""
-        if (
-            self._conversation_stop_requested.is_set()
-            or self._privacy_requested.is_set()
-            or self._effective_power_mode() in {"meeting", "sleep"}
-        ):
+        """Stream child PCM while retaining immediate stop/privacy/wake control."""
+
+        def cancelled() -> bool:
+            return (
+                self.stop_event.is_set()
+                or (
+                    client.config.kids_mode_enabled
+                    and not self._kids_session_is_current(client.config.kids_session_id)
+                )
+                or self._conversation_stop_requested.is_set()
+                or self._privacy_requested.is_set()
+                or self._effective_power_mode() in {"meeting", "sleep"}
+            )
+
+        if cancelled():
             return False
         if self._motion is not None:
             self._motion.speaking()
         if self._spotter is not None:
             self._spotter.reset()
 
+        stream_queue: queue.Queue[bytes | Exception | object] = queue.Queue(maxsize=16)
+        stream_done = object()
+        stream_cancel = threading.Event()
+
+        def put_stream_item(item: bytes | Exception | object) -> None:
+            while not stream_cancel.is_set():
+                try:
+                    stream_queue.put(item, timeout=0.1)
+                    return
+                except queue.Full:
+                    continue
+
+        def produce_stream() -> None:
+            try:
+                for chunk in client.iter_kids_speech(
+                    text,
+                    should_stop=lambda: stream_cancel.is_set() or cancelled(),
+                ):
+                    if stream_cancel.is_set() or cancelled():
+                        break
+                    put_stream_item(chunk)
+            except Exception as exc:  # preserve the producer error for the conversation thread
+                put_stream_item(exc)
+            finally:
+                put_stream_item(stream_done)
+
+        producer = threading.Thread(
+            target=produce_stream,
+            name="reachy-kids-tts-stream",
+            daemon=True,
+        )
+        producer.start()
+
         first_audio_at: float | None = None
         queued_samples = 0
         remainder = b""
+        download_complete = False
+        interrupted = False
         try:
-            for chunk in client.iter_kids_speech(text):
-                if (
-                    self.stop_event.is_set()
-                    or self._conversation_stop_requested.is_set()
-                    or self._privacy_requested.is_set()
-                    or self._effective_power_mode() in {"meeting", "sleep"}
-                ):
+            while not download_complete or (
+                first_audio_at is not None
+                and time.monotonic()
+                < first_audio_at + queued_samples / self._output_sample_rate + 0.15
+            ):
+                if cancelled():
                     self._clear_streamed_audio()
                     return False
-                raw = remainder + chunk
-                usable = len(raw) - (len(raw) % 2)
-                remainder = raw[usable:]
-                if not usable:
-                    continue
-                audio = np.frombuffer(raw[:usable], dtype="<i2").astype(np.float32) / 32768.0
-                output = resample_linear(audio, 24000, self._output_sample_rate)
-                if not output.size:
-                    continue
-                if first_audio_at is None:
-                    first_audio_at = time.monotonic()
-                queued_samples += int(output.size)
-                if queued_samples > self._output_sample_rate * 120:
-                    raise HermesBridgeError("Kids Mode streaming speech exceeded the playback limit")
-                self.robot.media.push_audio_sample(output)
+
+                if not download_complete:
+                    try:
+                        item = stream_queue.get(timeout=0.01)
+                    except queue.Empty:
+                        item = None
+                    if item is stream_done:
+                        download_complete = True
+                    elif isinstance(item, Exception):
+                        raise item
+                    elif isinstance(item, bytes):
+                        raw = remainder + item
+                        usable = len(raw) - (len(raw) % 2)
+                        remainder = raw[usable:]
+                        if usable:
+                            audio = np.frombuffer(raw[:usable], dtype="<i2").astype(np.float32) / 32768.0
+                            output = resample_linear(audio, 24000, self._output_sample_rate)
+                            if output.size:
+                                if first_audio_at is None:
+                                    first_audio_at = time.monotonic()
+                                queued_samples += int(output.size)
+                                if queued_samples > self._output_sample_rate * 120:
+                                    raise HermesBridgeError("Kids Mode streaming speech exceeded the playback limit")
+                                self.robot.media.push_audio_sample(output)
+
+                if barge_in and self._spotter is not None:
+                    frame = self._read_16k_frame()
+                    if frame is not None:
+                        keyword = self._spotter.accept(frame, 16000)
+                        if keyword:
+                            interrupted = True
+                            self._clear_streamed_audio()
+                            self._spotter.reset()
+                            with self._status_lock:
+                                self._status.interruptions += 1
+                            self._set_status("listening", "Response interrupted; listening")
+                            if self._motion is not None:
+                                self._motion.listening()
+                            _LOGGER.info("Streaming playback interrupted by local wake phrase: %s", keyword)
+                            return True
+                elif download_complete:
+                    time.sleep(0.02)
+
+            if first_audio_at is None or queued_samples == 0:
+                raise HermesBridgeError("Kids Mode streaming speech returned no playable audio")
+            _LOGGER.info(
+                "Kids streaming speech played %.2fs of PCM using %s",
+                queued_samples / self._output_sample_rate,
+                client.last_tts_provider,
+            )
+            return interrupted
         except Exception:
             self._clear_streamed_audio()
             raise
-
-        if first_audio_at is None or queued_samples == 0:
-            raise HermesBridgeError("Kids Mode streaming speech returned no playable audio")
-        _LOGGER.info(
-            "Kids streaming speech queued %.2fs of PCM using %s",
-            queued_samples / self._output_sample_rate,
-            client.last_tts_provider,
-        )
-        deadline = first_audio_at + queued_samples / self._output_sample_rate + 0.15
-        interrupted = False
-        while time.monotonic() < deadline and not self.stop_event.is_set():
-            if (
-                self._conversation_stop_requested.is_set()
-                or self._privacy_requested.is_set()
-                or self._effective_power_mode() in {"meeting", "sleep"}
-            ):
-                self._clear_streamed_audio()
-                break
-            if not barge_in or self._spotter is None:
-                time.sleep(0.02)
-                continue
-            frame = self._read_16k_frame()
-            if frame is None:
-                continue
-            keyword = self._spotter.accept(frame, 16000)
-            if not keyword:
-                continue
-            interrupted = True
-            self._clear_streamed_audio()
-            self._spotter.reset()
-            with self._status_lock:
-                self._status.interruptions += 1
-            self._set_status("listening", "Response interrupted; listening")
-            if self._motion is not None:
-                self._motion.listening()
-            _LOGGER.info("Streaming playback interrupted by local wake phrase: %s", keyword)
-            break
-        return interrupted
+        finally:
+            stream_cancel.set()
+            producer.join(timeout=2.5)
+            if producer.is_alive():
+                _LOGGER.warning("Kids Mode TTS producer did not exit promptly after cancellation")
 
     def _play_response(self, speech: SpeechAudio, text: str, *, barge_in: bool = True) -> bool:
         """Play a response and allow a local wake-phrase barge-in.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 import httpx
@@ -38,7 +38,8 @@ class HermesBridgeClient:
         self._last_turn_at = 0.0
         self.last_stt_provider = ""
         self.last_tts_provider = ""
-        self._kids_history: list[dict[str, str]] = []
+        self._kids_speech_approval = ""
+        self._kids_fallback_speech_approval = ""
 
     def close(self) -> None:
         if self._owns_client:
@@ -143,6 +144,8 @@ class HermesBridgeClient:
 
     def _kids_chat(self, transcript: str) -> str:
         """Use the dedicated no-agent child route with ephemeral in-process context only."""
+        self._kids_speech_approval = ""
+        self._kids_fallback_speech_approval = ""
         clean = transcript.strip()
         if not clean:
             raise HermesBridgeError("Kids Mode received an empty transcript")
@@ -151,9 +154,12 @@ class HermesBridgeClient:
             headers={"Authorization": f"Bearer {self.config.api_key}"},
             json={
                 "input": clean,
-                "system_prompt": self.config.system_prompt,
                 "session_id": self.config.kids_session_id,
-                "history": self._kids_history[-8:],
+                "profile": {
+                    "age_band": self.config.kids_age_band,
+                    "activity": self.config.kids_activity,
+                    "language": self.config.language,
+                },
             },
         )
         self._raise_for_error(response, "Kids Mode response")
@@ -161,28 +167,47 @@ class HermesBridgeClient:
         text = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
         if not text:
             raise HermesBridgeError("Kids Mode returned an empty response")
-        self._kids_history.extend(
-            [
-                {"role": "user", "content": clean[:2_000]},
-                {"role": "assistant", "content": text[:1_200]},
-            ]
+        approval = str(payload.get("speech_approval") or "").strip() if isinstance(payload, dict) else ""
+        fallback_approval = (
+            str(payload.get("fallback_speech_approval") or "").strip()
+            if isinstance(payload, dict)
+            else ""
         )
-        self._kids_history = self._kids_history[-8:]
+        if not approval or not fallback_approval:
+            raise HermesBridgeError("Kids Mode returned incomplete moderated speech approvals")
+        self._kids_speech_approval = approval
+        self._kids_fallback_speech_approval = fallback_approval
         return text
 
-    def iter_kids_speech(self, text: str) -> Iterator[bytes]:
+    def iter_kids_speech(
+        self,
+        text: str,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> Iterator[bytes]:
         """Yield low-latency 24 kHz PCM from the bridge's fixed child TTS route."""
         clean = text.strip()
         if not self.config.kids_mode_enabled:
             raise HermesBridgeError("Kids streaming speech is only available in Kids Mode")
         if not clean:
             raise HermesBridgeError("Kids Mode received an empty speech response")
+        approval = self._kids_speech_approval
+        if not approval:
+            raise HermesBridgeError("Kids Mode speech has no moderated-response approval")
+        if should_stop is not None and should_stop():
+            return
         with self._client.stream(
             "POST",
             f"{self.config.bridge_url}/v1/kids/speech/stream",
             headers={"Authorization": f"Bearer {self.config.api_key}"},
-            json={"input": clean},
+            json={
+                "input": clean,
+                "session_id": self.config.kids_session_id,
+                "speech_approval": approval,
+            },
+            timeout=httpx.Timeout(30.0, connect=10.0, read=2.0),
         ) as response:
+            self._kids_speech_approval = ""
             if not response.is_success:
                 response.read()
                 self._raise_for_error(response, "Kids Mode streaming speech synthesis")
@@ -197,6 +222,8 @@ class HermesBridgeClient:
             )
             received = False
             for chunk in response.iter_bytes(chunk_size=8 * 1024):
+                if should_stop is not None and should_stop():
+                    return
                 if chunk:
                     received = True
                     yield chunk
@@ -204,17 +231,32 @@ class HermesBridgeClient:
                 raise HermesBridgeError("Kids Mode TTS returned no streaming audio")
 
     def synthesize(self, text: str) -> SpeechAudio:
-        response = self._client.post(
-            f"{self.config.bridge_url}/v1/audio/speech",
-            headers={"Authorization": f"Bearer {self.config.api_key}"},
-            json={
+        if self.config.kids_mode_enabled:
+            approval = self._kids_fallback_speech_approval
+            if not approval:
+                raise HermesBridgeError("Kids Mode fallback speech has no moderated-response approval")
+            payload = {
+                "input": text,
+                "session_id": self.config.kids_session_id,
+                "speech_approval": approval,
+            }
+            endpoint = "/v1/kids/speech/fallback"
+        else:
+            payload = {
                 "provider": self.config.tts_provider,
                 "model": self.config.tts_model,
                 "input": text,
                 "voice": self.config.tts_voice,
                 "response_format": "mp3",
-            },
+            }
+            endpoint = "/v1/audio/speech"
+        response = self._client.post(
+            f"{self.config.bridge_url}{endpoint}",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+            json=payload,
         )
+        if self.config.kids_mode_enabled:
+            self._kids_fallback_speech_approval = ""
         self._raise_for_error(response, "speech synthesis")
         content_type = response.headers.get("content-type", "audio/mpeg").split(";", 1)[0]
         extension = {

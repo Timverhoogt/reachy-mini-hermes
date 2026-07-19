@@ -100,9 +100,9 @@ When Reachy enables robot tools, the bridge advertises `move_reachy_head`, `expr
 
 ### Kids Mode trust boundary
 
-`/v1/kids/chat` is a separate, bounded OpenAI chat route. It does not forward Hermes session headers or normal agent history, and it applies moderation before and after generation. Camera, robot, agent/delegation, Home Assistant, file, messaging, purchase, and power capabilities are absent. Child history is ephemeral and capped.
+`/v1/kids/chat` is a separate, bounded OpenAI chat route. It does not forward Hermes session headers or normal agent history, and it applies moderation before and after generation. The bridge accepts only age-band/activity/language enums, constructs the child policy itself, and owns bounded ephemeral history keyed by the random child session ID; caller-supplied system prompts and history are rejected. Camera, robot, agent/delegation, Home Assistant, file, messaging, purchase, and power capabilities are absent.
 
-`/v1/kids/speech/stream` accepts only approved bounded text from the authenticated robot client. Provider, model, output format, and default voice are bridge-controlled: ElevenLabs `eleven_flash_v2_5`, 24 kHz PCM, and the configured `ELEVENLABS_KIDS_VOICE_ID` (or the bundled child-voice default). It does not accept arbitrary provider/model selection and never receives unmoderated model tokens.
+The Kids `/v1/kids/speech/stream` and `/v1/kids/speech/fallback` paths accept only bounded text carrying their own short-lived, single-use bridge approval tied to the exact child session and normalized post-moderated text digest. The streaming provider, model, output format, and default voice are bridge-controlled: ElevenLabs `eleven_flash_v2_5`, 24 kHz PCM, and the configured `ELEVENLABS_KIDS_VOICE_ID` (or bundled child-voice default); fallback ignores caller provider/model/voice fields and invokes the Hermes host's configured TTS. Missing, expired, altered, or replayed approvals are rejected; the route does not accept arbitrary provider/model selection or unmoderated model tokens.
 
 ## Run at boot with systemd
 

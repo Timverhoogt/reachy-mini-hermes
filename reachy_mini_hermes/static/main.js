@@ -295,9 +295,11 @@ function updateStatus(payload) {
   $("kids-status-badge").classList.toggle("active", kidsActive);
   $("kids-timer").textContent = kidsActive
     ? `${remainingMinutes}:${String(remainingRemainder).padStart(2, "0")} remaining`
-    : kidsMode.last_end_reason === "time_limit"
-      ? "Time is up · Reachy folded safely"
-      : "Choose an activity below";
+    : kidsMode.last_end_reason === "time_limit" && kidsMode.last_fold_succeeded === true
+      ? "Time is up · safe fold verified"
+      : String(kidsMode.last_end_reason || "").includes("fold_failed")
+        ? "Session ended · safe fold needs parent attention"
+        : "Choose an activity below";
   $("kids-progress-bar").style.width = `${remainingPercent}%`;
   const progress = document.querySelector(".kids-progress");
   progress.setAttribute("aria-valuenow", String(Math.round(remainingPercent)));
@@ -594,8 +596,8 @@ function kidsProfileFromForm() {
 async function submitKidsPin(path, successText) {
   const parentPin = $("kids-parent-pin").value;
   const message = $("kids-message");
-  if (!/^[0-9]{4,8}$/.test(parentPin)) {
-    message.textContent = "Enter a 4–8 digit parent PIN.";
+  if (!/^[0-9]{6,8}$/.test(parentPin)) {
+    message.textContent = "Enter a 6–8 digit parent PIN.";
     message.className = "message error";
     $("kids-parent-pin").focus();
     return;
@@ -635,8 +637,8 @@ $("kids-start-button").addEventListener("click", async () => {
   const profile = kidsProfileFromForm();
   const parentPin = $("kids-parent-pin").value;
   const message = $("kids-message");
-  if (!/^[0-9]{4,8}$/.test(parentPin)) {
-    message.textContent = "Enter the 4–8 digit parent PIN first.";
+  if (!/^[0-9]{6,8}$/.test(parentPin)) {
+    message.textContent = "Enter the 6–8 digit parent PIN first.";
     message.className = "message error";
     $("kids-parent-pin").focus();
     return;

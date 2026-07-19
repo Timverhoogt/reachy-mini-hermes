@@ -79,7 +79,7 @@ Implemented:
 - five activities: Buddy chat, Story maker, Quiz quest, Riddle box, and Calm corner;
 - age bands 4–6, 7–9, and 10–12 in English or Dutch;
 - parent-selected 15/30/45/60-minute sessions with a monotonic authoritative deadline and five-minute warning;
-- 4–8 digit parent PIN stored only as a salted `scrypt` verifier;
+- 6–8 digit parent PIN stored only as a salted `scrypt` verifier, with a five-attempt/five-minute lockout;
 - public transcript, response-preview, nickname, and child-session-ID redaction while locked;
 - camera, robot, agent/delegation, Home Assistant, messaging, files, purchases, and power tools blocked;
 - complete-answer moderation before any child speech starts;
@@ -102,8 +102,9 @@ Implemented:
 Automated and packaging:
 
 - Ruff, Python compilation, JavaScript syntax, and `git diff --check` pass.
-- **123 pytest tests pass** in Reachy's SDK environment.
+- **134 pytest tests pass** in a clean Reachy SDK 1.9 environment with GStreamer bindings.
 - Wheel and source distributions build successfully.
+- `reachy-mini-app-assistant check .` passes all repository structure and metadata checks; its isolated-install phase is blocked on this workstation by the upstream Reachy Mini `PyGObject` dependency requiring Cairo development headers. The complete app suite is instead exercised in the Reachy SDK 1.9 environment with GStreamer bindings above.
 - Tracked and untracked publication files pass provider-key/token-prefix scanning.
 
 Live bridge and cloud providers:

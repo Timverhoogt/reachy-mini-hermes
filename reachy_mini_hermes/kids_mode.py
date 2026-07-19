@@ -68,8 +68,8 @@ class KidsProfile:
             raise ValueError("Unsupported Kids Mode activity")
         if self.language not in LANGUAGES:
             raise ValueError("Unsupported Kids Mode language")
-        if isinstance(self.duration_minutes, bool) or not 5 <= int(self.duration_minutes) <= 120:
-            raise ValueError("Kids Mode duration must be between 5 and 120 minutes")
+        if isinstance(self.duration_minutes, bool) or int(self.duration_minutes) not in {15, 30, 45, 60}:
+            raise ValueError("Kids Mode duration must be 15, 30, 45, or 60 minutes")
         object.__setattr__(self, "nickname", nickname)
         object.__setattr__(self, "duration_minutes", int(self.duration_minutes))
 
@@ -85,8 +85,8 @@ class KidsProfile:
 
 def validate_parent_pin(pin: str) -> str:
     """Validate the local parent guardrail without normalizing secret input."""
-    if not isinstance(pin, str) or not pin.isascii() or not pin.isdigit() or not 4 <= len(pin) <= 8:
-        raise ValueError("Parent PIN must contain 4 to 8 digits")
+    if not isinstance(pin, str) or not pin.isascii() or not pin.isdigit() or not 6 <= len(pin) <= 8:
+        raise ValueError("Parent PIN must contain 6 to 8 digits")
     return pin
 
 

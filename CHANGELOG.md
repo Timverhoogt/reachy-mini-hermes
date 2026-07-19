@@ -75,9 +75,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff passes and 123 automated tests pass.
+- Ruff passes and 134 automated tests pass.
+- Reachy's app assistant passes the repository structure and metadata checks. Its isolated-install phase remains host-blocked by the upstream `PyGObject`/Cairo build dependency; the complete suite passes in the Reachy SDK 1.9 validation environment.
 - Realtime session creation, audio response, configurable reasoning, and Hermes tool delegation succeed against the live API.
 - ElevenLabs TTS/STT round trip succeeds; Kids Flash streaming reaches Reachy as 24 kHz PCM with a measured 375 ms first chunk on the reference network.
-- Dedicated moderated Kids chat, parent stop, timer generation guards, status redaction, safe fold, and torque release pass live and automated checks.
+- Automated checks cover moderated child chat, lockout, status redaction, timer generation guards, stream cancellation, and fold-outcome reporting; the earlier reference hardware run verified parent stop, safe fold, torque release, and Standby.
 - `Okay Nabu` and `Hey Reachy` detect in synthesized acceptance audio; `Hey Hermes` remains verified with live microphone input.
 - Reachy power states, clean app stop/restart, API soak tests, motor mode, and daemon health pass on the reference Reachy Mini Lite deployment.

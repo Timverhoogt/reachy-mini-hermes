@@ -7,6 +7,7 @@ import secrets
 import socket
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from fastapi import Header, HTTPException, Request, Response
@@ -95,17 +96,17 @@ class AnnouncementStopRequest(BaseModel):
 
 
 class KidsModeRequest(BaseModel):
-    parent_pin: str = Field(min_length=4, max_length=8, pattern=r"^[0-9]+$")
+    parent_pin: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
     nickname: str = Field(default="", max_length=32)
     age_band: str = Field(default="7-9", pattern=r"^(4-6|7-9|10-12)$")
     activity: str = Field(default="buddy", pattern=r"^(buddy|story|quiz|riddles|calm)$")
     language: str = Field(default="en", pattern=r"^(en|nl)$")
-    duration_minutes: int = Field(default=30, ge=5, le=120)
+    duration_minutes: int = Field(default=30, ge=15, le=60)
     motion_enabled: bool = True
 
 
 class ParentPinRequest(BaseModel):
-    parent_pin: str = Field(min_length=4, max_length=8, pattern=r"^[0-9]+$")
+    parent_pin: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
 
 
 class ReachyMiniHermes(ReachyMiniApp):
@@ -117,7 +118,31 @@ class ReachyMiniHermes(ReachyMiniApp):
     def __init__(self, running_on_wireless: bool = False) -> None:
         super().__init__(running_on_wireless=running_on_wireless)
         self._runtime: HermesVoiceRuntime | None = None
+        self._kids_pin_lock = threading.Lock()
+        self._kids_pin_failures = 0
+        self._kids_pin_locked_until = 0.0
         self._register_settings_routes()
+
+    def _require_kids_pin_attempt_allowed(self) -> None:
+        with self._kids_pin_lock:
+            remaining = int(self._kids_pin_locked_until - time.monotonic())
+        if remaining > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many incorrect parent PIN attempts; try again in {remaining + 1} seconds",
+                headers={"Retry-After": str(remaining + 1)},
+            )
+
+    def _record_kids_pin_result(self, *, valid: bool) -> None:
+        with self._kids_pin_lock:
+            if valid:
+                self._kids_pin_failures = 0
+                self._kids_pin_locked_until = 0.0
+                return
+            self._kids_pin_failures += 1
+            if self._kids_pin_failures >= 5:
+                self._kids_pin_locked_until = time.monotonic() + 300.0
+                self._kids_pin_failures = 0
 
     def _register_settings_routes(self) -> None:
         if self.settings_app is None:
@@ -162,14 +187,18 @@ class ReachyMiniHermes(ReachyMiniApp):
 
         @self.settings_app.get("/api/status")
         def status() -> dict[str, object]:
+            runtime_payload = self._runtime.status() if self._runtime is not None else {"state": "not_started"}
+            kids_payload = runtime_payload.get("kids_mode")
+            child_locked = isinstance(kids_payload, dict) and kids_payload.get("locked") is True
             try:
                 config = load_config()
-                config_payload: dict[str, object] = config.redacted_dict()
+                config_payload: dict[str, object] = (
+                    config.child_status_dict() if child_locked else config.redacted_dict()
+                )
                 config_error = ""
             except Exception as exc:
                 config_payload = {}
-                config_error = str(exc)
-            runtime_payload = self._runtime.status() if self._runtime is not None else {"state": "not_started"}
+                config_error = "Configuration is unavailable" if child_locked else str(exc)
             return {
                 "app": "reachy_mini_hermes",
                 "wake_phrase": "Hey Hermes",
@@ -307,11 +336,14 @@ class ReachyMiniHermes(ReachyMiniApp):
 
         @self.settings_app.post("/api/kids/parent/unlock")
         def unlock_kids_parent_controls(request: ParentPinRequest) -> dict[str, object]:
+            self._require_kids_pin_attempt_allowed()
             current = load_config()
-            if not current.kids_parent_pin_hash or not verify_parent_pin(
+            valid = bool(current.kids_parent_pin_hash) and verify_parent_pin(
                 request.parent_pin,
                 current.kids_parent_pin_hash,
-            ):
+            )
+            self._record_kids_pin_result(valid=valid)
+            if not valid:
                 raise HTTPException(status_code=401, detail="Incorrect parent PIN")
             if self._runtime is None:
                 raise HTTPException(status_code=409, detail="Voice runtime has not started")
@@ -328,7 +360,10 @@ class ReachyMiniHermes(ReachyMiniApp):
                 raise HTTPException(status_code=409, detail="Configure the Hermes bridge first")
             if not config.kids_parent_pin_hash:
                 raise HTTPException(status_code=409, detail="Set a Kids Mode parent PIN first")
-            if not verify_parent_pin(request.parent_pin, config.kids_parent_pin_hash):
+            self._require_kids_pin_attempt_allowed()
+            valid = verify_parent_pin(request.parent_pin, config.kids_parent_pin_hash)
+            self._record_kids_pin_result(valid=valid)
+            if not valid:
                 raise HTTPException(status_code=401, detail="Incorrect parent PIN")
             client = HermesBridgeClient(config)
             try:

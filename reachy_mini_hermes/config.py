@@ -63,6 +63,8 @@ class AppConfig:
     kids_parent_pin_hash: str = ""
     kids_mode_enabled: bool = False
     kids_session_id: str = ""
+    kids_age_band: str = ""
+    kids_activity: str = ""
     realtime_model: str = "gpt-realtime-2.1"
     realtime_voice: str = "marin"
     realtime_reasoning_effort: str = "low"
@@ -84,6 +86,8 @@ class AppConfig:
         self.realtime_reasoning_effort = self.realtime_reasoning_effort.strip().lower() or "low"
         self.kids_parent_pin_hash = self.kids_parent_pin_hash.strip()
         self.kids_session_id = self.kids_session_id.strip()
+        self.kids_age_band = self.kids_age_band.strip()
+        self.kids_activity = self.kids_activity.strip()
         if not self.instance_id:
             self.instance_id = uuid.uuid4().hex
         self.validate()
@@ -112,10 +116,23 @@ class AppConfig:
             raise ValueError("Unsupported conversation mode")
         if self.realtime_reasoning_effort not in {"minimal", "low", "medium", "high", "xhigh"}:
             raise ValueError("Unsupported realtime reasoning effort")
+        if self.kids_mode_enabled:
+            if self.kids_age_band not in {"4-6", "7-9", "10-12"}:
+                raise ValueError("Unsupported Kids Mode age band")
+            if self.kids_activity not in {"buddy", "story", "quiz", "riddles", "calm"}:
+                raise ValueError("Unsupported Kids Mode activity")
 
     @property
     def configured(self) -> bool:
         return bool(self.bridge_url and self.api_key)
+
+    def child_status_dict(self) -> dict[str, object]:
+        """Return only non-sensitive readiness flags for the locked child UI."""
+        return {
+            "configured": self.configured,
+            "api_key_configured": bool(self.api_key),
+            "kids_parent_pin_configured": bool(self.kids_parent_pin_hash),
+        }
 
     def redacted_dict(self) -> dict[str, object]:
         payload = asdict(self)
@@ -124,6 +141,8 @@ class AppConfig:
         payload.pop("kids_parent_pin_hash", None)
         payload.pop("kids_session_id", None)
         payload.pop("kids_mode_enabled", None)
+        payload.pop("kids_age_band", None)
+        payload.pop("kids_activity", None)
         payload["kids_parent_pin_configured"] = bool(self.kids_parent_pin_hash)
         return payload
 

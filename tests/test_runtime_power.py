@@ -65,6 +65,20 @@ class FakeRobot:
         self.tracking_stops += 1
 
 
+@pytest.fixture(autouse=True)
+def fake_robot_fold_sensor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep unit tests independent from a live daemon's `/api/state/full`."""
+    original = HermesVoiceRuntime._read_head_safely_folded
+
+    def read_folded(runtime: HermesVoiceRuntime) -> bool:
+        robot = runtime.robot
+        if isinstance(robot, FakeRobot):
+            return runtime._head_safely_folded or robot.sleep_calls > 0
+        return original(runtime)
+
+    monkeypatch.setattr(HermesVoiceRuntime, "_read_head_safely_folded", read_folded)
+
+
 def test_sleep_stops_microphone_and_standby_restores_local_wake() -> None:
     robot = FakeRobot()
     runtime = HermesVoiceRuntime(robot, threading.Event())

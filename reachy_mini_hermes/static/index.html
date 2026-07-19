@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=18" />
+  <link rel="stylesheet" href="/static/style.css?v=19" />
 </head>
 <body>
   <main>
@@ -129,11 +129,11 @@
         </div>
         <div class="kids-parent-auth">
           <label>Parent PIN
-            <input id="kids-parent-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="off" placeholder="4–8 digits · never stored in this browser" />
+            <input id="kids-parent-pin" type="password" inputmode="numeric" pattern="[0-9]{6,8}" minlength="6" maxlength="8" autocomplete="off" placeholder="6–8 digits · never stored in this browser" />
           </label>
           <button type="button" id="kids-pin-setup-button" class="secondary">Set parent PIN</button>
           <button type="button" id="kids-parent-unlock-button" class="secondary" hidden>Unlock parent controls</button>
-          <small id="kids-pin-help" class="muted">Create a PIN before the first session. Only a salted scrypt verifier is stored on Reachy.</small>
+          <small id="kids-pin-help" class="muted">Set this from a trusted parent device before giving a child access. The first caller can claim an unset PIN; only a salted scrypt verifier is stored.</small>
         </div>
         <label class="toggle-row kids-motion-toggle"><span><strong>Gentle robot motion</strong><small>Allow occasional bounded head and antenna gestures; no camera and no wide dance</small></span><input id="kids-motion-enabled" type="checkbox" checked /></label>
         <div class="kids-safety-grid" aria-label="Kids Mode safeguards">
@@ -155,6 +155,7 @@
           <div><strong>How to talk</strong><p class="muted">After Reachy's greeting, say <b>Hey Hermes</b>, <b>Okay Nabu</b>, or <b>Hey Reachy</b>. Kids can interrupt with any wake phrase.</p></div>
           <div><strong>Adult supervision</strong><p class="muted">Generative AI can still make mistakes. Keep a grown-up nearby, especially for younger children or sensitive topics.</p></div>
           <div><strong>Fast child voice</strong><p class="muted">Replies use ElevenLabs Flash v2.5 and begin playing from streamed PCM as soon as audio arrives.</p></div>
+          <div><strong>Cloud processing</strong><p class="muted">Child audio/text—and the optional nickname in the greeting—go to the configured STT provider, OpenAI moderation/chat, and ElevenLabs speech. No Hermes memory does not mean provider non-retention; review those providers' terms.</p></div>
           <div><strong>Emergency boundary</strong><p class="muted">Reachy is not an emergency service, therapist, or babysitter. In danger, contact a trusted adult and local emergency services.</p></div>
           <div><strong>Stop always wins</strong><p class="muted">End now cancels voice and motion, clears queued speech, then uses Reachy's verified safe fold before torque release.</p></div>
         </div>
@@ -468,7 +469,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=18"></script>
-  <script src="/static/main.js?v=18"></script>
+  <script src="/static/camera.js?v=19"></script>
+  <script src="/static/main.js?v=19"></script>
 </body>
 </html>
