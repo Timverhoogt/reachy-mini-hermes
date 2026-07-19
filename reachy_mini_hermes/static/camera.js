@@ -12,6 +12,8 @@
     enabled: false,
     powerMode: "unknown",
     requested: false,
+    visionStartedAt: null,
+    visionTimer: null,
   };
 
   function setUi(status, message, kind = "") {
@@ -19,6 +21,31 @@
     const messageElement = byId("camera-message");
     messageElement.textContent = message;
     messageElement.className = `message ${kind}`;
+  }
+
+  function updateVisionTimecode() {
+    const element = byId("camera-vision-timecode");
+    if (!element || state.visionStartedAt === null) return;
+    const elapsedSeconds = Math.max(0, Math.floor((performance.now() - state.visionStartedAt) / 1000));
+    const hours = String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0");
+    const minutes = String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0");
+    const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+    element.textContent = `${hours}:${minutes}:${seconds}`;
+  }
+
+  function stopVisionOverlay() {
+    if (state.visionTimer !== null) window.clearInterval(state.visionTimer);
+    state.visionTimer = null;
+    state.visionStartedAt = null;
+    const element = byId("camera-vision-timecode");
+    if (element) element.textContent = "00:00:00";
+  }
+
+  function startVisionOverlay() {
+    stopVisionOverlay();
+    state.visionStartedAt = performance.now();
+    updateVisionTimecode();
+    state.visionTimer = window.setInterval(updateVisionTimecode, 250);
   }
 
   function updateButtons() {
@@ -31,6 +58,7 @@
 
   function detachStream() {
     const video = byId("reachy-camera-video");
+    stopVisionOverlay();
     byId("camera-viewer").classList.remove("live");
     video.pause();
     video.srcObject = null;
@@ -131,6 +159,7 @@
       state.stream = stream;
       const video = byId("reachy-camera-video");
       byId("camera-viewer").classList.add("live");
+      startVisionOverlay();
       video.srcObject = stream;
       video.play().then(() => {
         setUi("Live", "Local camera connected. No frames are sent to Hermes or OpenAI.", "ok");

@@ -10,6 +10,11 @@ def test_robot_tab_contains_explicit_local_live_camera_controls() -> None:
     html = (STATIC / "index.html").read_text()
 
     assert 'id="reachy-camera-video"' in html
+    assert 'class="camera-vision-overlay"' in html
+    assert 'id="camera-vision-timecode"' in html
+    assert "HERMES VISION" in html
+    assert "LOCAL OPTIC" in html
+    assert "PRIVATE LINK" in html
     assert 'id="camera-live-start"' in html
     assert 'id="camera-live-stop"' in html
     assert 'id="camera-live-fullscreen"' in html
@@ -34,6 +39,19 @@ def test_camera_viewer_uses_private_webrtc_without_public_stun_or_audio() -> Non
     assert 'name === "reachymini"' in camera
     assert 'producer?.id !== state.producerId' in camera
     assert "No frames are sent to Hermes or OpenAI" in camera
+    assert "startVisionOverlay()" in camera
+    assert "stopVisionOverlay()" in camera
+    assert 'byId("camera-vision-timecode")' in camera
+
+
+def test_camera_vision_overlay_is_visual_only_and_non_interactive() -> None:
+    style = (STATIC / "style.css").read_text()
+
+    assert ".camera-vision-overlay" in style
+    assert "pointer-events: none" in style
+    assert ".camera-viewer.live .camera-vision-overlay" in style
+    assert ".vision-reticle" in style
+    assert ".vision-scanline" in style
 
 
 def test_live_camera_is_opt_in_and_stops_for_privacy_transitions() -> None:

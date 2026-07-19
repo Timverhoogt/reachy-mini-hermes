@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=25" />
+  <link rel="stylesheet" href="/static/style.css?v=26" />
 </head>
 <body>
   <main>
@@ -415,6 +415,30 @@
         <p class="muted">Connect directly to the same local WebRTC camera feed used by Reachy Mini Control. Video remains between this browser and Reachy; it is never sent to Hermes or OpenAI.</p>
         <div id="camera-viewer" class="camera-viewer">
           <video id="reachy-camera-video" autoplay playsinline muted aria-label="Live Reachy camera feed"></video>
+          <div class="camera-vision-overlay" aria-hidden="true">
+            <div class="vision-header">
+              <div class="vision-identity">
+                <span class="vision-kicker">NOUS // LOCAL OPTIC</span>
+                <strong>HERMES VISION</strong>
+              </div>
+              <div class="vision-telemetry">
+                <span class="vision-live"><i></i>LOCAL</span>
+                <span id="camera-vision-timecode">00:00:00</span>
+              </div>
+            </div>
+            <span class="vision-corner vision-corner-nw"></span>
+            <span class="vision-corner vision-corner-ne"></span>
+            <span class="vision-corner vision-corner-sw"></span>
+            <span class="vision-corner vision-corner-se"></span>
+            <div class="vision-axis vision-axis-horizontal"></div>
+            <div class="vision-axis vision-axis-vertical"></div>
+            <div class="vision-reticle"><span></span></div>
+            <div class="vision-scanline"></div>
+            <div class="vision-footer">
+              <span>REACHY MINI // CAM 01</span>
+              <span>PRIVATE LINK // NO CLOUD VIDEO</span>
+            </div>
+          </div>
           <div class="camera-placeholder" aria-hidden="true">
             <span class="camera-placeholder-icon">●</span>
             <span>Camera off</span>
@@ -524,7 +548,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=25"></script>
-  <script src="/static/main.js?v=25"></script>
+  <script src="/static/camera.js?v=26"></script>
+  <script src="/static/main.js?v=26"></script>
 </body>
 </html>
