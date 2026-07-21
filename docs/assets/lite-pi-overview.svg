@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Community Reachy Mini Lite and Raspberry Pi 4 companion-host topology</title>
+  <desc id="desc">A conservative off-robot setup with Reachy Mini Lite and Raspberry Pi 4 on a stable surface. Each device has its own power supply. A USB cable carries data between them. Cable strain relief, ventilation and the robot movement-clearance zone are called out. Mounting on the robot and shared power are not approved.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111318"/><stop offset="1" stop-color="#19162a"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5 0 10Z" fill="#ff7248"/></marker>
+    <style>
+      .box{fill:#171a20;stroke:#71798a;stroke-width:2}.reachy{stroke:#55d6a7}.pi{stroke:#8c7bff}.power{stroke:#ff9a7b}.zone{fill:rgba(85,214,167,.05);stroke:#55d6a7;stroke-width:2;stroke-dasharray:10 8}.wire{fill:none;stroke:#ff7248;stroke-width:4;marker-end:url(#arrow)}.powerline{fill:none;stroke:#ff9a7b;stroke-width:4;marker-end:url(#arrow)}.h{font:700 28px system-ui,sans-serif;fill:#f5f6f8}.k{font:600 14px ui-monospace,monospace;fill:#ff9a7b;letter-spacing:1px}.p{font:400 17px system-ui,sans-serif;fill:#b9bec8}.tiny{font:500 14px ui-monospace,monospace;fill:#9da4b0}.call{fill:#ff7248}.num{font:700 16px system-ui,sans-serif;fill:#140b08;text-anchor:middle;dominant-baseline:middle}.warn{font:600 15px system-ui,sans-serif;fill:#ffb098}
+    </style>
+  </defs>
+  <rect width="1200" height="720" rx="24" fill="url(#bg)"/>
+  <text class="k" x="54" y="62">COMMUNITY REFERENCE TOPOLOGY · NOT A WIRELESS CONVERSION</text>
+  <rect class="zone" x="50" y="102" width="510" height="420" rx="30"/>
+  <text class="tiny" x="72" y="130">7 · KEEP CABLES, PI AND MOUNTS OUTSIDE THIS MOVEMENT ZONE</text>
+  <rect class="box reachy" x="150" y="195" width="300" height="235" rx="28"/>
+  <circle cx="300" cy="250" r="58" fill="#242a31" stroke="#55d6a7" stroke-width="3"/>
+  <circle cx="280" cy="244" r="8" fill="#f5f6f8"/><circle cx="320" cy="244" r="8" fill="#f5f6f8"/>
+  <path d="M215 346Q300 304 385 346V405H215Z" fill="#242a31"/>
+  <text class="h" x="210" y="468">Reachy Mini Lite</text>
+  <text class="tiny" x="210" y="493">Wall-powered · USB data to host</text>
+  <rect class="box pi" x="730" y="210" width="360" height="205" rx="22"/>
+  <rect x="770" y="250" width="280" height="98" rx="12" fill="#242033" stroke="#8c7bff" stroke-width="2"/>
+  <circle cx="800" cy="280" r="10" fill="#55d6a7"/><circle cx="1020" cy="280" r="10" fill="#55d6a7"/>
+  <path d="M800 375v-36M835 375v-36M870 375v-36M905 375v-36M940 375v-36M975 375v-36M1010 375v-36" stroke="#8c7bff" stroke-width="4"/>
+  <text class="h" x="770" y="460">Raspberry Pi 4 host</text>
+  <text class="tiny" x="770" y="486">Off-robot, ventilated, non-conductive placement</text>
+  <path class="wire" d="M450 325C560 325 620 320 716 320"/>
+  <text class="tiny" x="520" y="302">2 · USB DATA ONLY</text>
+  <circle class="call" cx="632" cy="347" r="16"/><text class="num" x="632" y="347">6</text>
+  <text class="tiny" x="655" y="352">strain relief on stationary support</text>
+  <rect class="box power" x="72" y="580" width="300" height="82" rx="14"/>
+  <text class="k" x="96" y="611">1 · REACHY SUPPLIED PSU</text><text class="tiny" x="96" y="638">Robot power only</text>
+  <path class="powerline" d="M222 580V536C222 520 235 510 250 510V444"/>
+  <rect class="box power" x="828" y="580" width="300" height="82" rx="14"/>
+  <text class="k" x="852" y="611">3 · PI-RATED PSU</text><text class="tiny" x="852" y="638">Pi power only</text>
+  <path class="powerline" d="M978 580V510C978 480 955 450 930 428"/>
+  <circle class="call" cx="1070" cy="182" r="16"/><text class="num" x="1070" y="182">5</text>
+  <text class="tiny" x="820" y="178">Keep vents and heatsink airflow clear</text>
+  <text class="warn" x="510" y="606">Mounted-on-robot placement: TBD</text>
+  <text class="warn" x="510" y="635">Shared power, splitters and GPIO power: not approved</text>
+  <text class="tiny" x="50" y="690">Power down both devices before attaching, removing or rerouting hardware. Start folded with torque released.</text>
+</svg>

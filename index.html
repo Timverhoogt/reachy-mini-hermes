@@ -3,165 +3,95 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Give Reachy Mini local wake phrases, private Hermes voice and tools, and a supervised moderated Kids Mode." />
-  <title>Reachy Mini Hermes — embodied voice, vision, and tools</title>
+  <meta name="description" content="An extensible Reachy Mini companion app for safe local control, privacy, camera, voice and optional Hermes agent capabilities." />
+  <title>Reachy Mini Hermes — companion and control app</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="site-header">
     <a class="brand" href="#top" aria-label="Reachy Mini Hermes home"><span class="brand-mark">H</span><span>Reachy Mini Hermes</span></a>
     <nav aria-label="Primary navigation">
-      <a href="#architecture">Architecture</a>
+      <a href="#expect">Start here</a>
       <a href="#capabilities">Capabilities</a>
-      <a href="#install">Install</a>
-      <a class="nav-cta" href="https://github.com/Timverhoogt/reachy-mini-hermes">GitHub ↗</a>
+      <a href="#architecture">Architecture</a>
+      <a class="nav-cta" href="https://github.com/Timverhoogt/reachy-mini-hermes" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub (opens in a new tab)">GitHub ↗</a>
     </nav>
   </header>
 
   <main id="top">
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">REACHY MINI × HERMES AGENT</p>
-        <h1>Your agent.<br /><em>Now embodied.</em></h1>
-        <p class="lede">Wake Reachy with <strong>“Hey Hermes”</strong>, <strong>“Okay Nabu”</strong>, or <strong>“Hey Reachy”</strong>. Talk naturally, interrupt mid-sentence, use a supervised Kids Mode, ask what it sees, dance, control Home Assistant, and keep the memory, skills, and tools of your own Hermes Agent.</p>
+        <p class="eyebrow">AN EXTENSIBLE REACHY MINI COMPANION</p>
+        <h1>Control locally.<br /><em>Add an agent.</em></h1>
+        <p class="lede">Start with visible privacy states, guarded movement, camera controls, announcements and a local browser UI. Add Hermes Agent for voice, memory, skills and progressively gated tools. Hermes is central to the advanced experience—not required to understand the app.</p>
         <div class="hero-actions">
-          <a class="button primary" href="https://github.com/Timverhoogt/reachy-mini-hermes">View source on GitHub</a>
-          <a class="button secondary" href="#install">Install the app</a>
+          <a class="button primary" href="https://github.com/Timverhoogt/reachy-mini-hermes" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub (opens in a new tab)">View source on GitHub ↗</a>
+          <a class="button secondary" href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/docs/lite-raspberry-pi-4.md" target="_blank" rel="noopener noreferrer" aria-label="Read the Lite plus Raspberry Pi 4 setup guide (opens in a new tab)">Read the Pi setup guide ↗</a>
         </div>
         <div class="proof" aria-label="Project facts">
-          <span><strong>Local</strong> pre-wake audio</span>
-          <span><strong>143</strong> automated tests</span>
-          <span><strong>Apache-2.0</strong> licensed</span>
+          <span><strong>Early alpha</strong> reference-tested</span>
+          <span><strong>Local first</strong> before cloud paths</span>
+          <span><strong>Apache-2.0</strong> open source</span>
         </div>
       </div>
 
-      <div class="hero-system" aria-label="Animated voice system diagram">
-        <div class="signal signal-a"></div>
-        <div class="signal signal-b"></div>
-        <div class="orb"><span>HEY<br />HERMES</span></div>
-        <div class="state state-wake"><i></i>Local wake</div>
-        <div class="state state-voice"><i></i>Realtime voice</div>
-        <div class="state state-vision"><i></i>On-demand vision</div>
-        <div class="state state-tools"><i></i>Hermes tools</div>
-      </div>
+      <figure class="hero-media">
+        <img src="docs/assets/hero-reachy.webp" width="800" height="450" alt="An actual Reachy Mini on a desk raising its antennas in an official Pollen Robotics demonstration." fetchpriority="high" />
+        <figcaption>Actual Reachy Mini · official Pollen Robotics source, converted to a metadata-free static WebP under Apache-2.0.</figcaption>
+      </figure>
     </section>
 
-    <section class="mode-strip" aria-label="Conversation modes">
+    <section class="mode-strip" id="expect" aria-label="What first-time visitors can expect">
       <article>
-        <p class="number">01 / REALTIME</p>
-        <h2>Fast, interruptible conversation</h2>
-        <p>OpenAI <code>gpt-realtime-2.1</code> streams speech directly. Server VAD, local playback accounting, queue flushing, and conversation truncation make natural barge-in possible.</p>
+        <p class="number">01 / CONNECT</p>
+        <h2>Bring Reachy and an app host</h2>
+        <p>Use Wireless, a Lite connected to a normal computer, or Tim's community Lite + Pi 4 reference pattern. The Pi pattern is not an official Wireless conversion.</p>
       </article>
       <article>
-        <p class="number">02 / PIPELINE</p>
-        <h2>Your providers, your agent</h2>
-        <p>Choose Hermes, ElevenLabs, or other configured STT/TTS routes. Every request can use Hermes memory, files, web access, Home Assistant, MCP servers, and skills.</p>
+        <p class="number">02 / CHECK SAFETY</p>
+        <h2>Start folded and local</h2>
+        <p>Confirm Standby and released torque, wake with clear space, try one bounded look, press Stop, then verify safe fold before enabling camera or voice.</p>
       </article>
       <article>
-        <p class="number">03 / KIDS</p>
-        <h2>Supervised play, separate boundary</h2>
-        <p>Age-aware English or Dutch activities use a fresh moderated no-agent session, parent PIN controls, a server timer, and interruptible ElevenLabs Flash PCM streaming.</p>
+        <p class="number">03 / EXPAND</p>
+        <h2>Connect Hermes when wanted</h2>
+        <p>The authenticated private bridge adds speech providers, interruptible conversation, memory, Kids experiences and gated agent tools while provider keys stay off Reachy.</p>
       </article>
+    </section>
+
+    <section class="capability-matrix section" id="capabilities">
+      <div class="section-heading">
+        <p class="eyebrow">VERIFIED VS GATED</p>
+        <h2>Choose only what you need.</h2>
+        <p>✅ means reference-tested. ◐ means implemented but still requires per-install or final hardware acceptance. Experimental features are not presented as production-ready.</p>
+      </div>
+      <div class="matrix-wrap" role="region" aria-label="Capability and setup matrix" tabindex="0">
+        <table>
+          <thead><tr><th>Capability</th><th>Reachy + app</th><th>Lite + Pi 4</th><th>Hermes</th><th>Boundary</th></tr></thead>
+          <tbody>
+            <tr><th>Local dashboard, privacy and guarded movement</th><td>✅</td><td>✅</td><td>Optional</td><td>Physical acceptance still required</td></tr>
+            <tr><th>Local live camera</th><td>✅</td><td>✅</td><td>Optional</td><td>Explicit opt-in; trusted UI only</td></tr>
+            <tr><th>Voice, announcements and one-frame model vision</th><td>—</td><td>—</td><td>◐</td><td>Private bridge + configured providers</td></tr>
+            <tr><th>Supervised Kids Mode and personal agent tools</th><td>—</td><td>—</td><td>◐</td><td>Adult supervision; progressively gated</td></tr>
+            <tr><th>Sony Bluetooth controller</th><td>—</td><td>—</td><td>Optional</td><td>Wireless only; final hardware acceptance pending</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="architecture section" id="architecture">
       <div class="section-heading">
-        <p class="eyebrow">PRIVATE BY ARCHITECTURE</p>
-        <h2>The robot gets a bridge.<br />The host keeps the keys.</h2>
-        <p>Provider credentials stay on the Hermes machine. Reachy stores only a private bridge URL and bearer token. Cloud audio starts after the local wake phrase.</p>
+        <p class="eyebrow">TRUST BOUNDARIES</p>
+        <h2>Local controls first.<br />Private bridge second.</h2>
+        <p>The app host owns local wake, safety, privacy, movement and camera controls. The optional Hermes host keeps identity, memory, tools and provider credentials. Dashed paths cross into private or external systems.</p>
       </div>
-      <div class="flow" role="img" aria-label="Reachy to Hermes architecture flow">
-        <div class="flow-node">
-          <span class="node-label">ROBOT</span>
-          <strong>Reachy Mini</strong>
-          <small>Mic · speaker · camera · motion</small>
-        </div>
-        <div class="flow-link"><span>authenticated LAN / VPN</span></div>
-        <div class="flow-node accent-node">
-          <span class="node-label">TRUST BOUNDARY</span>
-          <strong>Private bridge</strong>
-          <small>Realtime · STT · TTS · discovery</small>
-        </div>
-        <div class="flow-link"><span>tool delegation</span></div>
-        <div class="flow-node">
-          <span class="node-label">AGENT HOST</span>
-          <strong>Hermes Agent</strong>
-          <small>Identity · memory · tools · secrets</small>
-        </div>
-      </div>
+      <figure class="architecture-figure">
+        <img src="docs/assets/architecture.svg" alt="Reachy Mini connects locally to the companion app; an optional authenticated bridge connects to Hermes Agent, which may contact external providers across a separate trust boundary." />
+        <figcaption>Camera live view stays local. One frame may leave only after explicit opt-in and a visual request. Provider credentials remain on the Hermes host.</figcaption>
+      </figure>
     </section>
 
-    <section class="capabilities section" id="capabilities">
-      <div class="section-heading compact">
-        <p class="eyebrow">VOICE, VISION, ACTION</p>
-        <h2>More than a talking demo.</h2>
-      </div>
-
-      <article class="feature feature-interrupt">
-        <div class="feature-index">01</div>
-        <div class="feature-copy">
-          <p class="feature-tag">NATURAL INTERRUPTION</p>
-          <h3>Generation finished.<br />Playback didn’t.</h3>
-          <p>The runtime tracks what Reachy has actually played—not just what the model has generated. When you speak, it clears the local GStreamer queue and truncates unheard audio from the conversation.</p>
-        </div>
-        <div class="wave-panel" aria-hidden="true">
-          <div class="wave assistant"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-          <div class="cut-line"><b>INTERRUPT</b></div>
-          <div class="wave human"><span></span><span></span><span></span><span></span><span></span><span></span></div>
-        </div>
-      </article>
-
-      <article class="feature feature-camera">
-        <div class="feature-index">02</div>
-        <div class="feature-copy">
-          <p class="feature-tag">LOCAL LIVE + ON-DEMAND CAMERA</p>
-          <h3>Stream locally. Share one frame only when asked.</h3>
-          <p>The Robot tab can connect directly to Reachy's existing local WebRTC feed without routing video through Hermes or OpenAI. Separately, an explicit visual request captures one bounded JPEG for Realtime. Meeting and Sleep block both app-controlled paths.</p>
-        </div>
-        <div class="camera-panel" aria-hidden="true">
-          <div class="viewfinder"><i></i><i></i><i></i><i></i><span>ONE FRAME</span></div>
-          <p>CAPTURE → ANALYZE → DISCARD</p>
-        </div>
-      </article>
-
-      <article class="feature feature-tools">
-        <div class="feature-index">03</div>
-        <div class="feature-copy">
-          <p class="feature-tag">LOCAL EMBODIMENT</p>
-          <h3>Move like Reachy.<br />Think like Hermes.</h3>
-          <p>Realtime and the tabbed local dashboard can look in a direction, express curated emotions, and perform authentic recorded dances through one serialized safety layer. Install the dashboard as an Android PWA from a trusted HTTPS address, or add the direct LAN page to your home screen as a shortcut. Optional local face tracking follows you only during the active conversation, while local microphone-array direction finding turns toward the wake phrase.</p>
-        </div>
-        <div class="tool-list" aria-label="Reachy embodiment capabilities">
-          <span>Manual control</span><span>Look</span><span>Emotion</span><span>Dance</span><span>Face follow</span><span>Stop motion</span>
-        </div>
-      </article>
-
-      <article class="feature feature-tools">
-        <div class="feature-index">04</div>
-        <div class="feature-copy">
-          <p class="feature-tag">HERMES DELEGATION</p>
-          <h3>A robot with your tools.</h3>
-          <p>Ordinary speech stays on the fast path. Requests involving personal memory, current information, files, Home Assistant, or consequential actions call <code>ask_hermes</code> and speak the verified result.</p>
-        </div>
-        <div class="tool-list" aria-label="Examples of Hermes capabilities">
-          <span>Home Assistant</span><span>Memory</span><span>Files</span><span>Web</span><span>Skills</span><span>MCP</span>
-        </div>
-      </article>
-
-      <article class="feature feature-tools">
-        <div class="feature-index">05</div>
-        <div class="feature-copy">
-          <p class="feature-tag">SUPERVISED KIDS MODE</p>
-          <h3>Playful by design.<br />Bounded by the backend.</h3>
-          <p>Five activities across three age bands run in a dedicated moderated child pipeline with no camera, personal Hermes memory, files, messaging, smart-home access, purchases, or power tools. Parent PIN controls, monotonic time limits, safe folding, and streamed Flash speech are enforced by the server—not just the screen. Child audio/text is processed by the configured STT provider, OpenAI, and ElevenLabs under their respective data terms.</p>
-        </div>
-        <div class="tool-list" aria-label="Kids Mode boundaries and activities">
-          <span>Buddy chat</span><span>Story maker</span><span>Quiz quest</span><span>Riddle box</span><span>Calm corner</span><span>English · Dutch</span><span>Parent PIN</span><span>15–60 min</span><span>No agent tools</span><span>24 kHz PCM</span>
-        </div>
-      </article>
-    </section>
-
-    <section class="privacy section">
+    <section class="privacy section" id="privacy">
       <div class="section-heading compact">
         <p class="eyebrow">PHYSICAL STATES</p>
         <h2>Privacy you can see.</h2>
@@ -176,15 +106,50 @@
       <p class="privacy-note">Face tracking and wake-direction sensing stay local to Reachy. Explicit voice commands can select Standby, Awake, timed Meeting, or Sleep. Meeting and Sleep stop microphone capture and tracking, cancel physical actions, clear playback, and disable wake detection. Before any transition releases motor torque, Reachy checks its pose and folds the head gently when needed. Sleep requires the settings UI or a physical control to wake again.</p>
     </section>
 
+    <section class="visuals section" id="visuals">
+      <div class="section-heading">
+        <p class="eyebrow">HARDWARE, SAFETY, PRIVACY</p>
+        <h2>See what the setup means.</h2>
+        <p>Official Reachy Mini imagery explains the real hardware. The project-authored Pi diagram shows the conservative community topology—not a final attached mount and not Wireless equivalence.</p>
+      </div>
+      <div class="visual-grid">
+        <figure class="visual-card visual-card-wide">
+          <img src="docs/assets/lite-pi-overview.svg" alt="Conservative Reachy Mini Lite and Raspberry Pi 4 companion topology with separate power supplies, USB data, ventilation, strain relief and motor-clearance callouts." loading="lazy" />
+          <figcaption><strong>Community Lite + Pi 4 topology.</strong> Start off-robot with two supplies; mounted placement and shared power remain unapproved.</figcaption>
+        </figure>
+        <figure class="visual-card">
+          <img src="docs/assets/reachy-components.webp" width="1400" height="990" alt="Official exploded component comparison of Reachy Mini Lite and Reachy Mini Wireless." loading="lazy" />
+          <figcaption><strong>Lite and Wireless are different products.</strong> This official component view is why the guide makes no conversion-equivalence claim.</figcaption>
+        </figure>
+        <figure class="visual-card">
+          <img src="docs/assets/ui-dashboard.webp" width="1440" height="900" alt="Reachy Mini Hermes dashboard showing sanitized Standby, folded and torque-released demo status with power and privacy controls." loading="lazy" />
+          <figcaption><strong>Start folded and local.</strong> Real project UI with sanitized demo status; this capture is not a claim of a live robot connection.</figcaption>
+        </figure>
+        <figure class="visual-card">
+          <img src="docs/assets/ui-robot.webp" width="1440" height="900" alt="Reachy Mini Hermes Robot tab showing sanitized folded motor status, guarded wake, fold and Stop controls." loading="lazy" />
+          <figcaption><strong>Stop stays visible.</strong> Real project UI with sanitized demo status; motor controls remain guarded by physical acceptance.</figcaption>
+        </figure>
+        <figure class="visual-card">
+          <img src="docs/assets/mic-camera.webp" width="1400" height="990" alt="Official diagram identifying Reachy Mini's camera and microphone locations." loading="lazy" />
+          <figcaption><strong>Visible privacy boundaries.</strong> Camera is opt-in; Meeting and Sleep stop app-controlled microphone capture.</figcaption>
+        </figure>
+      </div>
+      <div class="hero-actions">
+        <a class="button secondary" href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/docs/IMAGE_CREDITS.md" target="_blank" rel="noopener noreferrer" aria-label="Read image sources, changes and license notes (opens in a new tab)">Image credits and license notes ↗</a>
+        <a class="button secondary" href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/docs/public-image-shot-list.md" target="_blank" rel="noopener noreferrer" aria-label="Read the optional owned-image shot list (opens in a new tab)">Optional owned-photo shot list ↗</a>
+      </div>
+    </section>
+
     <section class="install section" id="install">
       <div class="install-copy">
         <p class="eyebrow">OPEN SOURCE · EARLY ALPHA</p>
-        <h2>Build it. Run it.<br />Make it yours.</h2>
-        <p>Requires Reachy Mini SDK 1.9+, Python 3.11+, a reachable Hermes Agent API Server, and a trusted LAN/VPN. Realtime mode additionally needs OpenAI API access on the Hermes host.</p>
+        <h2>Start with the right guide.</h2>
+        <p>Baseline local evaluation needs Reachy Mini SDK 1.9+, Python 3.11+, supported Reachy hardware and a trusted local network. Hermes and provider access are required only for the connected voice, Kids, vision and agent paths.</p>
         <div class="install-links">
-          <a href="https://github.com/Timverhoogt/reachy-mini-hermes#1-prepare-hermes-agent">Full installation guide ↗</a>
-          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/OPERATIONS.md">Operations runbook ↗</a>
-          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/SECURITY.md">Security model ↗</a>
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes#install-the-reachy-app" target="_blank" rel="noopener noreferrer" aria-label="Read the app installation guide (opens in a new tab)">Read the app installation guide ↗</a>
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/docs/lite-raspberry-pi-4.md" target="_blank" rel="noopener noreferrer" aria-label="Read the Lite plus Raspberry Pi 4 guide (opens in a new tab)">Read the Lite + Pi 4 guide ↗</a>
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/OPERATIONS.md" target="_blank" rel="noopener noreferrer" aria-label="Read the operations runbook (opens in a new tab)">Read operations and troubleshooting ↗</a>
+          <a href="https://github.com/Timverhoogt/reachy-mini-hermes/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer" aria-label="Read the security model (opens in a new tab)">Read the security model ↗</a>
         </div>
       </div>
       <pre class="terminal" aria-label="Installation commands"><span>$</span> git clone https://github.com/Timverhoogt/reachy-mini-hermes
@@ -198,11 +163,11 @@
   </main>
 
   <footer>
-    <div><strong>Reachy Mini Hermes</strong><span>Embodied voice, vision, memory, and tools.</span></div>
+    <div><strong>Reachy Mini Hermes</strong><span>Local companion controls with an optional Hermes agent backend.</span></div>
     <nav aria-label="Footer navigation">
-      <a href="https://github.com/Timverhoogt/reachy-mini-hermes">GitHub</a>
-      <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
-      <a href="https://github.com/pollen-robotics/reachy_mini">Reachy Mini SDK</a>
+      <a href="https://github.com/Timverhoogt/reachy-mini-hermes" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub (opens in a new tab)">GitHub ↗</a>
+      <a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener noreferrer" aria-label="Open Hermes Agent on GitHub (opens in a new tab)">Hermes Agent ↗</a>
+      <a href="https://huggingface.co/docs/reachy_mini/" target="_blank" rel="noopener noreferrer" aria-label="Read official Reachy Mini documentation (opens in a new tab)">Official Reachy docs ↗</a>
     </nav>
   </footer>
 </body>

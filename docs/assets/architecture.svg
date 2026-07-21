@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Reachy Mini companion app architecture</title>
+  <desc id="desc">Reachy Mini connects by USB or its onboard host to a local app host. The local host serves safety, privacy, camera and movement controls. An optional authenticated bridge connects to Hermes Agent, which may call external model and tool providers. Trust boundaries separate local robot data, the private agent host and external providers.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111318"/><stop offset="1" stop-color="#19162a"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0L10 5 0 10Z" fill="#ff7248"/></marker>
+    <style>
+      .box{fill:#171a20;stroke:#71798a;stroke-width:2}.local{stroke:#55d6a7}.optional{stroke:#8c7bff}.external{stroke:#ff9a7b}.boundary{fill:none;stroke:#71798a;stroke-width:1.5;stroke-dasharray:8 8}.flow{fill:none;stroke:#ff7248;stroke-width:2.5;marker-end:url(#arrow)}.dash{stroke-dasharray:7 7}.h{font:700 24px system-ui,sans-serif;fill:#f5f6f8}.k{font:600 14px ui-monospace,monospace;fill:#ff9a7b;letter-spacing:1px}.p{font:400 16px system-ui,sans-serif;fill:#b9bec8}.tiny{font:500 13px ui-monospace,monospace;fill:#9da4b0}.trust{font:600 13px ui-monospace,monospace;fill:#55d6a7;letter-spacing:1px}
+    </style>
+  </defs>
+  <rect width="1200" height="520" rx="24" fill="url(#bg)"/>
+  <rect class="boundary" x="24" y="46" width="600" height="420" rx="18"/>
+  <text class="trust" x="48" y="78">LOCAL ROBOT / TRUSTED LAN</text>
+  <rect class="box local" x="62" y="150" width="220" height="190" rx="14"/>
+  <text class="k" x="86" y="185">HARDWARE</text><text class="h" x="86" y="222">Reachy Mini</text>
+  <text class="p" x="86" y="258">Mic · speaker · camera</text><text class="p" x="86" y="284">Motors · safe fold</text><text class="tiny" x="86" y="318">Lite: USB data</text>
+  <rect class="box local" x="366" y="126" width="220" height="238" rx="14"/>
+  <text class="k" x="390" y="161">LOCAL HOST</text><text class="h" x="390" y="198">Companion app</text>
+  <text class="p" x="390" y="234">Privacy · movement</text><text class="p" x="390" y="260">Wake · camera · UI</text><text class="tiny" x="390" y="298">Pi 4 for reference Lite build</text><text class="tiny" x="390" y="322">or onboard Wireless host</text>
+  <path class="flow" d="M282 245H352"/><text class="tiny" x="292" y="231">local</text>
+  <rect class="boundary" x="658" y="46" width="270" height="420" rx="18"/>
+  <text class="trust" x="682" y="78">PRIVATE AGENT HOST</text>
+  <rect class="box optional" x="690" y="140" width="206" height="210" rx="14"/>
+  <text class="k" x="714" y="175">OPTIONAL</text><text class="h" x="714" y="212">Hermes Agent</text>
+  <text class="p" x="714" y="248">Voice pipelines</text><text class="p" x="714" y="274">Memory · skills · tools</text><text class="tiny" x="714" y="312">Provider keys stay here</text>
+  <path class="flow dash" d="M586 245H676"/><text class="tiny" x="594" y="226">authenticated</text><text class="tiny" x="604" y="243">LAN / VPN</text>
+  <rect class="box external" x="974" y="126" width="190" height="238" rx="14"/>
+  <text class="k" x="998" y="161">EXTERNAL</text><text class="h" x="998" y="198">Providers</text>
+  <text class="p" x="998" y="234">Models · STT · TTS</text><text class="p" x="998" y="260">Approved tool APIs</text><text class="tiny" x="998" y="298">Data leaves only for</text><text class="tiny" x="998" y="322">enabled capabilities</text>
+  <path class="flow dash" d="M896 245H960"/>
+  <text class="tiny" x="62" y="426">Camera: local live view is direct; one frame may be shared only after explicit opt-in and request.</text>
+  <text class="tiny" x="690" y="426">Dashed arrows cross trust boundaries. Hermes is optional for the baseline local control surface.</text>
+</svg>

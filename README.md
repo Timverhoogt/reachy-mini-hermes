@@ -5,7 +5,7 @@ colorFrom: indigo
 colorTo: yellow
 sdk: static
 pinned: false
-short_description: Embodied Hermes voice, vision, tools, and supervised Kids Mode
+short_description: Reachy Mini companion app with optional Hermes integration
 suggested_storage: medium
 tags:
   - reachy_mini
@@ -21,13 +21,69 @@ tags:
 
 # Reachy Mini Hermes
 
-Say **“Hey Hermes”**, **“Okay Nabu”**, or **“Hey Reachy”** and give Reachy Mini the voice, vision, memory, skills, and tools of your own [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+An extensible, all-in-one companion and control app for Reachy Mini: local wake phrases, guarded movement, visible privacy states, opt-in camera controls, announcements, supervised Kids experiences and optional Sony controller support. Connect [Hermes Agent](https://github.com/NousResearch/hermes-agent) when you want voice pipelines, memory, skills and tools; it is the reference agent backend, not a prerequisite for understanding the local control surface.
 
-[**Open the app page**](https://huggingface.co/spaces/Timbo89/reachy_mini_hermes) · [**View the source**](https://github.com/Timverhoogt/reachy-mini-hermes)
+[**Explore the app page ↗**](https://huggingface.co/spaces/Timbo89/reachy_mini_hermes) · [**Lite + Raspberry Pi 4 guide**](docs/lite-raspberry-pi-4.md) · [**Privacy and security**](SECURITY.md) · [**Operations and troubleshooting**](OPERATIONS.md)
 
-Wake-word detection stays local on the robot. After wake-up, choose between a configurable Hermes speech pipeline and low-latency OpenAI Realtime speech-to-speech. Provider credentials remain on the Hermes host.
+![An actual Reachy Mini on a desk raising its antennas in an official Pollen Robotics demonstration](docs/assets/hero-reachy.webp)
 
-> **Status:** early alpha. Automated, bridge, network, camera, deployment, and physical power-state tests pass on Reachy Mini Lite. Every robot/audio environment still needs a real spoken wake-word and acoustic barge-in acceptance test.
+*Actual Reachy Mini. Official Pollen Robotics source, converted to a static metadata-free WebP under Apache-2.0. [Image credits and immutable sources](docs/IMAGE_CREDITS.md).*
+
+> **Status: early alpha.** Automated, bridge, network, camera, deployment and physical power-state checks have passed on Tim's reference Reachy Mini Lite + Raspberry Pi 4 setup. This is not a production-readiness or broad hardware-compatibility claim. Every installation still needs the documented physical, spoken wake-word, acoustic barge-in, camera/privacy and safe-fold acceptance checks.
+
+## What can I expect?
+
+1. **Bring supported hardware.** Use Reachy Mini Wireless, or a Lite connected to a computer. Tim's self-built Lite + Pi 4 arrangement is documented as a community adaptation—not an official Wireless conversion.
+2. **Start locally and safely.** The browser UI exposes Standby, Awake, Meeting and Sleep; guarded wake/fold; bounded movement; Stop; announcements; and opt-in camera controls. Meeting and Sleep stop microphone capture and wake detection. Camera sharing is off by default.
+3. **Try the short demo.** With clear space around Reachy, open the Dashboard, confirm folded Standby and released torque, wake from the Robot tab, try one bounded look, press Stop, return to Standby, and confirm fold-before-torque-off. Only then enable one camera or voice path at a time.
+4. **Add Hermes when wanted.** A private authenticated bridge enables speech, provider routing, personal memory, skills and progressively gated tools while keeping provider credentials on the Hermes host.
+5. **Treat advanced features as gated.** Kids Mode requires adult supervision. Agent 0.1 is read-only. Bluetooth controller management remains Wireless-only and still needs final physical controller acceptance on that hardware.
+
+## Capability and setup matrix
+
+**Legend:** ✅ verified on the named reference setup · ◐ implemented/automated but requires per-install or final hardware acceptance · — not available in that mode · 🧪 planned/experimental
+
+| Capability | Reachy + app host | Lite + Pi 4 companion host | Hermes connected | Status / boundary |
+|---|:---:|:---:|:---:|---|
+| Local dashboard, privacy/power states and app lifecycle | ✅ | ✅ | optional | Reference-tested on Lite + Pi 4; each robot needs physical acceptance. |
+| Guarded wake, bounded movement, Stop and fold-before-torque-off | ✅ | ✅ | optional | ✅ Reference-tested; clear-space and fold checks remain mandatory. |
+| Local live camera viewer | ✅ | ✅ | optional | ✅ Explicit opt-in, trusted local UI, no Hermes/OpenAI route. |
+| One-frame visual request | — | — | ✅ | ◐ Requires camera opt-in, an active Realtime session and provider acceptance. |
+| Announcements and adult voice conversation | — | — | ✅ | ◐ Requires configured private bridge and speech/model providers. |
+| Supervised Kids Mode | — | — | ✅ | ◐ Automated and reference acceptance exists; adult supervision and provider terms still apply. |
+| Hermes memory, skills and tools | — | — | ✅ | ◐ Conversation profile plus progressively gated Agent capabilities. |
+| DualShock 4 / DualSense basic controller mapping | — | — | optional | ◐ **Reachy Mini Wireless only**; final real controller mapping acceptance is pending. |
+| DS4 rumble, gyro and touchpad extensions | — | — | optional | 🧪 Guarded DS4-only implementation; final Wireless hardware acceptance pending. |
+| Lite + Pi mounted as a Wireless-equivalent robot | — | — | — | **Not claimed.** Battery, IMU, enclosure and electrical/mechanical equivalence are out of scope. |
+
+## Choose a path
+
+- **Reachy Mini Wireless:** use Pollen Robotics' [official Wireless setup](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini/get_started), then install this app and complete the local acceptance checks.
+- **Reachy Mini Lite on a normal computer:** follow Pollen's [official Lite setup](https://huggingface.co/docs/reachy_mini/platforms/reachy_mini_lite/get_started). The Lite is wall-powered and uses USB data to the computer.
+- **Reachy Mini Lite + spare Raspberry Pi 4:** follow the [community companion-host guide](docs/lite-raspberry-pi-4.md). Separate supplies, cable strain relief, ventilation and motor clearance are mandatory; several reference-build details remain explicitly TBD.
+- **Hardware and privacy visuals:** see the official-source image set below and the [image credits](docs/IMAGE_CREDITS.md). Tim-owned photos of the actual external-Pi reference build remain optional and are governed by the [shot list and rights checklist](docs/public-image-shot-list.md).
+
+## Architecture and visual guide
+
+![Architecture diagram showing Reachy Mini, the local companion app, optional Hermes Agent host and external providers](docs/assets/architecture.svg)
+
+*The local app owns safety, privacy, movement and camera controls. Hermes is the optional private agent boundary; provider connections cross a separate trust boundary.*
+
+![Conservative Reachy Mini Lite and Raspberry Pi 4 companion topology with separate power supplies, USB data, ventilation, strain relief and motor-clearance callouts](docs/assets/lite-pi-overview.svg)
+
+*Community Lite + Raspberry Pi 4 companion-host topology. This project-authored diagram is explanatory—not an official conversion, final attached mount or shared-power design.*
+
+| Official hardware view | Official privacy-hardware view |
+|---|---|
+| ![Official exploded component comparison of Reachy Mini Lite and Reachy Mini Wireless](docs/assets/reachy-components.webp) | ![Official diagram identifying Reachy Mini camera and microphone locations](docs/assets/mic-camera.webp) |
+| Lite and Wireless are different products; no electrical or mechanical equivalence is claimed. | Camera use is opt-in; Meeting and Sleep stop app-controlled microphone capture. |
+
+| Sanitized Dashboard | Sanitized Robot controls |
+|---|---|
+| ![Reachy Mini Hermes dashboard showing sanitized Standby, folded and torque-released demo status with power and privacy controls](docs/assets/ui-dashboard.webp) | ![Reachy Mini Hermes Robot tab showing sanitized folded motor status, guarded wake, fold and Stop controls](docs/assets/ui-robot.webp) |
+| Real project UI with synthetic status text; not a live-robot claim. | Real project UI with synthetic status text; movement still requires physical acceptance. |
+
+The [official Lite assembly preview](docs/assets/lite-assembly.webp) is also included for setup context. These official images are explanatory hardware references, not evidence that this app passed acceptance on every robot. The UI captures use sanitized demo status and do not imply a live hardware connection. See [image credits, modifications and license notes](docs/IMAGE_CREDITS.md).
 
 ## Conversation modes
 
@@ -38,8 +94,8 @@ Reachy microphone
   → local configured wake-phrase spotting
   → authenticated private WebSocket bridge
   → OpenAI gpt-realtime-2.1 speech-to-speech
-       ↳ ask_hermes tool when memory, current information,
-         Home Assistant, files, or consequential actions are required
+       ↳ one ask_hermes tool; Agent profile routes it through the
+         fixed read-only Reachy Agent Broker
        ↳ capture_reachy_camera for a fresh on-demand image
        ↳ local look, emotion, and authentic recorded-dance tools
   → streamed Reachy audio and motion
@@ -68,7 +124,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Dual conversation modes: configurable Hermes pipeline and `gpt-realtime-2.1`.
 - Realtime semantic VAD, streaming audio, reasoning-effort selection, and natural interruption.
 - Pipeline interruption by saying **“Hey Hermes”**, **“Okay Nabu”**, or **“Hey Reachy”** while Reachy is speaking.
-- `ask_hermes` tool delegation for memory, Home Assistant, current information, files, and actions.
+- One `ask_hermes` Realtime delegation tool: normal Hermes routing in Conversation profile and eight fixed read-only broker capabilities in adult Agent profile.
 - Curated Realtime embodiment tools for looking, emotions, and authentic recorded Reachy dances.
 - Optional daemon-local face following, active only after the wake phrase for the current conversation.
 - Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
@@ -85,17 +141,24 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Secrets stored with mode `0600`, masked in the UI, and excluded from logs.
 - Reachy Mini App SDK lifecycle and app-store discovery.
 
-## Requirements
+## Baseline requirements
 
-- Reachy Mini SDK **1.9.0 or newer**.
-- Python 3.11 or newer.
+- Reachy Mini SDK **1.9.0 or newer** and Python 3.11 or newer on the computer hosting the app.
+- Reachy Mini Wireless, or Reachy Mini Lite with its supplied wall power and USB data connection to the app host.
+- A trusted local management network, clear movement space and completion of the safe wake/fold acceptance sequence.
+- Hermes is optional for local dashboard evaluation. Voice conversation, announcements, Kids speech, one-frame model vision and personal agent capabilities require the private bridge and relevant providers below.
+
+## Add Hermes for voice, memory and tools
+
+Requirements for the connected experience:
+
 - A reachable Hermes Agent installation with the API Server enabled.
 - Pipeline mode: configured STT and TTS providers.
 - Realtime mode: an OpenAI API project key with access to `gpt-realtime-2.1`.
 - Kids Mode: OpenAI moderation/chat access plus an `ELEVENLABS_API_KEY` for fixed-policy Flash v2.5 streaming TTS.
 - Reachy and Hermes on a trusted LAN/VPN, or protected by TLS and an authenticated reverse proxy.
 
-## 1. Prepare Hermes Agent
+### 1. Prepare Hermes Agent
 
 On the computer running Hermes:
 
@@ -129,7 +192,7 @@ tts:
 
 See the official [Hermes API Server documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server).
 
-## 2. Run the companion bridge
+### 2. Run the companion bridge
 
 Use Hermes' own Python environment so the bridge can reuse its configured providers:
 
@@ -162,7 +225,7 @@ A Realtime-ready response includes:
 
 Read [`companion/README.md`](companion/README.md) for endpoints, profiles, service setup, and security notes.
 
-## 3. Install the Reachy app
+## Install the Reachy app
 
 Development install:
 

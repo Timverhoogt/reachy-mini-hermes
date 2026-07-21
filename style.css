@@ -30,6 +30,7 @@ body {
 }
 a { color: inherit; }
 code { font-family: var(--mono); color: #c7c0ff; font-size: .92em; }
+a:focus-visible, [tabindex="0"]:focus-visible { outline: 3px solid var(--orange-soft); outline-offset: 4px; }
 
 .site-header {
   position: sticky;
@@ -87,6 +88,9 @@ main, footer { width: min(1240px, calc(100% - 40px)); margin: 0 auto; }
 .proof span { display: flex; flex-direction: column; gap: 3px; }
 .proof strong { color: var(--ink); font-family: var(--mono); font-weight: 500; font-size: .85rem; }
 
+.hero-media { margin: 0; border: 1px solid var(--line); border-radius: 22px; overflow: hidden; background: var(--surface); box-shadow: 0 30px 90px rgba(0,0,0,.38); }
+.hero-media img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; }
+.hero-media figcaption { padding: 14px 16px; color: var(--muted); font-size: .72rem; line-height: 1.55; }
 .hero-system { position: relative; min-height: 540px; display: grid; place-items: center; }
 .orb {
   position: relative;
@@ -136,6 +140,25 @@ main, footer { width: min(1240px, calc(100% - 40px)); margin: 0 auto; }
 .flow-link::before { content: ""; position: absolute; left: 0; right: 0; height: 1px; background: var(--line); }
 .flow-link::after { content: "→"; position: absolute; right: 6px; color: var(--orange); }
 .flow-link span { position: relative; z-index: 1; padding: 7px; background: var(--bg); writing-mode: vertical-rl; font-family: var(--mono); font-size: .58rem; letter-spacing: .08em; }
+
+.matrix-wrap { margin-top: 70px; overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+.matrix-wrap table { width: 100%; min-width: 820px; border-collapse: collapse; }
+.matrix-wrap th, .matrix-wrap td { padding: 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.matrix-wrap thead th { color: var(--orange-soft); font-family: var(--mono); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; }
+.matrix-wrap tbody th { width: 31%; color: var(--ink); font-size: .9rem; }
+.matrix-wrap tbody td { color: var(--muted); font-size: .86rem; line-height: 1.5; }
+.matrix-wrap tbody tr:last-child > * { border-bottom: 0; }
+.architecture-figure { margin: 70px 0 0; }
+.architecture-figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.architecture-figure figcaption { max-width: 900px; margin-top: 18px; color: var(--muted); line-height: 1.65; font-size: .88rem; }
+.visuals .hero-actions { margin-top: 32px; }
+.visual-grid { margin-top: 70px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.visual-card { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.visual-card-wide { grid-column: 1 / -1; }
+.visual-card img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: contain; background: #0d0f13; }
+.visual-card-wide img { aspect-ratio: 5 / 3; }
+.visual-card figcaption { padding: 18px 20px 22px; color: var(--muted); font-size: .85rem; line-height: 1.65; }
+.visual-card figcaption strong { display: block; margin-bottom: 4px; color: var(--ink); }
 
 .capabilities { padding-bottom: 60px; }
 .feature { min-height: 520px; display: grid; grid-template-columns: 80px minmax(320px,.9fr) 1.1fr; gap: 5vw; align-items: center; padding: 80px 0; border-top: 1px solid var(--line); }
@@ -240,6 +263,11 @@ footer a:hover, footer a:focus-visible { color: var(--ink); }
   .mode-strip article { padding: 38px 0; }
   .mode-strip article + article { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
   .section { padding: 85px 0; }
+  .matrix-wrap { margin-top: 45px; }
+  .matrix-wrap th, .matrix-wrap td { padding: 15px; }
+  .architecture-figure { margin-top: 45px; }
+  .visual-grid { margin-top: 45px; grid-template-columns: 1fr; }
+  .visual-card-wide { grid-column: 1; }
   .feature { grid-template-columns: 1fr; gap: 25px; padding: 62px 0; }
   .feature-index, .feature > :last-child { grid-column: 1; }
   .wave-panel, .camera-panel { min-height: 280px; }
