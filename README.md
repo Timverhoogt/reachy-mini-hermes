@@ -65,13 +65,13 @@ An extensible, all-in-one companion and control app for Reachy Mini: local wake 
 
 ## Architecture and visual guide
 
-![Architecture diagram showing Reachy Mini, the local companion app, optional Hermes Agent host and external providers](docs/assets/architecture.svg)
+[![Architecture diagram showing Reachy Mini, the local companion app, optional Hermes Agent host and external providers](docs/assets/architecture.svg)](docs/assets/architecture.svg)
 
-*The local app owns safety, privacy, movement and camera controls. Hermes is the optional private agent boundary; provider connections cross a separate trust boundary.*
+*Tap or open the diagram for its full-size labels. The local app owns safety, privacy, movement and camera controls. An authenticated LAN/VPN bridge optionally connects it to the private Hermes host; only enabled capabilities cross from Hermes to external providers.*
 
-![Conservative Reachy Mini Lite and Raspberry Pi 4 companion topology with separate power supplies, USB data, ventilation, strain relief and motor-clearance callouts](docs/assets/lite-pi-overview.svg)
+[![Conservative Reachy Mini Lite and Raspberry Pi 4 companion topology with separate power supplies, USB data, ventilation, strain relief and motor-clearance callouts](docs/assets/lite-pi-overview.svg)](docs/assets/lite-pi-overview.svg)
 
-*Community Lite + Raspberry Pi 4 companion-host topology. This project-authored diagram is explanatory—not an official conversion, final attached mount or shared-power design.*
+*Tap or open the diagram for its full-size labels. Keep the Pi off-robot on a ventilated, non-conductive surface; use separate approved supplies and USB for data only; secure strain relief to a stationary support; keep hardware and cables outside Reachy's movement zone. This project-authored diagram is explanatory—not an official conversion, final attached mount or shared-power design.*
 
 | Official hardware view | Official privacy-hardware view |
 |---|---|

@@ -149,16 +149,24 @@ main, footer { width: min(1240px, calc(100% - 40px)); margin: 0 auto; }
 .matrix-wrap tbody td { color: var(--muted); font-size: .86rem; line-height: 1.5; }
 .matrix-wrap tbody tr:last-child > * { border-bottom: 0; }
 .architecture-figure { margin: 70px 0 0; }
-.architecture-figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.diagram-scroll { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-gutter: stable; }
+.diagram-scroll:focus-visible { outline: 2px solid var(--orange); outline-offset: 4px; }
+.architecture-figure .diagram-scroll { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.architecture-figure img { display: block; width: 100%; min-width: 900px; height: auto; }
 .architecture-figure figcaption { max-width: 900px; margin-top: 18px; color: var(--muted); line-height: 1.65; font-size: .88rem; }
+.diagram-hint { display: none; margin: 0 0 10px; color: var(--orange-soft); font-family: var(--mono); font-size: .68rem; letter-spacing: .04em; }
+.diagram-summary { max-width: 960px; margin: 12px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.65; }
+.diagram-summary strong { color: var(--ink); }
 .visuals .hero-actions { margin-top: 32px; }
 .visual-grid { margin-top: 70px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
 .visual-card { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
 .visual-card-wide { grid-column: 1 / -1; }
 .visual-card img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: contain; background: #0d0f13; }
 .visual-card-wide img { aspect-ratio: 5 / 3; }
+.visual-card-wide .diagram-scroll img { width: 100%; min-width: 900px; height: auto; aspect-ratio: auto; }
 .visual-card figcaption { padding: 18px 20px 22px; color: var(--muted); font-size: .85rem; line-height: 1.65; }
 .visual-card figcaption strong { display: block; margin-bottom: 4px; color: var(--ink); }
+.visual-card .diagram-summary { padding: 0 20px 22px; margin-top: -10px; }
 
 .capabilities { padding-bottom: 60px; }
 .feature { min-height: 520px; display: grid; grid-template-columns: 80px minmax(320px,.9fr) 1.1fr; gap: 5vw; align-items: center; padding: 80px 0; border-top: 1px solid var(--line); }
@@ -266,6 +274,11 @@ footer a:hover, footer a:focus-visible { color: var(--ink); }
   .matrix-wrap { margin-top: 45px; }
   .matrix-wrap th, .matrix-wrap td { padding: 15px; }
   .architecture-figure { margin-top: 45px; }
+  .diagram-hint { display: block; }
+  .diagram-scroll { scrollbar-color: var(--orange) #20242b; scrollbar-width: thin; }
+  .diagram-scroll::-webkit-scrollbar { height: 10px; }
+  .diagram-scroll::-webkit-scrollbar-track { background: #20242b; }
+  .diagram-scroll::-webkit-scrollbar-thumb { border: 2px solid #20242b; border-radius: 999px; background: var(--orange); }
   .visual-grid { margin-top: 45px; grid-template-columns: 1fr; }
   .visual-card-wide { grid-column: 1; }
   .feature { grid-template-columns: 1fr; gap: 25px; padding: 62px 0; }

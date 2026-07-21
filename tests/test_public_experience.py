@@ -99,6 +99,20 @@ def test_public_images_are_accessible_lightweight_and_credited() -> None:
     assert "not evidence of a live robot connection" in credits
 
 
+def test_dense_diagrams_have_mobile_scroll_affordances_and_text_equivalents() -> None:
+    html = SPACE_HTML.read_text(encoding="utf-8")
+    css = (ROOT / "style.css").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert html.count('class="diagram-scroll"') == 2
+    assert html.count('class="diagram-hint"') == 2
+    assert html.count('class="diagram-summary"') == 2
+    assert len(re.findall(r'class="diagram-scroll"[^>]*tabindex="0"', html)) == 2
+    assert "overflow-x: auto" in css
+    assert css.count("min-width: 900px") == 2
+    assert "Tap or open the diagram for its full-size labels" in readme
+
+
 def test_public_material_contains_no_environment_specific_network_details() -> None:
     public_files = (
         ROOT / "README.md",

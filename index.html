@@ -86,8 +86,12 @@
         <p>The app host owns local wake, safety, privacy, movement and camera controls. The optional Hermes host keeps identity, memory, tools and provider credentials. Dashed paths cross into private or external systems.</p>
       </div>
       <figure class="architecture-figure">
-        <img src="docs/assets/architecture.svg" alt="Reachy Mini connects locally to the companion app; an optional authenticated bridge connects to Hermes Agent, which may contact external providers across a separate trust boundary." />
+        <p class="diagram-hint" aria-hidden="true">Swipe horizontally to explore the full-size diagram →</p>
+        <div class="diagram-scroll" role="region" aria-label="Scrollable companion app architecture diagram" tabindex="0">
+          <img src="docs/assets/architecture.svg" alt="Reachy Mini connects locally to the companion app; an optional authenticated bridge connects to Hermes Agent, which may contact external providers across a separate trust boundary." />
+        </div>
         <figcaption>Camera live view stays local. One frame may leave only after explicit opt-in and a visual request. Provider credentials remain on the Hermes host.</figcaption>
+        <p class="diagram-summary"><strong>Text summary:</strong> Reachy hardware connects to the local companion app, which owns safety, privacy, movement, wake, camera and UI controls. An optional authenticated LAN or VPN bridge connects the app to a private Hermes host. Only enabled capabilities cross from Hermes to external model, speech or approved tool providers.</p>
       </figure>
     </section>
 
@@ -114,8 +118,12 @@
       </div>
       <div class="visual-grid">
         <figure class="visual-card visual-card-wide">
-          <img src="docs/assets/lite-pi-overview.svg" alt="Conservative Reachy Mini Lite and Raspberry Pi 4 companion topology with separate power supplies, USB data, ventilation, strain relief and motor-clearance callouts." loading="lazy" />
+          <p class="diagram-hint" aria-hidden="true">Swipe horizontally to explore the full-size diagram →</p>
+          <div class="diagram-scroll" role="region" aria-label="Scrollable Lite and Raspberry Pi 4 topology diagram" tabindex="0">
+            <img src="docs/assets/lite-pi-overview.svg" alt="Conservative Reachy Mini Lite and Raspberry Pi 4 companion topology with separate power supplies, USB data, ventilation, strain relief and motor-clearance callouts." loading="lazy" />
+          </div>
           <figcaption><strong>Community Lite + Pi 4 topology.</strong> Start off-robot with two supplies; mounted placement and shared power remain unapproved.</figcaption>
+          <p class="diagram-summary"><strong>Text summary:</strong> Keep the Pi off-robot on a ventilated, non-conductive surface. Power Reachy and the Pi from separate approved supplies, connect USB for data only, secure cable strain relief to a stationary support, and keep every cable, mount and device outside Reachy's movement zone. Shared power and robot-mounted placement are not approved.</p>
         </figure>
         <figure class="visual-card">
           <img src="docs/assets/reachy-components.webp" width="1400" height="990" alt="Official exploded component comparison of Reachy Mini Lite and Reachy Mini Wireless." loading="lazy" />
