@@ -134,6 +134,23 @@ curl -X POST http://REACHY_HOST:8042/api/camera/test \
   -d '{"confirm":"camera"}'
 ```
 
+### Camera-feed joystick acceptance
+
+Camera movement controls are a separate opt-in from the live camera and remain off by default. Do not enable them until Reachy is Awake, motor torque is confirmed, the surrounding base/head sweep is clear, and an adult is supervising. The overlay appears only over an active local WebRTC feed.
+
+Verify a candidate artifact in this order:
+
+1. Keep **Camera movement controls** disabled. Start the feed and confirm no joystick or movement route is usable.
+2. Enable the controls in Settings, select left/right thumb placement, save, and confirm the overlay appears only while the feed is live.
+3. In normal, native fullscreen, and app-fallback fullscreen, verify Stop and Exit remain visible in portrait and landscape, including mobile safe areas.
+4. Touch inside the dead zone and confirm no movement. Drag slowly in all four directions and confirm intuitive camera pan/tilt, bounded speed, smooth small steps, and base assistance only near the head-yaw edge.
+5. Release, cancel the pointer, rotate the device, background the app, leave fullscreen, and stop the feed. Every case must spring the visual stick to center, hold the current measured view, and reject delayed packets—never surprise-center physically.
+6. Press **Center head & base** only with clear base space. Confirm the cancellable neutral movement completes. Press the in-overlay **Stop movement** during head-only, base-assisted, and Center movement and confirm no late motion.
+7. Verify direct/replayed/malformed requests, Kids active/locked, Meeting, Sleep, Standby, privacy, disabled settings, robot-busy state, feed loss, and network reconnect all fail closed server-side.
+8. Finish with the camera and overlay off, safely fold into Standby, verify the measured folded pose, and only then confirm torque is disabled. Retain no private camera frames.
+
+Source tests and browser simulation do not constitute physical acceptance. Record the exact commit and wheel SHA-256 used for any supervised run; do not deploy or enable this control by default after a failed or incomplete gate.
+
 In Standby, `audio_frames_processed` should increase while daemon motor mode remains `disabled`. In Meeting or Sleep, the frame count should stop increasing.
 
 ### Reachy daemon

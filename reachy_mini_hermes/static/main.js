@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 const fields = [
   "bridge_url", "api_key", "model", "conversation_mode", "language", "stt_provider", "stt_model",
   "tts_provider", "tts_model", "tts_voice", "continuous_conversation",
-  "motion_enabled", "barge_in_enabled", "camera_enabled", "camera_feed_enabled", "face_tracking_enabled", "face_tracking_weight",
+  "motion_enabled", "barge_in_enabled", "camera_enabled", "camera_feed_enabled", "camera_controls_enabled", "camera_controls_handedness", "face_tracking_enabled", "face_tracking_weight",
   "doa_enabled", "robot_tools_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
   "end_silence_seconds", "max_utterance_seconds", "vad_min_rms", "vad_noise_multiplier",
   "wake_keyword_threshold", "wake_keyword_score",
@@ -381,8 +381,12 @@ function updateStatus(payload) {
     control.disabled = kidsActive || kidsRequestPending;
   });
   window.ReachyCamera?.setPolicy({
-    enabled: !kidsActive && Boolean(payload.config?.camera_feed_enabled),
+    enabled: !kidsActive && !kidsLocked && Boolean(payload.config?.camera_feed_enabled),
+    controlsEnabled: Boolean(payload.config?.camera_controls_enabled),
+    handedness: payload.config?.camera_controls_handedness || "right",
     powerMode,
+    motorsEnabled: motorsEnabled === true,
+    robotBusy,
   });
   const announcementBusy = Boolean(runtime.announcement_busy);
   const announcementQueueDepth = Number(runtime.announcement_queue_depth || 0);

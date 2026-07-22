@@ -36,6 +36,11 @@ _HEAD_LIMITS = {
 _BODY_YAW_LIMIT = (-120.0, 120.0)
 _BODY_YAW_STEP_LIMIT = 60.0
 _HEAD_BODY_YAW_DELTA_LIMIT = 65.0
+_CAMERA_HEAD_YAW_SOFT_LIMIT = 28.0
+_CAMERA_HEAD_YAW_LIMIT = 35.0
+_CAMERA_PAN_STEP = 3.0
+_CAMERA_TILT_STEP = 2.0
+_CAMERA_BODY_STEP = 2.0
 
 _LOOK_POSES: dict[str, dict[str, float]] = {
     "left": {"yaw": 35.0},
@@ -322,6 +327,65 @@ class ReachyRobotActions:
             target = create_head_pose(**pose, degrees=True)
             self.robot.goto_target(head=target, antennas=None, body_yaw=None, duration=0.6)
             return {"ok": True, "action": name, "direction": direction}
+
+        if name == "camera_joystick":
+            if any(isinstance(arguments.get(key), bool) for key in ("pan", "tilt")):
+                return {"ok": False, "error": "Camera joystick input must be finite and bounded"}
+            pan = float(arguments.get("pan") or 0.0)
+            tilt = float(arguments.get("tilt") or 0.0)
+            body_yaw = float(arguments.get("body_yaw_degrees") or 0.0)
+            if not all(math.isfinite(value) and -1.0 <= value <= 1.0 for value in (pan, tilt)):
+                return {"ok": False, "error": "Camera joystick input must be finite and bounded"}
+            components = _head_pose_components(self.robot.get_current_head_pose())
+            relative_yaw = _clamp(
+                components["yaw"] - body_yaw,
+                (-_HEAD_BODY_YAW_DELTA_LIMIT, _HEAD_BODY_YAW_DELTA_LIMIT),
+            )
+            desired_relative_yaw = relative_yaw + pan * _CAMERA_PAN_STEP
+            body_delta = 0.0
+            if desired_relative_yaw > _CAMERA_HEAD_YAW_SOFT_LIMIT:
+                body_delta = min(_CAMERA_BODY_STEP, desired_relative_yaw - _CAMERA_HEAD_YAW_SOFT_LIMIT)
+            elif desired_relative_yaw < -_CAMERA_HEAD_YAW_SOFT_LIMIT:
+                body_delta = max(-_CAMERA_BODY_STEP, desired_relative_yaw + _CAMERA_HEAD_YAW_SOFT_LIMIT)
+            target_body_degrees = _clamp(body_yaw + body_delta, _BODY_YAW_LIMIT)
+            applied_body_delta = target_body_degrees - body_yaw
+            target_relative_yaw = _clamp(
+                desired_relative_yaw - applied_body_delta,
+                (-_CAMERA_HEAD_YAW_LIMIT, _CAMERA_HEAD_YAW_LIMIT),
+            )
+            components["yaw"] = target_body_degrees + target_relative_yaw
+            components["pitch"] = _clamp(
+                components["pitch"] + tilt * _CAMERA_TILT_STEP,
+                _HEAD_LIMITS["pitch"],
+            )
+            target_head = create_head_pose(
+                x=components["x"],
+                y=components["y"],
+                z=components["z"],
+                roll=components["roll"],
+                pitch=components["pitch"],
+                yaw=components["yaw"],
+                mm=True,
+                degrees=True,
+            )
+            target_body = math.radians(target_body_degrees) if abs(applied_body_delta) > 1e-6 else None
+            duration = 0.18 + 0.1 * max(abs(pan), abs(tilt))
+            if not self._run_precision_interpolation(
+                target_head=target_head,
+                target_body=target_body,
+                start_body=math.radians(body_yaw),
+                duration=duration,
+            ):
+                return {"ok": False, "error": "Robot action was cancelled", "action": name}
+            return {
+                "ok": True,
+                "action": name,
+                "target": {
+                    "pitch": round(components["pitch"], 2),
+                    "yaw": round(components["yaw"], 2),
+                    "body_yaw": round(target_body_degrees, 2),
+                },
+            }
 
         if name == "nudge_reachy":
             axis = str(arguments.get("axis") or "").lower()

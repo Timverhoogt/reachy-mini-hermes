@@ -18,11 +18,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Safe gamepad mapping for bounded look, center, Happy, Surprised, and cooperative Stop actions.
 - Integrated Kids Mode I Spy with explicit caregiver camera consent, a visible bounded three-frame search, strict stable-target validation, deterministic hint/guess/reveal state, authoritative Stop/expiry cancellation, and bridge-session deletion.
 - Bluetooth/controller operational guidance, service-account permissions, explicit Reachy Mini Wireless-only hardware scope, security boundaries, and hardware-free regression tests.
+- Optional camera-feed thumb joystick with separate off-by-default opt-in, left/right placement, dead zone, spring-return visuals, keyboard support, in-overlay Stop, explicit head/base Center, native and fallback fullscreen handling, and mobile safe-area layout.
+- Gesture-bound camera-control API sessions with random identifiers, monotonic anti-replay sequences, bounded finite pan/tilt, cancellable head interpolation, server-owned base assistance, release-to-hold, settings/power/privacy/Kids revocation, and generic-control ownership exclusion.
 
 ### Changed
 
 - Kids I Spy now retains five bounded viewpoints across a 240° base arc, uses non-capturing 60° transit waypoints, revokes camera access before its neutral return, and keeps the head aligned with the base.
 - Manual base control now uses separate 5°/15°/30°/60° steps, clear-space confirmation for wide turns, coupled head yaw, and a ±120° application limit inside the SDK's ±160° range.
+- PWA shell advanced to v32 for the camera-control overlay and fullscreen-safe controls.
 - PWA shell advanced to v31 for the wider base controls and five-frame I Spy status.
 - Agent profile `ask_hermes` now uses only the fixed bounded T0–T3 broker surface; Realtime still advertises a single delegation tool and ordinary social conversation remains direct.
 - PWA shell advanced to v30 for visible Kids I Spy camera-search state and Stop access during startup.
@@ -32,7 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 288 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 315 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 

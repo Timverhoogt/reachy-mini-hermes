@@ -13,7 +13,7 @@ from typing import Literal
 
 from fastapi import Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from reachy_mini import ReachyMini, ReachyMiniApp
 
 from .agent_audit import AgentAuditLog
@@ -56,6 +56,8 @@ class SettingsUpdate(BaseModel):
     barge_in_enabled: bool | None = None
     camera_enabled: bool | None = None
     camera_feed_enabled: bool | None = None
+    camera_controls_enabled: bool | None = None
+    camera_controls_handedness: Literal["left", "right"] | None = None
     face_tracking_enabled: bool | None = None
     face_tracking_weight: float | None = Field(default=None, ge=0, le=1)
     doa_enabled: bool | None = None
@@ -73,6 +75,25 @@ class RobotActionRequest(BaseModel):
 class RobotNudgeRequest(BaseModel):
     axis: str = Field(min_length=1, max_length=32)
     delta: float = Field(default=0.0, ge=-60, le=60)
+
+
+class CameraControlMoveRequest(BaseModel):
+    session_id: str = Field(pattern=r"^camera-[0-9a-f]{32}$")
+    sequence: int = Field(ge=1, le=2_147_483_647)
+    pan: float = Field(ge=-1.0, le=1.0)
+    tilt: float = Field(ge=-1.0, le=1.0)
+
+    @field_validator("pan", "tilt", mode="before")
+    @classmethod
+    def require_json_number(cls, value: object) -> object:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("camera control values must be JSON numbers")
+        return value
+
+
+class CameraControlSessionRequest(BaseModel):
+    session_id: str = Field(pattern=r"^camera-[0-9a-f]{32}$")
+    sequence: int = Field(ge=1, le=2_147_483_647)
 
 
 class BluetoothDeviceRequest(BaseModel):
@@ -270,6 +291,12 @@ class ReachyMiniHermes(ReachyMiniApp):
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             _LOGGER.info("Reachy Hermes settings updated at %s (secret values redacted)", path)
+            if self._runtime is not None and (
+                not merged.camera_feed_enabled or not merged.camera_controls_enabled
+            ):
+                revoke_camera_control = getattr(self._runtime, "revoke_camera_control", None)
+                if callable(revoke_camera_control):
+                    revoke_camera_control()
             return {
                 "ok": True,
                 "config": merged.redacted_dict(),
@@ -732,6 +759,64 @@ class ReachyMiniHermes(ReachyMiniApp):
                 return self._runtime.queue_precision_robot_action(request.axis, request.delta)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/camera-control/session")
+        def start_camera_control(
+            x_reachy_adult_ui: str | None = Header(default=None),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            config = load_config()
+            try:
+                return self._runtime.start_camera_control(
+                    camera_feed_enabled=config.camera_feed_enabled,
+                    controls_enabled=config.camera_controls_enabled,
+                    adult_ui_unlocked=True,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/camera-control/move")
+        def move_camera_control(request: CameraControlMoveRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            config = load_config()
+            if not config.camera_feed_enabled or not config.camera_controls_enabled:
+                self._runtime.revoke_camera_control()
+                raise HTTPException(status_code=409, detail="Camera movement controls are disabled")
+            try:
+                return self._runtime.queue_camera_control(
+                    request.session_id,
+                    request.sequence,
+                    request.pan,
+                    request.tilt,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/camera-control/center")
+        def center_camera_control(request: CameraControlSessionRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            config = load_config()
+            if not config.camera_feed_enabled or not config.camera_controls_enabled:
+                self._runtime.revoke_camera_control()
+                raise HTTPException(status_code=409, detail="Camera movement controls are disabled")
+            try:
+                return self._runtime.center_camera_control(request.session_id, request.sequence)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/camera-control/end")
+        def end_camera_control(request: CameraControlSessionRequest) -> dict[str, object]:
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.end_camera_control(request.session_id, request.sequence)
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 

@@ -189,6 +189,68 @@ def test_precision_center_all_resets_head_and_base(monkeypatch) -> None:
     assert robot.body_samples[-1] == 0.0
 
 
+def test_camera_joystick_uses_small_bounded_head_steps(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools.interpolate_head_pose",
+        lambda start, target, ratio: target,
+    )
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.execute(
+        "camera_joystick",
+        {"pan": 1.0, "tilt": 1.0, "body_yaw_degrees": 0.0},
+    )
+
+    assert result == {
+        "ok": True,
+        "action": "camera_joystick",
+        "target": {"pitch": 2.0, "yaw": 3.0, "body_yaw": 0.0},
+    }
+    assert cast(dict[str, float], robot.head_samples[-1])["yaw"] == 3.0
+    assert robot.body_samples == []
+
+
+def test_camera_joystick_adds_bounded_base_assistance_near_head_limit(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools.interpolate_head_pose",
+        lambda start, target, ratio: target,
+    )
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools._head_pose_components",
+        lambda _pose: {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 30.0},
+    )
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.execute(
+        "camera_joystick",
+        {"pan": 1.0, "tilt": 0.0, "body_yaw_degrees": 0.0},
+    )
+
+    target = cast(dict[str, float], result["target"])
+    assert target == {"pitch": 0.0, "yaw": 33.0, "body_yaw": 2.0}
+    assert target["yaw"] - target["body_yaw"] == 31.0
+    assert robot.body_samples[-1] == pytest.approx(0.034906585)
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), -float("inf"), 1.01, -1.01])
+def test_camera_joystick_rejects_non_finite_or_unbounded_input(value: object) -> None:
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.execute(
+        "camera_joystick",
+        {"pan": value, "tilt": 0.0, "body_yaw_degrees": 0.0},
+    )
+
+    assert result == {"ok": False, "error": "Camera joystick input must be finite and bounded"}
+    assert robot.head_samples == []
+    assert robot.body_samples == []
+
+
 def test_robot_actions_use_safe_curated_moves_without_move_audio(monkeypatch) -> None:
     monkeypatch.setattr(
         "reachy_mini_hermes.robot_tools.create_head_pose",

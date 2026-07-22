@@ -48,6 +48,7 @@ An extensible, all-in-one companion and control app for Reachy Mini: local wake 
 | Local dashboard, privacy/power states and app lifecycle | ✅ | ✅ | optional | Reference-tested on Lite + Pi 4; each robot needs physical acceptance. |
 | Guarded wake, bounded movement, Stop and fold-before-torque-off | ✅ | ✅ | optional | ✅ Reference-tested; clear-space and fold checks remain mandatory. |
 | Local live camera viewer | ✅ | ✅ | optional | ✅ Explicit opt-in, trusted local UI, no Hermes/OpenAI route. |
+| Camera-feed thumb joystick | ✅ | ✅ | optional | ◐ Implemented off by default with gesture-bound anti-replay, release-to-hold, explicit Center and Stop; supervised physical acceptance is still required. |
 | One-frame visual request | — | — | ✅ | ◐ Requires camera opt-in, an active Realtime session and provider acceptance. |
 | Announcements and adult voice conversation | — | — | ✅ | ◐ Requires configured private bridge and speech/model providers. |
 | Supervised Kids Mode | — | — | ✅ | ◐ Automated and reference acceptance exists; adult supervision and provider terms still apply. |
@@ -129,6 +130,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Optional daemon-local face following, active only after the wake phrase for the current conversation.
 - Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
 - Privacy-preserving cameras: one JPEG is captured only when a visual request needs it, while an independent opt-in UI viewer connects directly to Reachy's local WebRTC feed.
+- Optional supervised camera-feed joystick: each pointer or keyboard gesture receives a fresh random server session, bounded pan/tilt uses small cancellable head steps with base assistance near the yaw edge, release holds the measured view, Center is explicit, and Stop/privacy/power/Kids/feed transitions invalidate delayed commands. The overlay remains off until both live camera and camera movement controls are enabled.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
 - Full announcement console with typed TTS, per-announcement provider/model/voice overrides, quick templates, repeat/pause controls, a bounded queue, independent Stop, and voice-only or safe wake/fold behavior.
 - Supervised **Kids Mode** with six age-aware activities—including I Spy—English/Dutch profiles, 15–60 minute parent-selected sessions, automatic safe folding, optional gentle voice-state motion, and a dedicated moderated no-agent pipeline that removes personal memory, files, messaging, devices, purchases, and power controls.
