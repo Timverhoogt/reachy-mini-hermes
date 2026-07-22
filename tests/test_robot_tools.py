@@ -212,6 +212,23 @@ def test_camera_joystick_uses_small_bounded_head_steps(monkeypatch) -> None:
     assert robot.body_samples == []
 
 
+def test_camera_joystick_is_allowlisted_at_the_action_queue_boundary() -> None:
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.enqueue(
+        "camera_joystick",
+        {"pan": 0.25, "tilt": 0.0, "body_yaw_degrees": 0.0},
+        hold_pose=True,
+        reject_if_busy=True,
+    )
+
+    assert result["accepted"] is True
+    assert actions.pending_count == 1
+    actions.cancel(stop_media=False)
+    assert actions.pending_count == 0
+
+
 def test_camera_joystick_adds_bounded_base_assistance_near_head_limit(monkeypatch) -> None:
     monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
     monkeypatch.setattr(

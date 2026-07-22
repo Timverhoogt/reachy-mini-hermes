@@ -21,7 +21,7 @@ ROBOT_TOOL_NAMES = frozenset(
         "dance_reachy",
     }
 )
-_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {"nudge_reachy"}
+_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {"nudge_reachy", "camera_joystick"}
 _PRECISION_AXES = frozenset(
     {"x", "y", "z", "roll", "pitch", "yaw", "body_yaw", "center_head", "center_base", "center_all"}
 )
