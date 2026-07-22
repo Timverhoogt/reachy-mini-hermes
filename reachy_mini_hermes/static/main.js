@@ -3,7 +3,9 @@ const fields = [
   "bridge_url", "api_key", "model", "conversation_mode", "language", "stt_provider", "stt_model",
   "tts_provider", "tts_model", "tts_voice", "continuous_conversation",
   "motion_enabled", "barge_in_enabled", "camera_enabled", "camera_feed_enabled", "camera_controls_enabled", "camera_controls_handedness", "face_tracking_enabled", "face_tracking_weight",
-  "doa_enabled", "robot_tools_enabled", "realtime_model", "realtime_voice", "realtime_reasoning_effort",
+  "doa_enabled", "robot_tools_enabled", "home_assistant_enabled", "home_assistant_controls_enabled",
+  "home_assistant_camera_enabled", "home_assistant_assist_enabled", "home_assistant_port",
+  "realtime_model", "realtime_voice", "realtime_reasoning_effort",
   "end_silence_seconds", "max_utterance_seconds", "vad_min_rms", "vad_noise_multiplier",
   "wake_keyword_threshold", "wake_keyword_score",
 ];
@@ -227,6 +229,16 @@ function fillConfig(config) {
   });
   loaded = true;
   toggleModePanels();
+  toggleHomeAssistantOptions(false);
+}
+
+function toggleHomeAssistantOptions(clearWhenDisabled = true) {
+  const enabled = $("home_assistant_enabled").checked;
+  ["home_assistant_controls_enabled", "home_assistant_camera_enabled", "home_assistant_assist_enabled", "home_assistant_port"].forEach((name) => {
+    const element = $(name);
+    element.disabled = !enabled;
+    if (!enabled && clearWhenDisabled && element.type === "checkbox") element.checked = false;
+  });
 }
 
 function toggleModePanels() {
@@ -238,6 +250,7 @@ function toggleModePanels() {
 }
 
 $("conversation_mode").addEventListener("change", toggleModePanels);
+$("home_assistant_enabled").addEventListener("change", () => toggleHomeAssistantOptions(true));
 
 function updateStatus(payload) {
   const runtime = payload.runtime || {};
@@ -248,6 +261,20 @@ function updateStatus(payload) {
   $("last-response").textContent = runtime.response_preview || "—";
   const powerMode = runtime.power_mode || "unknown";
   currentPowerMode = powerMode;
+  const homeAssistant = runtime.home_assistant || {};
+  const homeAssistantStatus = $("home-assistant-status");
+  if (homeAssistantStatus) {
+    homeAssistantStatus.textContent = homeAssistant.error
+      ? `Bridge error: ${homeAssistant.error}`
+      : homeAssistant.connected
+        ? `${homeAssistant.device_name || "Reachy"} connected to Home Assistant on port ${homeAssistant.port || 6053}`
+        : homeAssistant.ready
+          ? `${homeAssistant.device_name || "Reachy"} is available on port ${homeAssistant.port || 6053}; waiting for Home Assistant`
+          : homeAssistant.enabled
+            ? "Bridge starts after an app restart"
+            : "Bridge disabled";
+    homeAssistantStatus.className = `muted${homeAssistant.error ? " error" : homeAssistant.connected ? " ok" : ""}`;
+  }
   const kidsMode = runtime.kids_mode || {};
   const kidsActive = Boolean(kidsMode.active);
   const kidsCameraActive = Boolean(kidsMode.camera_active);
