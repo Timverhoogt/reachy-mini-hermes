@@ -315,3 +315,20 @@ def test_runtime_policy_revocation_cancels_and_invalidates_active_camera_control
     assert actions.cancel_calls == [False]
     with pytest.raises(RuntimeError, match="session is not active"):
         runtime.queue_camera_control(str(started["session_id"]), 1, 0.5, 0.0)
+
+
+def test_camera_pointer_and_keyboard_vertical_controls_follow_sdk_pitch_convention() -> None:
+    camera = (STATIC / "camera.js").read_text()
+
+    assert "tilt: unitY * scaledMagnitude" in camera
+    assert "ArrowUp: [0, -0.55]" in camera
+    assert "ArrowDown: [0, 0.55]" in camera
+
+
+def test_camera_pointer_move_sends_immediately_through_the_in_flight_guard() -> None:
+    camera = (STATIC / "camera.js").read_text()
+    move_handler = camera.split("function movePointerControl(event) {", 1)[1].split("\n  }", 1)[0]
+
+    assert "state.desiredPan = vector.pan" in move_handler
+    assert "state.desiredTilt = vector.tilt" in move_handler
+    assert "void sendControlCommand()" in move_handler
