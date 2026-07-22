@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+import ipaddress
 import logging
 import math
 import os
@@ -21,7 +22,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 from aioesphomeapi import api_pb2
@@ -39,6 +40,9 @@ from zeroconf import ServiceInfo, Zeroconf
 from .config import AppConfig, load_config, merge_config, save_config
 
 _LOGGER = logging.getLogger(__name__)
+_PRIVATE_LAN_NETWORKS = tuple(
+    ipaddress.ip_network(network) for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
 
 try:
     _AIOESPHOMEAPI_VERSION = importlib.metadata.version("aioesphomeapi")
@@ -389,6 +393,8 @@ class ESPHomeProtocol(asyncio.Protocol):
         self._connection = _ConnectionState()
         self._on_close = on_close
         self._peer_host = ""
+        self._provider_lock = asyncio.Lock()
+        self._provider_tasks: set[asyncio.Task[None]] = set()
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = transport  # type: ignore[assignment]
@@ -400,6 +406,9 @@ class ESPHomeProtocol(asyncio.Protocol):
 
     def connection_lost(self, exc: Exception | None) -> None:
         self.transport = None
+        for task in tuple(self._provider_tasks):
+            task.cancel()
+        self._provider_tasks.clear()
         if self._peer_host:
             self.provider.ha_disconnected(self._peer_host)
             self._peer_host = ""
@@ -422,12 +431,45 @@ class ESPHomeProtocol(asyncio.Protocol):
             try:
                 proto_type = MESSAGE_TYPE_TO_PROTO[msg_type]
                 msg = proto_type.FromString(payload)
-                self.send_messages(self.handle_message(msg))
+                if self._message_needs_provider(msg):
+                    task = asyncio.create_task(self._handle_provider_message(msg, msg_type))
+                    self._provider_tasks.add(task)
+                    task.add_done_callback(self._provider_tasks.discard)
+                else:
+                    self.send_messages(self.handle_message(msg))
             except Exception:
                 _LOGGER.exception("Failed to process ESPHome message type %s", msg_type)
                 if self.transport:
                     self.transport.close()
                 return
+
+    @staticmethod
+    def _message_needs_provider(msg: Message) -> bool:
+        return isinstance(
+            msg,
+            (
+                api_pb2.SubscribeStatesRequest,
+                api_pb2.SubscribeHomeAssistantStatesRequest,
+                api_pb2.NumberCommandRequest,
+                api_pb2.SwitchCommandRequest,
+                api_pb2.SelectCommandRequest,
+                api_pb2.CameraImageRequest,
+                api_pb2.MediaPlayerCommandRequest,
+                api_pb2.VoiceAssistantAnnounceRequest,
+            ),
+        )
+
+    async def _handle_provider_message(self, msg: Message, msg_type: int) -> None:
+        try:
+            async with self._provider_lock:
+                messages = await asyncio.to_thread(lambda: list(self.handle_message(msg)))
+            self.send_messages(messages)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.exception("Failed to process ESPHome provider message type %s", msg_type)
+            if self.transport:
+                self.transport.close()
 
     def send_messages(self, messages: Iterable[Message]) -> None:
         if self.transport is None:
@@ -561,9 +603,12 @@ class ESPHomeProtocol(asyncio.Protocol):
             if spec.kind not in {"camera"}:
                 yield _state_message(spec, self.provider.read(spec.object_id))
 
-    def publish_states(self) -> None:
-        if self._connection.subscribed:
-            self.send_messages(self.state_messages())
+    async def publish_states(self) -> None:
+        if not self._connection.subscribed:
+            return
+        async with self._provider_lock:
+            messages = await asyncio.to_thread(lambda: list(self.state_messages()))
+        self.send_messages(messages)
 
     def start_voice(self, *, wake_word_phrase: str = "Hey Hermes", conversation_id: str = "") -> bool:
         if not self.assist_enabled or self.transport is None:
@@ -646,8 +691,7 @@ async def start_esphome_server(
     async def publish() -> None:
         while True:
             await asyncio.sleep(1.0)
-            for protocol in tuple(protocols):
-                protocol.publish_states()
+            await asyncio.gather(*(protocol.publish_states() for protocol in tuple(protocols)))
 
     publisher = asyncio.create_task(publish(), name="reachy-hermes-ha-state-publisher")
     return RunningESPHomeServer(server=server, protocols=protocols, port=bound_port, _publisher=publisher)
@@ -656,13 +700,13 @@ async def start_esphome_server(
 class HermesHomeAssistantProvider(HomeAssistantStateProvider):
     """Map HA entities onto Hermes state and guarded runtime operations."""
 
-    _CONFIG_SWITCHES = {
+    _CONFIG_SWITCHES: ClassVar[dict[str, str]] = {
         "idle": "motion_enabled",
         "face_tracking": "face_tracking_enabled",
         "doa_tracking": "doa_enabled",
         "continuous_conversation": "continuous_conversation",
     }
-    _POSE_AXES = {
+    _POSE_AXES: ClassVar[dict[str, str]] = {
         "head_x": "x",
         "head_y": "y",
         "head_z": "z",
@@ -1183,6 +1227,7 @@ class HomeAssistantBridge:
         self._error = ""
         self._zeroconf: Zeroconf | None = None
         self._service: ServiceInfo | None = None
+        self._bind_address = ""
 
     @property
     def connected(self) -> bool:
@@ -1199,6 +1244,7 @@ class HomeAssistantBridge:
             "controls_enabled": self.config.home_assistant_controls_enabled,
             "device_name": self.identity.name,
             "port": self.config.home_assistant_port,
+            "bind_address": self._bind_address,
             "error": self._error,
         }
 
@@ -1217,9 +1263,11 @@ class HomeAssistantBridge:
         self._loop = loop
         asyncio.set_event_loop(loop)
         try:
+            self._bind_address = _trusted_lan_ipv4()
             self._running = loop.run_until_complete(
                 start_esphome_server(
                     self.provider,
+                    host=self._bind_address,
                     port=self.config.home_assistant_port,
                     advertise=False,
                     assist_enabled=self.config.home_assistant_assist_enabled,
@@ -1242,7 +1290,7 @@ class HomeAssistantBridge:
             self._closed.set()
 
     def _register_mdns(self) -> None:
-        address = _local_ipv4()
+        address = self._bind_address
         if not address:
             _LOGGER.warning("Home Assistant mDNS advertisement skipped: no LAN IPv4 address")
             return
@@ -1326,6 +1374,19 @@ class HomeAssistantBridge:
             lambda: [protocol.voice_announcement_finished() for protocol in tuple(running.protocols)]
         )
         return True
+
+
+def _trusted_lan_ipv4() -> str:
+    address = _local_ipv4()
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError as exc:
+        raise RuntimeError("Home Assistant bridge could not determine a LAN IPv4 address") from exc
+    if not isinstance(parsed, ipaddress.IPv4Address) or not any(
+        parsed in network for network in _PRIVATE_LAN_NETWORKS
+    ):
+        raise RuntimeError(f"Home Assistant bridge refuses non-private bind address {address or '<none>'}")
+    return address
 
 
 def _local_ipv4() -> str:

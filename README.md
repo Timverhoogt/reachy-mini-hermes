@@ -98,7 +98,7 @@ The bridge is deliberately layered:
 - **Camera:** separate opt-in; snapshots still pass the same Meeting, Sleep, Kids and size checks as the local app.
 - **Assist satellite:** separate opt-in; local wake spotting stays on Reachy, then 16 kHz PCM is streamed to the connected Home Assistant Assist pipeline. HA owns STT, intent and TTS for that turn instead of Hermes. TTS/media URLs must resolve to the connected HA peer and are size/time bounded.
 
-Enabling the bridge preserves the existing `Reachy Mini E79627` entity registry on Tim's reference robot. It does not emulate ESP32 hardware; it implements the ESPHome native API directly on the Reachy host, which is the same mechanism Home Assistant sees from the original app. Keep port `6053` limited to a trusted LAN/VPN.
+Enabling the bridge preserves the existing `Reachy Mini E79627` entity registry on Tim's reference robot. It does not emulate ESP32 hardware; it implements the ESPHome native API directly on the Reachy host, which is the same mechanism Home Assistant sees from the original app. To preserve that existing plaintext ESPHome entry, the bridge does not add Noise/PSK encryption. It therefore refuses wildcard, public and Tailscale/CGNAT binds and listens only on the detected RFC1918 LAN address (`10/8`, `172.16/12` or `192.168/16`). Treat that LAN as trusted and use host/network firewall policy to restrict TCP `6053` to Home Assistant.
 
 ## Conversation modes
 

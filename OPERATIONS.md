@@ -156,12 +156,12 @@ Source tests and browser simulation do not constitute physical acceptance. Recor
 
 1. Stop the old Reachy Home Assistant app so only one process can bind TCP `6053`.
 2. Enable only **ESPHome device bridge**, restart Reachy Hermes, and keep Assist, camera, and robot controls disabled.
-3. Confirm `runtime.home_assistant.ready=true`, `connected=true`, device name `Reachy Mini E79627`, and no bridge error. Verify Home Assistant reconnects the existing device rather than creating a duplicate.
-4. Confirm live daemon, pose and system entities update. IMU, gesture, face-detection, antenna and Look At entities must remain unavailable when their source or guarded implementation is absent—never fake zero.
+3. Confirm `runtime.home_assistant.ready=true`, `connected=true`, device name `Reachy Mini E79627`, and no bridge error. Verify `runtime.home_assistant.bind_address` is Reachy's RFC1918 LAN address and `ss -ltn` shows `LAN_IP:6053`, never `0.0.0.0:6053`, a public address or the Tailscale/CGNAT address. Restrict inbound TCP `6053` to Home Assistant with the host/network firewall.
+4. Verify Home Assistant reconnects the existing device rather than creating a duplicate and that live daemon, pose and system entities update. IMU, gesture, face-detection and Look At entities must remain unavailable when their source or guarded implementation is absent—never fake zero.
 5. With controls disabled, send number/select/switch commands and verify no robot movement. Then locally enable controls, put Reachy Awake with clear space and supervision, and test only one ≤10-unit relative pose change. Standby, Kids, Meeting, Sleep, busy motion, camera control and >10-unit jumps must fail closed.
 6. Enable HA camera locally, request one image, visually inspect it, then verify Kids, Meeting and Sleep disable capture. Disable the camera again.
 7. Enable Assist only for supervised acoustic testing. Verify local wake, HA listening/thinking/speaking states, 16 kHz audio, same-peer TTS playback, Stop/privacy interruption, disconnect recovery and optional follow-up. Hermes and HA must never own microphone turns simultaneously.
-8. Return to Standby, verify safe fold and torque release, then leave only the intended bridge capabilities enabled. Keep TCP `6053` restricted to the trusted LAN/VPN.
+8. Return to Standby, verify safe fold and torque release, then leave only the intended bridge capabilities enabled. This compatibility endpoint is plaintext; keep the RFC1918 LAN trusted and the TCP `6053` firewall restriction in place.
 
 In Standby, `audio_frames_processed` should increase while daemon motor mode remains `disabled`. In Meeting or Sleep, the frame count should stop increasing.
 

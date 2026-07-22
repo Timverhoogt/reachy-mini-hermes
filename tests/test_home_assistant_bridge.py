@@ -12,6 +12,7 @@ import pytest
 from aioesphomeapi import APIClient
 from aioesphomeapi.model import CameraState, VoiceAssistantEventType
 
+from reachy_mini_hermes import home_assistant as home_assistant_module
 from reachy_mini_hermes.config import AppConfig
 from reachy_mini_hermes.home_assistant import (
     ENTITY_KEYS,
@@ -66,6 +67,16 @@ def test_home_assistant_config_is_opt_in_and_voice_is_separate() -> None:
     assert config.home_assistant_camera_enabled is False
     assert config.home_assistant_assist_enabled is False
     assert config.home_assistant_port == 6053
+
+
+def test_home_assistant_live_bridge_refuses_non_rfc1918_bind(monkeypatch) -> None:
+    monkeypatch.setattr(home_assistant_module, "_local_ipv4", lambda: "192.168.68.43")
+    assert home_assistant_module._trusted_lan_ipv4() == "192.168.68.43"
+
+    for address in ("0.0.0.0", "100.103.93.17", "203.0.113.4", ""):
+        monkeypatch.setattr(home_assistant_module, "_local_ipv4", lambda address=address: address)
+        with pytest.raises(RuntimeError, match="private bind address|determine a LAN"):
+            home_assistant_module._trusted_lan_ipv4()
 
 
 def test_default_identity_matches_existing_reachy_esphome_device(tmp_path: Path) -> None:
@@ -460,6 +471,58 @@ def test_real_aioesphome_client_sees_compatible_device_entities_states_and_camer
                 await asyncio.sleep(0.02)
             assert ("body_yaw", 15.0) in provider.commands
         finally:
+            try:
+                await client.disconnect(force=True)
+            except Exception:
+                pass
+            await running.close()
+
+    asyncio.run(scenario())
+
+
+def test_slow_camera_capture_does_not_block_protocol_requests() -> None:
+    async def scenario() -> None:
+        class SlowCameraProvider(FakeProvider):
+            def __init__(self) -> None:
+                super().__init__()
+                self.image = b"\xff\xd8slow-camera\xff\xd9"
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def camera_image(self) -> bytes | None:
+                self.started.set()
+                if not self.release.wait(2.0):
+                    raise RuntimeError("test camera release timed out")
+                return self.image
+
+        provider = SlowCameraProvider()
+        running = await start_esphome_server(
+            provider,
+            host="127.0.0.1",
+            port=0,
+            advertise=False,
+            assist_enabled=False,
+            identity=DeviceIdentity("Reachy Mini E79627", "reachy-mini-e79627", "1643b6e79627"),
+        )
+        client = APIClient("127.0.0.1", running.port, None, client_info="reachy-hermes-nonblocking-test")
+        states: list[object] = []
+        try:
+            await client.connect(login=True)
+            client.subscribe_states(states.append)
+            client.request_single_image()
+            assert await asyncio.to_thread(provider.started.wait, 1.0)
+
+            info = await asyncio.wait_for(client.device_info(), timeout=0.25)
+            assert info.name == "Reachy Mini E79627"
+
+            provider.release.set()
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and not any(isinstance(state, CameraState) for state in states):
+                await asyncio.sleep(0.02)
+            camera = cast(CameraState, next(state for state in states if isinstance(state, CameraState)))
+            assert camera.data == provider.image
+        finally:
+            provider.release.set()
             try:
                 await client.disconnect(force=True)
             except Exception:
