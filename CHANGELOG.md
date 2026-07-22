@@ -20,12 +20,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bluetooth/controller operational guidance, service-account permissions, explicit Reachy Mini Wireless-only hardware scope, security boundaries, and hardware-free regression tests.
 - Optional camera-feed thumb joystick with separate off-by-default opt-in, left/right placement, dead zone, spring-return visuals, keyboard support, in-overlay Stop, explicit head/base Center, native and fallback fullscreen handling, and mobile safe-area layout.
 - Gesture-bound camera-control API sessions with random identifiers, monotonic anti-replay sequences, bounded finite pan/tilt, cancellable head interpolation, server-owned base assistance, release-to-hold, settings/power/privacy/Kids revocation, and generic-control ownership exclusion.
+- Optional ESPHome-native Home Assistant bridge on TCP 6053 with the existing stable Reachy device/entity identity, mDNS discovery, real telemetry, truthful unavailable states, and independently gated controls and camera snapshots.
+- Opt-in Home Assistant Assist ownership after local wake detection, including 16 kHz PCM streaming, HA pipeline state/motion cues, bounded same-peer TTS/media playback, announcements, follow-up support, and privacy/disconnect/timeout cancellation.
 
 ### Changed
 
 - Kids I Spy now retains five bounded viewpoints across a 240° base arc, uses non-capturing 60° transit waypoints, revokes camera access before its neutral return, and keeps the head aligned with the base.
 - Manual base control now uses separate 5°/15°/30°/60° steps, clear-space confirmation for wide turns, coupled head yaw, and a ±120° application limit inside the SDK's ±160° range.
 - Camera joystick motion now follows a Pollen-inspired 20 Hz smoothed target stream: horizontal input rotates the head and base together, vertical input tilts the head, and a short watchdog stops abandoned browser gestures.
+- PWA shell advanced to v35 for the Home Assistant bridge settings and live connection status.
 - Fullscreen Exit uses explicit horizontal and vertical centering, and the PWA shell advances to v34 for the new controls.
 - PWA shell advanced to v33 for the pinned joystick geometry and stable status layout.
 - PWA shell advanced to v32 for the camera-control overlay and fullscreen-safe controls.
@@ -38,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 323 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 337 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 

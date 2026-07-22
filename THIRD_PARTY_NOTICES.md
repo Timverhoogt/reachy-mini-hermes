@@ -1,4 +1,15 @@
-# Third-party notices for the local camera viewer
+# Third-party notices
+
+The Home Assistant ESPHome wire framing and stable entity-key compatibility were
+implemented with reference to the Reachy Mini Home Assistant app:
+
+- Project: https://huggingface.co/spaces/djhui5710/reachy_mini_home_assistant
+- Reference commit: `c5fd1f522ab44e8e9feb2897d4018027a8afb063`
+- License: Apache License 2.0
+
+The Hermes implementation is rewritten around its existing serialized robot
+action controller, local opt-in gates, truthful unavailable states, same-peer
+media validation, and mutually exclusive Hermes/Home Assistant voice ownership.
 
 The camera joystick's 20 Hz target-stream cadence and drag-start geometry were
 adapted from the official Pollen Robotics Reachy Mini Control controller module:

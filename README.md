@@ -48,6 +48,7 @@ An extensible, all-in-one companion and control app for Reachy Mini: local wake 
 | Local dashboard, privacy/power states and app lifecycle | ✅ | ✅ | optional | Reference-tested on Lite + Pi 4; each robot needs physical acceptance. |
 | Guarded wake, bounded movement, Stop and fold-before-torque-off | ✅ | ✅ | optional | ✅ Reference-tested; clear-space and fold checks remain mandatory. |
 | Local live camera viewer | ✅ | ✅ | optional | ✅ Explicit opt-in, trusted local UI, no Hermes/OpenAI route. |
+| Home Assistant ESPHome device bridge | ◐ | ◐ | optional | Off by default; preserves the existing Reachy device/entity identity on TCP 6053. Telemetry is read-only unless separate local controls/camera opt-ins are enabled. Assist voice requires supervised acceptance. |
 | Camera-feed thumb joystick | ✅ | ✅ | optional | ◐ Implemented off by default with gesture-bound anti-replay, release-to-hold, explicit Center and Stop; supervised physical acceptance is still required. |
 | One-frame visual request | — | — | ✅ | ◐ Requires camera opt-in, an active Realtime session and provider acceptance. |
 | Announcements and adult voice conversation | — | — | ✅ | ◐ Requires configured private bridge and speech/model providers. |
@@ -85,6 +86,19 @@ An extensible, all-in-one companion and control app for Reachy Mini: local wake 
 | Real project UI with synthetic status text; not a live-robot claim. | Real project UI with synthetic status text; movement still requires physical acceptance. |
 
 The [official Lite assembly preview](docs/assets/lite-assembly.webp) is also included for setup context. These official images are explanatory hardware references, not evidence that this app passed acceptance on every robot. The UI captures use sanitized demo status and do not imply a live hardware connection. See [image credits, modifications and license notes](docs/IMAGE_CREDITS.md).
+
+## Home Assistant
+
+Reachy Mini Hermes can expose the same stable `Reachy Mini <machine-id suffix>` ESPHome device used by the community Reachy Home Assistant app. Enable **ESPHome device bridge** in the local adult Settings page and restart the Reachy app. Home Assistant connects to TCP `6053` directly or discovers `_esphomelib._tcp.local` over mDNS.
+
+The bridge is deliberately layered:
+
+- **Device bridge:** opt-in; publishes real runtime, pose, diagnostics and compatibility entities. Unsupported IMU/vision values are unavailable rather than fabricated.
+- **Robot controls:** separate opt-in; commands are accepted only when Reachy is already Awake, motors are confirmed, Kids/privacy modes are clear, the action worker is idle, and the requested relative step is bounded. HA never wakes Reachy or releases torque implicitly.
+- **Camera:** separate opt-in; snapshots still pass the same Meeting, Sleep, Kids and size checks as the local app.
+- **Assist satellite:** separate opt-in; local wake spotting stays on Reachy, then 16 kHz PCM is streamed to the connected Home Assistant Assist pipeline. HA owns STT, intent and TTS for that turn instead of Hermes. TTS/media URLs must resolve to the connected HA peer and are size/time bounded.
+
+Enabling the bridge preserves the existing `Reachy Mini E79627` entity registry on Tim's reference robot. It does not emulate ESP32 hardware; it implements the ESPHome native API directly on the Reachy host, which is the same mechanism Home Assistant sees from the original app. Keep port `6053` limited to a trusted LAN/VPN.
 
 ## Conversation modes
 
@@ -128,6 +142,7 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - One `ask_hermes` Realtime delegation tool: normal Hermes routing in Conversation profile and a fixed owner-scoped T0–T3 broker in adult Agent profile.
 - Curated Realtime embodiment tools for looking, emotions, and authentic recorded Reachy dances.
 - Optional daemon-local face following, active only after the wake phrase for the current conversation.
+- Optional ESPHome-native Home Assistant bridge with stable existing entity keys, mDNS discovery, truthful unavailable states, independently gated robot/camera access, HA media announcements, and an opt-in Assist satellite audio path.
 - Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
 - Privacy-preserving cameras: one JPEG is captured only when a visual request needs it, while an independent opt-in UI viewer connects directly to Reachy's local WebRTC feed.
 - Optional supervised camera-feed joystick: each pointer or keyboard gesture receives a fresh random server session, bounded pan/tilt uses small cancellable head steps with base assistance near the yaw edge, release holds the measured view, Center is explicit, and Stop/privacy/power/Kids/feed transitions invalidate delayed commands. The overlay remains off until both live camera and camera movement controls are enabled.

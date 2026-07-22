@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reachy_mini_hermes"
-version = "0.2.0"
+version = "0.3.0"
 description = "Extensible Reachy Mini companion app with local controls and optional Hermes Agent integration"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "Tim Verhoogt and contributors" }]
 dependencies = [
+    "aioesphomeapi>=45.6,<46",
     "evdev==1.9.3",
     "httpx>=0.28,<1",
     "mutagen>=1.47,<2",

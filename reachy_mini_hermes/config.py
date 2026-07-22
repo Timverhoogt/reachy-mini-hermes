@@ -61,6 +61,11 @@ class AppConfig:
     face_tracking_weight: float = 0.65
     doa_enabled: bool = False
     robot_tools_enabled: bool = True
+    home_assistant_enabled: bool = False
+    home_assistant_controls_enabled: bool = False
+    home_assistant_camera_enabled: bool = False
+    home_assistant_assist_enabled: bool = False
+    home_assistant_port: int = 6053
     gamepad_enabled: bool = False
     agent_tools_enabled: bool = True
     power_tools_enabled: bool = True
@@ -126,6 +131,14 @@ class AppConfig:
             raise ValueError("Unsupported realtime reasoning effort")
         if self.camera_controls_handedness not in {"left", "right"}:
             raise ValueError("Unsupported camera control handedness")
+        if not 1024 <= int(self.home_assistant_port) <= 65535:
+            raise ValueError("home_assistant_port must be between 1024 and 65535")
+        if self.home_assistant_assist_enabled and not self.home_assistant_enabled:
+            raise ValueError("Home Assistant Assist requires the Home Assistant bridge")
+        if self.home_assistant_camera_enabled and not self.home_assistant_enabled:
+            raise ValueError("Home Assistant camera requires the Home Assistant bridge")
+        if self.home_assistant_controls_enabled and not self.home_assistant_enabled:
+            raise ValueError("Home Assistant controls require the Home Assistant bridge")
         if self.kids_mode_enabled:
             if self.kids_age_band not in {"4-6", "7-9", "10-12"}:
                 raise ValueError("Unsupported Kids Mode age band")

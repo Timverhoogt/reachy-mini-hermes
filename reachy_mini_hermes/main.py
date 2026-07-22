@@ -62,6 +62,11 @@ class SettingsUpdate(BaseModel):
     face_tracking_weight: float | None = Field(default=None, ge=0, le=1)
     doa_enabled: bool | None = None
     robot_tools_enabled: bool | None = None
+    home_assistant_enabled: bool | None = None
+    home_assistant_controls_enabled: bool | None = None
+    home_assistant_camera_enabled: bool | None = None
+    home_assistant_assist_enabled: bool | None = None
+    home_assistant_port: int | None = Field(default=None, ge=1024, le=65535)
     realtime_model: str | None = None
     realtime_voice: str | None = None
     realtime_reasoning_effort: str | None = None
