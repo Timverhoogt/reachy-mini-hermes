@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=31" />
+  <link rel="stylesheet" href="/static/style.css?v=34" />
 </head>
 <body>
   <main>
@@ -457,6 +457,19 @@
               <span>PRIVATE LINK // NO CLOUD VIDEO</span>
             </div>
           </div>
+          <div id="camera-control-overlay" class="camera-control-overlay" data-handedness="right" hidden>
+            <button type="button" id="camera-control-fullscreen-exit" class="camera-overlay-exit secondary">Exit fullscreen</button>
+            <button type="button" id="camera-control-stop" class="camera-overlay-stop danger" aria-label="Emergency Stop camera movement">Stop movement</button>
+            <div class="camera-control-cluster">
+              <div id="camera-joystick" class="camera-joystick" role="application" tabindex="0" aria-label="Camera pan and tilt joystick" aria-describedby="camera-control-help">
+                <span class="camera-joystick-crosshair" aria-hidden="true"></span>
+                <span id="camera-joystick-knob" class="camera-joystick-knob" aria-hidden="true"></span>
+              </div>
+              <span id="camera-control-help" class="sr-only">Drag or use arrow keys to pan and tilt. Releasing holds the current measured view.</span>
+              <button type="button" id="camera-control-center" class="camera-center-button">Center head &amp; base</button>
+              <span id="camera-control-status" class="camera-control-status" role="status">Release holds the current view</span>
+            </div>
+          </div>
           <div class="camera-placeholder" aria-hidden="true">
             <span class="camera-placeholder-icon">●</span>
             <span>Camera off</span>
@@ -532,6 +545,8 @@
               <label class="toggle-row"><span><strong>Interruption</strong><small>Pipeline wake-phrase interruption or natural Realtime barge-in</small></span><input id="barge_in_enabled" name="barge_in_enabled" type="checkbox" checked /></label>
               <label class="toggle-row"><span><strong>On-demand camera</strong><small>Realtime captures one frame only for an explicit visual request</small></span><input id="camera_enabled" name="camera_enabled" type="checkbox" /></label>
               <label class="toggle-row"><span><strong>Local live camera</strong><small>Allow this UI to connect directly to Reachy's local WebRTC video while Awake</small></span><input id="camera_feed_enabled" name="camera_feed_enabled" type="checkbox" /></label>
+              <label class="toggle-row"><span><strong>Camera movement controls</strong><small>Optional supervised joystick over the live feed. Off by default; release holds the current view.</small></span><input id="camera_controls_enabled" name="camera_controls_enabled" type="checkbox" /></label>
+              <label>Joystick hand<select id="camera_controls_handedness" name="camera_controls_handedness"><option value="right">Right</option><option value="left">Left</option></select><small>Place the thumb control on the selected side of the live image.</small></label>
             </div>
           </details>
 
@@ -566,7 +581,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=31"></script>
-  <script src="/static/main.js?v=31"></script>
+  <script src="/static/camera.js?v=34"></script>
+  <script src="/static/main.js?v=34"></script>
 </body>
 </html>

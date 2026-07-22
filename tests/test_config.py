@@ -40,6 +40,8 @@ def test_embodiment_features_are_explicit_and_privacy_bounded_by_default() -> No
 
     assert config.face_tracking_enabled is False
     assert config.camera_feed_enabled is False
+    assert config.camera_controls_enabled is False
+    assert config.camera_controls_handedness == "right"
     assert config.face_tracking_weight == 0.65
     assert config.doa_enabled is False
     assert config.robot_tools_enabled is True

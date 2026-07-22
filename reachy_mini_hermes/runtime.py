@@ -35,6 +35,7 @@ from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
 from .robot_tools import (
+    CameraJoystickStream,
     ReachyRobotActions,
     completed_robot_tool_call,
     manual_precision_action,
@@ -261,6 +262,11 @@ class HermesVoiceRuntime:
         self._motors_enabled: bool | None = None
         self._head_safely_folded = False
         self._camera_lock = threading.Lock()
+        self._camera_control_lock = threading.RLock()
+        self._camera_control_session_id = ""
+        self._camera_control_last_sequence = 0
+        self._camera_control_last_activity = 0.0
+        self._camera_control_stream: CameraJoystickStream | None = None
         self._power_mode = "standby"
         self._meeting_until = 0.0
         self._recording = False
@@ -322,6 +328,7 @@ class HermesVoiceRuntime:
         mode = mode.strip().lower()
         if mode not in _POWER_MODES:
             raise ValueError(f"Unsupported power mode: {mode}")
+        self.revoke_camera_control()
         if mode in {"standby", "meeting", "sleep"}:
             self.cancel_agent_work(f"power_{mode}")
         if cancel_announcements and mode in {"standby", "meeting", "sleep"}:
@@ -554,6 +561,8 @@ class HermesVoiceRuntime:
         payload["robot_action_busy"] = bool(self._actions and self._actions.pending_count)
         payload["motors_enabled"] = self._motors_enabled
         payload["head_safely_folded"] = self._head_safely_folded
+        with self._camera_control_lock:
+            payload["camera_control_active"] = bool(self._camera_control_session_id)
         payload["announcement_queue_depth"] = self._announcement_queue.qsize()
         with self._agent_lock:
             payload["agent"] = self._agent_status_unlocked()
@@ -825,6 +834,7 @@ class HermesVoiceRuntime:
             raise RuntimeError("Kids Mode is blocked in Meeting and Sleep")
         if not self._audio_ready:
             raise RuntimeError("Kids Mode audio is not ready")
+        self.revoke_camera_control()
         with self._kids_lock:
             # Keep the Kids guard while invalidating Agent work and forcing the
             # conversation profile, matching set_capability_profile's lock order.
@@ -1296,22 +1306,25 @@ class HermesVoiceRuntime:
         with self._kids_lock:
             if self._kids_active:
                 raise RuntimeError("Manual robot controls are blocked while Kids Mode is active")
-        with self._motor_transition_lock:
-            mode = self._effective_power_mode()
-            if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
-                raise RuntimeError("Manual robot control is blocked in Meeting and Sleep")
-            if self._actions is None:
-                raise RuntimeError("Robot action controller is not ready")
-            if mode == "standby":
-                self.set_power_mode("awake")
-            if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
-                raise RuntimeError("Manual robot control requires confirmed Awake motor torque")
-            result = self._actions.enqueue(
-                name,
-                arguments,
-                hold_pose=action.strip().lower() == "look",
-                reject_if_busy=True,
-            )
+            with self._motor_transition_lock:
+                mode = self._effective_power_mode()
+                if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
+                    raise RuntimeError("Manual robot control is blocked in Meeting and Sleep")
+                if self._actions is None:
+                    raise RuntimeError("Robot action controller is not ready")
+                if mode == "standby":
+                    self.set_power_mode("awake")
+                if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
+                    raise RuntimeError("Manual robot control requires confirmed Awake motor torque")
+                with self._camera_control_lock:
+                    if self._camera_control_session_id:
+                        raise RuntimeError("Manual robot controls are blocked during camera control")
+                    result = self._actions.enqueue(
+                        name,
+                        arguments,
+                        hold_pose=action.strip().lower() == "look",
+                        reject_if_busy=True,
+                    )
             if not result.get("accepted"):
                 raise RuntimeError(str(result.get("error") or "Robot action could not be queued"))
             _LOGGER.info("Manual robot control queued: %s %s", action, value)
@@ -1361,33 +1374,190 @@ class HermesVoiceRuntime:
         except Exception as exc:
             raise RuntimeError(f"Could not read Reachy pose: {exc}") from exc
 
+    def _assert_camera_control_policy(self) -> None:
+        if self._kids_active or self._kids_locked:
+            raise RuntimeError("Camera controls are blocked while Kids Mode is active or locked")
+        if self._effective_power_mode() != "awake" or self._privacy_requested.is_set():
+            raise RuntimeError("Camera controls require confirmed Awake outside privacy modes")
+        if self._motors_enabled is not True:
+            raise RuntimeError("Camera controls require confirmed Awake motor torque")
+        if self._actions is None:
+            raise RuntimeError("Robot action controller is not ready")
+
+    def _validate_camera_control_session(self, session_id: str, sequence: int) -> None:
+        now = time.monotonic()
+        if not self._camera_control_session_id or session_id != self._camera_control_session_id:
+            raise RuntimeError("Camera control session is not active")
+        if now - self._camera_control_last_activity > 30.0:
+            self._camera_control_session_id = ""
+            raise RuntimeError("Camera control session expired")
+        if sequence <= self._camera_control_last_sequence:
+            raise RuntimeError("Camera control sequence is stale or replayed")
+        self._camera_control_last_sequence = sequence
+        self._camera_control_last_activity = now
+
+    def start_camera_control(
+        self,
+        *,
+        camera_feed_enabled: bool,
+        controls_enabled: bool,
+        adult_ui_unlocked: bool,
+    ) -> dict[str, object]:
+        """Create a short-lived, owner-initiated movement session for one pointer gesture."""
+        if not adult_ui_unlocked:
+            raise RuntimeError("Camera controls require an unlocked adult UI")
+        if not camera_feed_enabled or not controls_enabled:
+            raise RuntimeError("Camera feed and camera movement controls must both be enabled")
+        with self._kids_lock:
+            with self._motor_transition_lock:
+                self._assert_camera_control_policy()
+                assert self._actions is not None
+                if self._actions.busy or self._actions.pending_count:
+                    raise RuntimeError("Robot is busy")
+                with self._camera_control_lock:
+                    pose = self.robot_pose()
+                    stream = CameraJoystickStream()
+                    result = self._actions.enqueue(
+                        "camera_joystick",
+                        {"stream": stream, "body_yaw_degrees": pose["body_yaw"]},
+                        hold_pose=True,
+                        reject_if_busy=True,
+                    )
+                    if not result.get("accepted"):
+                        raise RuntimeError(str(result.get("error") or "Camera movement could not start"))
+                    self._camera_control_session_id = f"camera-{secrets.token_hex(16)}"
+                    self._camera_control_last_sequence = 0
+                    self._camera_control_last_activity = time.monotonic()
+                    self._camera_control_stream = stream
+                    return {"ok": True, "session_id": self._camera_control_session_id}
+
+    def queue_camera_control(
+        self,
+        session_id: str,
+        sequence: int,
+        pan: float,
+        tilt: float,
+    ) -> dict[str, object]:
+        """Queue one bounded joystick increment for the active pointer gesture."""
+        if any(isinstance(value, bool) for value in (pan, tilt)) or not all(
+            math.isfinite(value) and -1.0 <= value <= 1.0 for value in (pan, tilt)
+        ):
+            raise RuntimeError("Camera control input must be finite and between -1 and 1")
+        with self._kids_lock:
+            with self._motor_transition_lock:
+                self._assert_camera_control_policy()
+                with self._camera_control_lock:
+                    self._validate_camera_control_session(session_id, sequence)
+                    stream = self._camera_control_stream
+                    if stream is None:
+                        raise RuntimeError("Camera joystick stream is not active")
+                    stream.update(float(pan), float(tilt))
+                return {"ok": True, "sequence": sequence, "accepted": True, "streamed": True}
+
+    def center_camera_control(self, session_id: str, sequence: int) -> dict[str, object]:
+        """Explicitly return the camera head and body yaw to neutral."""
+        with self._kids_lock:
+            with self._motor_transition_lock:
+                self._assert_camera_control_policy()
+                with self._camera_control_lock:
+                    self._validate_camera_control_session(session_id, sequence)
+                    assert self._actions is not None
+                    stream = self._camera_control_stream
+                    self._camera_control_stream = None
+                    pose = self.robot_pose()
+                    if stream is not None:
+                        stream.stop(hold_body_yaw_degrees=pose["body_yaw"])
+                    self._actions.cancel(stop_media=False)
+                    if not self._actions.wait_idle(timeout=1.0):
+                        raise RuntimeError("Camera movement did not stop before Center")
+                    result = self._actions.enqueue(
+                        "nudge_reachy",
+                        {"axis": "center_all", "delta": 0.0, "body_yaw_degrees": pose["body_yaw"]},
+                        hold_pose=True,
+                        reject_if_busy=True,
+                    )
+                if not result.get("accepted"):
+                    raise RuntimeError(str(result.get("error") or "Camera center movement could not be queued"))
+                if not self._actions.wait_idle(timeout=5.0):
+                    raise RuntimeError("Camera center movement did not complete in time")
+                return {"ok": True, "sequence": sequence, **result}
+
+    def end_camera_control(self, session_id: str, sequence: int) -> dict[str, object]:
+        """Invalidate one pointer gesture and freeze the current measured viewpoint."""
+        with self._camera_control_lock:
+            self._validate_camera_control_session(session_id, sequence)
+            self._camera_control_session_id = ""
+            stream = self._camera_control_stream
+            self._camera_control_stream = None
+        if self._actions is None:
+            raise RuntimeError("Robot action controller is not ready")
+        if stream is not None:
+            try:
+                stream.stop(hold_body_yaw_degrees=self.robot_pose()["body_yaw"])
+            except RuntimeError:
+                stream.stop()
+        self._actions.cancel(stop_media=False)
+        held = self._actions.wait_idle(timeout=1.0)
+        if not held:
+            raise RuntimeError("Camera movement did not stop in time")
+        return {"ok": True, "held": True}
+
+    def invalidate_camera_control(self) -> None:
+        """Reject delayed gesture packets after Stop, privacy, power, or session changes."""
+        with self._camera_control_lock:
+            stream = self._camera_control_stream
+            self._camera_control_stream = None
+            self._camera_control_session_id = ""
+            self._camera_control_last_sequence = 0
+            self._camera_control_last_activity = 0.0
+        if stream is not None:
+            stream.stop()
+
+    def revoke_camera_control(self) -> None:
+        """Invalidate an active gesture and cooperatively freeze its movement."""
+        with self._camera_control_lock:
+            was_active = bool(self._camera_control_session_id)
+            stream = self._camera_control_stream
+            self._camera_control_stream = None
+            self._camera_control_session_id = ""
+            self._camera_control_last_sequence = 0
+            self._camera_control_last_activity = 0.0
+        if stream is not None:
+            stream.stop()
+        if was_active and self._actions is not None:
+            self._actions.cancel(stop_media=False)
+            self._actions.wait_idle(timeout=1.0)
+
     def queue_precision_robot_action(self, axis: str, delta: float) -> dict[str, object]:
         """Queue one bounded Cartesian nudge after confirmed motor wake."""
         with self._kids_lock:
             if self._kids_active:
                 raise RuntimeError("Precision robot controls are blocked while Kids Mode is active")
-        with self._motor_transition_lock:
-            mode = self._effective_power_mode()
-            if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
-                raise RuntimeError("Precision robot control is blocked in Meeting and Sleep")
-            if self._actions is None:
-                raise RuntimeError("Robot action controller is not ready")
-            if mode == "standby":
-                self.set_power_mode("awake")
-            if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
-                raise RuntimeError("Precision robot control requires confirmed Awake motor torque")
-            pose = self.robot_pose()
-            name, arguments = manual_precision_action(
-                axis,
-                delta,
-                body_yaw_degrees=pose["body_yaw"],
-            )
-            result = self._actions.enqueue(
-                name,
-                arguments,
-                hold_pose=True,
-                reject_if_busy=True,
-            )
+            with self._motor_transition_lock:
+                mode = self._effective_power_mode()
+                if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
+                    raise RuntimeError("Precision robot control is blocked in Meeting and Sleep")
+                if self._actions is None:
+                    raise RuntimeError("Robot action controller is not ready")
+                if mode == "standby":
+                    self.set_power_mode("awake")
+                if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
+                    raise RuntimeError("Precision robot control requires confirmed Awake motor torque")
+                with self._camera_control_lock:
+                    if self._camera_control_session_id:
+                        raise RuntimeError("Precision robot controls are blocked during camera control")
+                    pose = self.robot_pose()
+                    name, arguments = manual_precision_action(
+                        axis,
+                        delta,
+                        body_yaw_degrees=pose["body_yaw"],
+                    )
+                    result = self._actions.enqueue(
+                        name,
+                        arguments,
+                        hold_pose=True,
+                        reject_if_busy=True,
+                    )
             if not result.get("accepted"):
                 raise RuntimeError(str(result.get("error") or "Precision movement could not be queued"))
             _LOGGER.info("Precision robot movement queued: %s %s", axis, delta)
@@ -1404,6 +1574,7 @@ class HermesVoiceRuntime:
         # Every physical Stop entry point (PWA, gamepad, or future local control)
         # must invalidate agent work before checking motion-controller readiness.
         self.cancel_agent_work("emergency_stop")
+        self.invalidate_camera_control()
         if self._actions is None:
             raise RuntimeError("Robot action controller is not ready")
         pending_before = self._actions.pending_count

@@ -21,7 +21,7 @@ ROBOT_TOOL_NAMES = frozenset(
         "dance_reachy",
     }
 )
-_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {"nudge_reachy"}
+_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {"nudge_reachy", "camera_joystick"}
 _PRECISION_AXES = frozenset(
     {"x", "y", "z", "roll", "pitch", "yaw", "body_yaw", "center_head", "center_base", "center_all"}
 )
@@ -36,6 +36,22 @@ _HEAD_LIMITS = {
 _BODY_YAW_LIMIT = (-120.0, 120.0)
 _BODY_YAW_STEP_LIMIT = 60.0
 _HEAD_BODY_YAW_DELTA_LIMIT = 65.0
+_CAMERA_HEAD_YAW_SOFT_LIMIT = 28.0
+_CAMERA_HEAD_YAW_LIMIT = 35.0
+_CAMERA_PAN_STEP = 3.0
+_CAMERA_TILT_STEP = 2.0
+_CAMERA_BODY_STEP = 2.0
+_CAMERA_STREAM_PERIOD = 1.0 / 20.0
+_CAMERA_STREAM_SMOOTHING_SECONDS = 0.12
+_CAMERA_STREAM_PAN_SPEED = 45.0
+_CAMERA_STREAM_TILT_SPEED = 35.0
+
+
+def _cancelled_action_result(name: str) -> dict[str, object]:
+    if name == "camera_joystick":
+        return {"ok": True, "cancelled": True, "action": name}
+    return {"ok": False, "error": "Robot action was cancelled", "action": name}
+
 
 _LOOK_POSES: dict[str, dict[str, float]] = {
     "left": {"yaw": 35.0},
@@ -139,6 +155,60 @@ def _head_pose_components(pose: object) -> dict[str, float]:
 
 def _clamp(value: float, limits: tuple[float, float]) -> float:
     return max(limits[0], min(limits[1], value))
+
+
+@dataclass(frozen=True, slots=True)
+class CameraJoystickSnapshot:
+    """Atomic browser joystick state consumed by the 20 Hz robot action."""
+
+    active: bool
+    pan: float
+    tilt: float
+    hold_body_yaw_degrees: float | None
+
+
+class CameraJoystickStream:
+    """Coalesce one gesture's browser updates with a short fail-closed watchdog."""
+
+    def __init__(self, *, watchdog_seconds: float = 0.75) -> None:
+        self._lock = threading.Lock()
+        self._watchdog_seconds = max(0.05, float(watchdog_seconds))
+        self._active = True
+        self._pan = 0.0
+        self._tilt = 0.0
+        self._updated_at = time.monotonic()
+        self._hold_body_yaw_degrees: float | None = None
+
+    def update(self, pan: float, tilt: float) -> None:
+        if any(isinstance(value, bool) for value in (pan, tilt)) or not all(
+            math.isfinite(value) and -1.0 <= value <= 1.0 for value in (pan, tilt)
+        ):
+            raise ValueError("Camera joystick input must be finite and bounded")
+        with self._lock:
+            if not self._active:
+                raise RuntimeError("Camera joystick stream is not active")
+            self._pan = float(pan)
+            self._tilt = float(tilt)
+            self._updated_at = time.monotonic()
+
+    def stop(self, *, hold_body_yaw_degrees: float | None = None) -> None:
+        with self._lock:
+            self._active = False
+            self._pan = 0.0
+            self._tilt = 0.0
+            self._hold_body_yaw_degrees = hold_body_yaw_degrees
+
+    def snapshot(self) -> CameraJoystickSnapshot:
+        with self._lock:
+            if self._active and time.monotonic() - self._updated_at > self._watchdog_seconds:
+                self._active = False
+            active = self._active
+            return CameraJoystickSnapshot(
+                active=active,
+                pan=self._pan if active else 0.0,
+                tilt=self._tilt if active else 0.0,
+                hold_body_yaw_degrees=self._hold_body_yaw_degrees,
+            )
 
 
 def robot_control_options() -> dict[str, list[str]]:
@@ -312,6 +382,68 @@ class ReachyRobotActions:
         with self._state_lock:
             return generation == self._generation and not self._closed.is_set()
 
+    def _run_camera_joystick_stream(
+        self,
+        stream: CameraJoystickStream,
+        *,
+        initial_body_yaw_degrees: float,
+    ) -> dict[str, object]:
+        """Apply one browser gesture as a smoothed 20 Hz head/base target stream."""
+        components = _head_pose_components(self.robot.get_current_head_pose())
+        target_body = _clamp(float(initial_body_yaw_degrees), _BODY_YAW_LIMIT)
+        relative_yaw = _clamp(
+            components["yaw"] - target_body,
+            (-_CAMERA_HEAD_YAW_LIMIT, _CAMERA_HEAD_YAW_LIMIT),
+        )
+        target_head_yaw = target_body + relative_yaw
+        target_pitch = _clamp(components["pitch"], _HEAD_LIMITS["pitch"])
+        smoothed_pan = 0.0
+        smoothed_tilt = 0.0
+        last_update = time.monotonic()
+
+        while True:
+            snapshot = stream.snapshot()
+            cancelled = self._cancel_requested.is_set() or self.stop_event.is_set() or self._closed.is_set()
+            if cancelled or not snapshot.active:
+                hold_body = (
+                    snapshot.hold_body_yaw_degrees
+                    if snapshot.hold_body_yaw_degrees is not None
+                    else target_body
+                )
+                self.robot.set_target_head_pose(self.robot.get_current_head_pose())
+                self.robot.set_target_body_yaw(math.radians(_clamp(hold_body, _BODY_YAW_LIMIT)))
+                return _cancelled_action_result("camera_joystick")
+
+            now = time.monotonic()
+            elapsed = min(0.1, max(0.001, now - last_update))
+            last_update = now
+            alpha = 1.0 - math.exp(-elapsed / _CAMERA_STREAM_SMOOTHING_SECONDS)
+            smoothed_pan += (snapshot.pan - smoothed_pan) * alpha
+            smoothed_tilt += (snapshot.tilt - smoothed_tilt) * alpha
+
+            body_delta = smoothed_pan * _CAMERA_STREAM_PAN_SPEED * elapsed
+            next_body = _clamp(target_body + body_delta, _BODY_YAW_LIMIT)
+            applied_body_delta = next_body - target_body
+            target_body = next_body
+            target_head_yaw = _clamp(target_head_yaw + applied_body_delta, (-180.0, 180.0))
+            target_pitch = _clamp(
+                target_pitch + smoothed_tilt * _CAMERA_STREAM_TILT_SPEED * elapsed,
+                _HEAD_LIMITS["pitch"],
+            )
+            target_head = create_head_pose(
+                x=components["x"],
+                y=components["y"],
+                z=components["z"],
+                roll=components["roll"],
+                pitch=target_pitch,
+                yaw=target_head_yaw,
+                mm=True,
+                degrees=True,
+            )
+            self.robot.set_target_head_pose(target_head)
+            self.robot.set_target_body_yaw(math.radians(target_body))
+            self._cancel_requested.wait(_CAMERA_STREAM_PERIOD)
+
     def execute(self, name: str, arguments: dict[str, object]) -> dict[str, object]:
         """Execute one action synchronously; the worker calls this off the audio loop."""
         if name == "move_reachy_head":
@@ -322,6 +454,77 @@ class ReachyRobotActions:
             target = create_head_pose(**pose, degrees=True)
             self.robot.goto_target(head=target, antennas=None, body_yaw=None, duration=0.6)
             return {"ok": True, "action": name, "direction": direction}
+
+        if name == "camera_joystick":
+            stream = arguments.get("stream")
+            if isinstance(stream, CameraJoystickStream):
+                raw_body_yaw = arguments.get("body_yaw_degrees", 0.0)
+                if isinstance(raw_body_yaw, bool) or not isinstance(raw_body_yaw, (int, float)):
+                    return {"ok": False, "error": "Camera joystick body yaw must be finite"}
+                body_yaw = float(raw_body_yaw)
+                if not math.isfinite(body_yaw):
+                    return {"ok": False, "error": "Camera joystick body yaw must be finite"}
+                return self._run_camera_joystick_stream(
+                    stream,
+                    initial_body_yaw_degrees=body_yaw,
+                )
+            if any(isinstance(arguments.get(key), bool) for key in ("pan", "tilt")):
+                return {"ok": False, "error": "Camera joystick input must be finite and bounded"}
+            pan = float(arguments.get("pan") or 0.0)
+            tilt = float(arguments.get("tilt") or 0.0)
+            body_yaw = float(arguments.get("body_yaw_degrees") or 0.0)
+            if not all(math.isfinite(value) and -1.0 <= value <= 1.0 for value in (pan, tilt)):
+                return {"ok": False, "error": "Camera joystick input must be finite and bounded"}
+            components = _head_pose_components(self.robot.get_current_head_pose())
+            relative_yaw = _clamp(
+                components["yaw"] - body_yaw,
+                (-_HEAD_BODY_YAW_DELTA_LIMIT, _HEAD_BODY_YAW_DELTA_LIMIT),
+            )
+            desired_relative_yaw = relative_yaw + pan * _CAMERA_PAN_STEP
+            body_delta = 0.0
+            if desired_relative_yaw > _CAMERA_HEAD_YAW_SOFT_LIMIT:
+                body_delta = min(_CAMERA_BODY_STEP, desired_relative_yaw - _CAMERA_HEAD_YAW_SOFT_LIMIT)
+            elif desired_relative_yaw < -_CAMERA_HEAD_YAW_SOFT_LIMIT:
+                body_delta = max(-_CAMERA_BODY_STEP, desired_relative_yaw + _CAMERA_HEAD_YAW_SOFT_LIMIT)
+            target_body_degrees = _clamp(body_yaw + body_delta, _BODY_YAW_LIMIT)
+            applied_body_delta = target_body_degrees - body_yaw
+            target_relative_yaw = _clamp(
+                desired_relative_yaw - applied_body_delta,
+                (-_CAMERA_HEAD_YAW_LIMIT, _CAMERA_HEAD_YAW_LIMIT),
+            )
+            components["yaw"] = target_body_degrees + target_relative_yaw
+            components["pitch"] = _clamp(
+                components["pitch"] + tilt * _CAMERA_TILT_STEP,
+                _HEAD_LIMITS["pitch"],
+            )
+            target_head = create_head_pose(
+                x=components["x"],
+                y=components["y"],
+                z=components["z"],
+                roll=components["roll"],
+                pitch=components["pitch"],
+                yaw=components["yaw"],
+                mm=True,
+                degrees=True,
+            )
+            target_body = math.radians(target_body_degrees) if abs(applied_body_delta) > 1e-6 else None
+            duration = 0.18 + 0.1 * max(abs(pan), abs(tilt))
+            if not self._run_precision_interpolation(
+                target_head=target_head,
+                target_body=target_body,
+                start_body=math.radians(body_yaw),
+                duration=duration,
+            ):
+                return _cancelled_action_result(name)
+            return {
+                "ok": True,
+                "action": name,
+                "target": {
+                    "pitch": round(components["pitch"], 2),
+                    "yaw": round(components["yaw"], 2),
+                    "body_yaw": round(target_body_degrees, 2),
+                },
+            }
 
         if name == "nudge_reachy":
             axis = str(arguments.get("axis") or "").lower()
@@ -493,7 +696,7 @@ class ReachyRobotActions:
                 self._queue.task_done()
                 break
             if not self._generation_matches(action.generation):
-                result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
+                result = _cancelled_action_result(action.name)
                 self._queue.task_done()
                 self._mark_finished()
                 if action.on_complete is not None:
@@ -512,11 +715,11 @@ class ReachyRobotActions:
                 if self._before_action is not None:
                     self._before_action()
                 if not self._generation_matches(action.generation):
-                    result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
+                    result = _cancelled_action_result(action.name)
                 else:
                     result = self.execute(action.name, action.arguments)
                     if not self._generation_matches(action.generation):
-                        result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
+                        result = _cancelled_action_result(action.name)
                 if not result.get("ok"):
                     _LOGGER.warning("Reachy action rejected: %s", result.get("error"))
             except Exception as exc:
@@ -562,7 +765,7 @@ class ReachyRobotActions:
                 if pending is None:
                     break
                 self._mark_finished()
-                result = {"ok": False, "error": "Robot action was cancelled", "action": pending.name}
+                result = _cancelled_action_result(pending.name)
                 if pending.on_complete is not None:
                     pending.on_complete(result)
                 if self._on_result is not None:

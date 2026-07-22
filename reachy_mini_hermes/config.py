@@ -55,6 +55,8 @@ class AppConfig:
     barge_in_enabled: bool = True
     camera_enabled: bool = False
     camera_feed_enabled: bool = False
+    camera_controls_enabled: bool = False
+    camera_controls_handedness: str = "right"
     face_tracking_enabled: bool = False
     face_tracking_weight: float = 0.65
     doa_enabled: bool = False
@@ -87,6 +89,7 @@ class AppConfig:
         self.realtime_model = self.realtime_model.strip() or "gpt-realtime-2.1"
         self.realtime_voice = self.realtime_voice.strip() or "marin"
         self.realtime_reasoning_effort = self.realtime_reasoning_effort.strip().lower() or "low"
+        self.camera_controls_handedness = self.camera_controls_handedness.strip().lower() or "right"
         self.kids_parent_pin_hash = self.kids_parent_pin_hash.strip()
         self.kids_session_id = self.kids_session_id.strip()
         self.kids_age_band = self.kids_age_band.strip()
@@ -121,6 +124,8 @@ class AppConfig:
             raise ValueError("Unsupported capability profile")
         if self.realtime_reasoning_effort not in {"minimal", "low", "medium", "high", "xhigh"}:
             raise ValueError("Unsupported realtime reasoning effort")
+        if self.camera_controls_handedness not in {"left", "right"}:
+            raise ValueError("Unsupported camera control handedness")
         if self.kids_mode_enabled:
             if self.kids_age_band not in {"4-6", "7-9", "10-12"}:
                 raise ValueError("Unsupported Kids Mode age band")

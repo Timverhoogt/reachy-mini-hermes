@@ -562,7 +562,7 @@ def test_connect_cannot_resume_dispatch_inside_a_newer_disconnect_transition() -
     assert service._dispatch_suspended is True
 
 
-def test_bluetooth_ui_exposes_pairing_mapping_and_v31_assets() -> None:
+def test_bluetooth_ui_exposes_pairing_mapping_and_v34_assets() -> None:
     static = Path(__file__).resolve().parents[1] / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
     script = (static / "main.js").read_text(encoding="utf-8")
@@ -594,4 +594,4 @@ def test_bluetooth_ui_exposes_pairing_mapping_and_v31_assets() -> None:
     assert "/api/bluetooth/scan" in script
     assert "/api/bluetooth/gamepad" in script
     assert "if (body.last_error) throw new Error(body.last_error);" in script
-    assert "reachy-hermes-shell-v31" in worker
+    assert "reachy-hermes-shell-v34" in worker
