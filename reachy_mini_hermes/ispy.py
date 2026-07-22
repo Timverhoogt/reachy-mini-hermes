@@ -1,4 +1,8 @@
-"""Deterministic, child-safe I Spy target rules aligned with the standalone game."""
+"""Deterministic, child-safe I Spy target rules aligned with the standalone game.
+
+Coordinated policy changes must review the canonical standalone safety contract:
+https://github.com/Timverhoogt/reachy-mini-i-spy/blob/main/docs/SAFETY_CONTRACT.md
+"""
 
 from __future__ import annotations
 
