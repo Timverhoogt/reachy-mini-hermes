@@ -119,6 +119,74 @@ def test_ispy_camera_capture_requires_live_consented_generation() -> None:
         runtime._capture_camera_jpeg(kids_generation=7)
 
 
+def test_ispy_both_picker_roles_use_the_base_motor(monkeypatch: pytest.MonkeyPatch) -> None:
+    class CameraMedia:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_frame_jpeg(self) -> bytes:
+            self.calls += 1
+            return b"jpeg"
+
+    class MotionRobot:
+        def __init__(self) -> None:
+            self.media = CameraMedia()
+            self.targets: list[dict[str, object]] = []
+
+        def goto_target(self, **kwargs: object) -> None:
+            self.targets.append(kwargs)
+
+    candidate = {
+        "object_name": "chair",
+        "colour": "blue",
+        "category": "furniture",
+        "location": "beside the table",
+        "frame_index": 1,
+        "bbox": [0.2, 0.2, 0.3, 0.4],
+        "confidence": 0.91,
+        "stable": True,
+        "visible_frame_count": 3,
+        "hints_en": ["You can sit on it"],
+        "hints_nl": ["Je kunt erop zitten"],
+    }
+
+    class Selector:
+        def select_ispy_target(self, frames, **_kwargs):
+            assert frames == [b"jpeg", b"jpeg", b"jpeg"]
+            return validate_ispy_target(candidate, frame_count=3)
+
+        def cancel_ispy_session(self, _session_id: str) -> None:
+            raise AssertionError("current round must not be cancelled")
+
+    robot = MotionRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    profile = KidsProfile(activity="ispy", camera_consent=True)
+    with runtime._kids_lock:
+        runtime._kids_active = True
+        runtime._kids_locked = True
+        runtime._kids_profile = profile
+        runtime._kids_generation = 4
+        runtime._kids_session_id = "kids-" + "f" * 32
+    monkeypatch.setattr(runtime, "set_power_mode", lambda *_args, **_kwargs: None)
+
+    runtime._prepare_ispy_round(4, profile, client=Selector())  # type: ignore[arg-type]
+    search_base_degrees = [round(float(np.degrees(target["body_yaw"]))) for target in robot.targets[:3]]
+    assert search_base_degrees == [-18, 0, 18]
+    assert robot.targets[3]["body_yaw"] == 0.0
+    assert robot.media.calls == 3
+    assert runtime.status()["kids_mode"]["camera_active"] is False  # type: ignore[index]
+
+    runtime._perform_ispy_player_guess_motion(4)
+    player_guess_target = robot.targets[4]
+    assert round(float(np.degrees(player_guess_target["body_yaw"]))) == -12
+    assert not np.array_equal(player_guess_target["head"], np.eye(4))
+    assert robot.media.calls == 3  # player-picker motion never re-enables or reads the camera
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        runtime._perform_ispy_player_guess_motion(3)
+    assert len(robot.targets) == 5
+
+
 def test_parent_pin_uses_salted_scrypt_and_never_round_trips_plaintext() -> None:
     first = hash_parent_pin("482614")
     second = hash_parent_pin("482614")

@@ -296,6 +296,117 @@ def test_ispy_bridge_policy_and_reply_state_are_deterministic() -> None:
         bridge._validate_bridge_ispy_target({**candidate, "object_name": "monitor"}, frame_count=3)
     with pytest.raises(ValueError):
         bridge._validate_bridge_ispy_target({**candidate, "bbox": [0.1, 0.1, 0.05, 0.05]}, frame_count=3)
+    assert bridge._ispy_confirmation("Yes, that is right") == "yes"
+    assert bridge._ispy_confirmation("No, that is not right") == "no"
+    assert bridge._ispy_confirmation("Maybe") == "unknown"
+
+
+def test_ispy_alternates_reachy_and_player_picker_turns(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret",
+        hermes_url="http://127.0.0.1:8642",
+        profile=None,
+    )
+    bridge.http = object()
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+    async def moderation_clear(_text: str, _key: str) -> bool:
+        return False
+
+    async def matching_guess(_guess: str, _target: dict[str, object], **_kwargs) -> bool:
+        return True
+
+    async def player_guess(
+        clues: list[str], previous_guesses: list[str], **_kwargs
+    ) -> str:
+        assert clues
+        return "lamp" if not previous_guesses else "table"
+
+    monkeypatch.setattr(bridge, "_moderation_flagged", moderation_clear)
+    monkeypatch.setattr(bridge, "_judge_ispy_guess", matching_guess)
+    monkeypatch.setattr(bridge, "_guess_player_ispy_object", player_guess)
+
+    session_id = "kids-" + "d" * 32
+    profile = {"age_band": "7-9", "activity": "ispy", "language": "en"}
+    bridge._kids_sessions[session_id] = {
+        "profile": ("7-9", "ispy", "en"),
+        "history": [],
+        "updated_at": time.monotonic(),
+        "ispy_target": {
+            "object_name": "chair",
+            "colour": "blue",
+            "hints_en": ["You can sit on it"],
+            "hints_nl": ["Je kunt erop zitten"],
+        },
+        "ispy_role": "reachy_picker",
+        "ispy_guess_count": 0,
+    }
+
+    class Request:
+        headers = {"Authorization": "Bearer bridge-secret"}
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        async def json(self) -> dict[str, object]:
+            return {"input": self.text, "session_id": session_id, "profile": profile}
+
+    reachy_round = json.loads(asyncio.run(bridge.kids_chat(Request("chair"))).text)
+    assert reachy_round["ispy_role"] == "player_picker"
+    assert reachy_round["ispy_phase"] == "awaiting_clue"
+    assert reachy_round["ispy_next_action"] == ""
+    assert "Now it's your turn" in reachy_round["text"]
+    assert "ispy_target" not in bridge._kids_sessions[session_id]
+
+    player_clue = json.loads(asyncio.run(bridge.kids_chat(Request("It gives light"))).text)
+    assert player_clue["text"] == "Is it a lamp?"
+    assert player_clue["ispy_role"] == "player_picker"
+    assert player_clue["ispy_phase"] == "awaiting_confirmation"
+
+    wrong = json.loads(asyncio.run(bridge.kids_chat(Request("No"))).text)
+    assert wrong["ispy_phase"] == "awaiting_clue"
+    assert wrong["ispy_next_action"] == ""
+
+    second_clue = json.loads(asyncio.run(bridge.kids_chat(Request("It has four legs"))).text)
+    assert second_clue["text"] == "Is it a table?"
+    correct = json.loads(asyncio.run(bridge.kids_chat(Request("Yes"))).text)
+    assert correct["ispy_role"] == "reachy_pending"
+    assert correct["ispy_phase"] == "complete"
+    assert correct["ispy_next_action"] == "prepare_robot_round"
+
+
+def test_ispy_clue_route_approves_only_server_owned_colour_clue(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret",
+        hermes_url="http://127.0.0.1:8642",
+        profile=None,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+    async def moderation_clear(_text: str, _key: str) -> bool:
+        return False
+
+    monkeypatch.setattr(bridge, "_moderation_flagged", moderation_clear)
+    session_id = "kids-" + "e" * 32
+    bridge._kids_sessions[session_id] = {
+        "profile": ("7-9", "ispy", "nl"),
+        "updated_at": time.monotonic(),
+        "ispy_role": "reachy_picker",
+        "ispy_target": {"colour": "blue"},
+    }
+
+    class Request:
+        headers = {"Authorization": "Bearer bridge-secret"}
+
+        async def json(self) -> dict[str, object]:
+            return {"session_id": session_id}
+
+    payload = json.loads(asyncio.run(bridge.kids_ispy_clue(Request())).text)
+    assert payload["text"] == "Ik zie, ik zie wat jij niet ziet, en de kleur is blauw."
+    assert payload["ispy_role"] == "reachy_picker"
+    bridge._consume_kids_speech_approval(payload["speech_approval"], session_id, payload["text"])
 
 
 def test_create_app_routes_are_present() -> None:
@@ -305,6 +416,7 @@ def test_create_app_routes_are_present() -> None:
     assert ("POST", "/v1/chat/completions") in routes
     assert ("POST", "/v1/kids/chat") in routes
     assert ("POST", "/v1/kids/ispy/select") in routes
+    assert ("POST", "/v1/kids/ispy/clue") in routes
     assert ("POST", "/v1/kids/ispy/cancel") in routes
     assert ("POST", "/v1/kids/speech/stream") in routes
     assert ("POST", "/v1/kids/speech/fallback") in routes

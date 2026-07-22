@@ -114,6 +114,58 @@ def test_kids_client_fallback_speech_carries_separate_exact_approval() -> None:
     assert client._kids_fallback_speech_approval == ""
 
 
+def test_ispy_client_tracks_turn_state_and_fetches_server_owned_clue() -> None:
+    session_id = "kids-" + "e" * 32
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/v1/kids/chat":
+            return httpx.Response(
+                200,
+                json={
+                    "text": "Yes! Now it's your turn.",
+                    "speech_approval": "turn-approval",
+                    "fallback_speech_approval": "turn-fallback",
+                    "ispy_role": "player_picker",
+                    "ispy_phase": "awaiting_clue",
+                    "ispy_next_action": "",
+                },
+            )
+        assert request.url.path == "/v1/kids/ispy/clue"
+        assert json.loads(request.content) == {"session_id": session_id}
+        return httpx.Response(
+            200,
+            json={
+                "text": "I spy with my little eye, something that is blue.",
+                "speech_approval": "clue-approval",
+                "fallback_speech_approval": "clue-fallback",
+                "ispy_role": "reachy_picker",
+            },
+        )
+
+    config = AppConfig(
+        bridge_url="http://bridge.test",
+        api_key="secret",
+        kids_mode_enabled=True,
+        kids_session_id=session_id,
+        kids_age_band="7-9",
+        kids_activity="ispy",
+    )
+    client = HermesBridgeClient(config, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert client.chat("chair") == "Yes! Now it's your turn."
+    assert client.last_kids_ispy_role == "player_picker"
+    assert client.last_kids_ispy_phase == "awaiting_clue"
+    assert client.last_kids_next_action == ""
+
+    clue = client.ispy_clue(session_id)
+    assert clue.endswith("blue.")
+    assert client.last_kids_ispy_role == "reachy_picker"
+    assert client.last_kids_ispy_phase == "reachy_guessing"
+    assert client._kids_speech_approval == "clue-approval"
+    assert seen == ["/v1/kids/chat", "/v1/kids/ispy/clue"]
+
+
 def test_kids_policy_and_history_are_bridge_authoritative() -> None:
     source = (ROOT / "companion" / "hermes_reachy_bridge.py").read_text(encoding="utf-8")
     method = source.split("    async def kids_chat", 1)[1].split("    async def kids_ispy_select", 1)[0]

@@ -105,6 +105,20 @@ _ISPY_MATCH_SCHEMA: dict[str, object] = {
     "properties": {"match": {"type": "boolean"}},
     "required": ["match"],
 }
+_ISPY_PLAYER_GUESS_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"guess": {"type": "string", "minLength": 1, "maxLength": 60}},
+    "required": ["guess"],
+}
+_ISPY_COLOUR_COPY = {
+    "en": dict(zip(_ISPY_COLOURS, _ISPY_COLOURS, strict=True)),
+    "nl": {
+        "red": "rood", "orange": "oranje", "yellow": "geel", "green": "groen", "blue": "blauw",
+        "purple": "paars", "pink": "roze", "brown": "bruin", "black": "zwart", "white": "wit",
+        "grey": "grijs",
+    },
+}
 _REACHY_PROHIBITED_TOOLS = frozenset(
     {"terminal", "process", "execute_code", "read_file", "write_file", "search_files", "patch"}
 )
@@ -391,6 +405,30 @@ def _ispy_reply(
     hint = hints[min(count - 1, len(hints) - 1)]
     prefix = "Goede gok. Hier is een hint:" if language == "nl" else "Nice guess. Here is a hint:"
     return f"{prefix} {hint}", count, False
+
+
+def _ispy_text_unsafe(text: str) -> bool:
+    words = set(re.findall(r"[\wÀ-ÿ]+", text.casefold()))
+    return bool(words & _ISPY_DISALLOWED_TERMS)
+
+
+def _ispy_confirmation(text: str) -> str:
+    """Classify the child's yes/no answer without giving a model control of round state."""
+    words = set(re.findall(r"[\wÀ-ÿ]+", text.casefold()))
+    yes = {"yes", "yeah", "yep", "correct", "right", "ja", "jep", "klopt", "goed"}
+    no = {"no", "nope", "not", "wrong", "incorrect", "nee", "fout", "niet"}
+    if words & no:
+        return "no"
+    if words & yes:
+        return "yes"
+    return "unknown"
+
+
+def _ispy_colour_clue(target: dict[str, Any], language: str) -> str:
+    colour = _ISPY_COLOUR_COPY[language][str(target["colour"])]
+    if language == "nl":
+        return f"Ik zie, ik zie wat jij niet ziet, en de kleur is {colour}."
+    return f"I spy with my little eye, something that is {colour}."
 
 
 def _build_realtime_tools(
@@ -912,6 +950,58 @@ class Bridge:
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise web.HTTPBadGateway(text="I Spy guess judging returned invalid data") from exc
 
+    async def _guess_player_ispy_object(
+        self,
+        clues: list[str],
+        previous_guesses: list[str],
+        *,
+        language: str,
+        openai_key: str,
+    ) -> str:
+        """Return one bounded household-object guess; bridge state owns the turn rules."""
+        if self.http is None:
+            raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        prompt = (
+            "You are taking your turn in a child-safe I Spy game. Guess exactly one ordinary household object from "
+            f"the child's clues. Language: {language}. Clues: {json.dumps(clues, ensure_ascii=False)}. Previous wrong "
+            f"guesses, which you must not repeat: {json.dumps(previous_guesses, ensure_ascii=False)}. Never guess a "
+            "person, body part, clothing, screen, document, private item, medicine, weapon, hazardous item, or other "
+            "sensitive target. Return only the strict schema."
+        )
+        async with self.http.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {openai_key}"},
+            json={
+                "model": os.getenv("REACHY_ISPY_MODEL", "gpt-4.1-mini"),
+                "messages": [{"role": "user", "content": prompt}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "ispy_player_object_guess",
+                        "strict": True,
+                        "schema": _ISPY_PLAYER_GUESS_SCHEMA,
+                    },
+                },
+                "max_completion_tokens": 60,
+                "store": False,
+            },
+        ) as response:
+            result = await response.json(content_type=None)
+            if response.status != 200:
+                raise web.HTTPBadGateway(text="I Spy player-turn guessing failed")
+        try:
+            parsed = json.loads(result["choices"][0]["message"]["content"])
+            if set(parsed) != {"guess"} or not isinstance(parsed["guess"], str):
+                raise ValueError
+            guess = " ".join(parsed["guess"].strip().split())
+            if not guess or len(guess) > 60 or _ispy_text_unsafe(guess):
+                raise ValueError
+            if guess.casefold() in {item.casefold() for item in previous_guesses}:
+                raise ValueError
+            return guess
+        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise web.HTTPBadGateway(text="I Spy player-turn guess was unsafe or invalid") from exc
+
     async def kids_chat(self, request: web.Request) -> web.Response:
         """Run a bridge-authoritative, moderated child session without Hermes tools."""
         self.require_auth(request)
@@ -972,27 +1062,36 @@ class Bridge:
         if await self._moderation_flagged(text, openai_key):
             approval_token = self._issue_kids_speech_approval(session_id, safety_reply)
             fallback_approval = self._issue_kids_speech_approval(session_id, safety_reply)
-            return web.json_response(
-                {
-                    "text": safety_reply,
-                    "screened": True,
-                    "speech_approval": approval_token,
-                    "fallback_speech_approval": fallback_approval,
-                }
-            )
+            safety_payload: dict[str, object] = {
+                "text": safety_reply,
+                "screened": True,
+                "speech_approval": approval_token,
+                "fallback_speech_approval": fallback_approval,
+            }
+            if activity == "ispy":
+                safety_role = str(child_session.get("ispy_role") or "reachy_picker")
+                safety_phase = (
+                    "reachy_guessing"
+                    if safety_role == "reachy_picker"
+                    else str(child_session.get("ispy_player_phase") or "complete")
+                )
+                safety_payload.update({
+                    "ispy_role": safety_role,
+                    "ispy_phase": safety_phase,
+                    "ispy_next_action": "",
+                })
+            return web.json_response(safety_payload)
 
         model = os.getenv("REACHY_KIDS_MODEL", "gpt-5-mini").strip() or "gpt-5-mini"
+        ispy_next_action = ""
+        ispy_role = ""
         if activity == "ispy":
-            target = child_session.get("ispy_target")
-            if not isinstance(target, dict):
-                raise web.HTTPConflict(text="I Spy has no approved active target")
-            if child_session.get("ispy_complete") is True:
-                answer = (
-                    "Deze ronde is klaar. Vraag een volwassene om een nieuwe ronde te starten."
-                    if language == "nl"
-                    else "This round is finished. Ask a grown-up to start a new round."
-                )
-            else:
+            model = os.getenv("REACHY_ISPY_MODEL", "gpt-4.1-mini")
+            ispy_role = str(child_session.get("ispy_role") or "reachy_picker")
+            if ispy_role == "reachy_picker":
+                target = child_session.get("ispy_target")
+                if not isinstance(target, dict):
+                    raise web.HTTPConflict(text="I Spy has no approved active target")
                 matched = await self._judge_ispy_guess(text, target, language=language, openai_key=openai_key)
                 answer, count, complete = _ispy_reply(
                     target,
@@ -1001,8 +1100,105 @@ class Bridge:
                     previous_count=int(child_session.get("ispy_guess_count", 0)),
                 )
                 child_session["ispy_guess_count"] = count
-                child_session["ispy_complete"] = complete
-                model = os.getenv("REACHY_ISPY_MODEL", "gpt-4.1-mini")
+                if complete:
+                    child_session.pop("ispy_target", None)
+                    child_session.update({
+                        "ispy_role": "player_picker",
+                        "ispy_player_phase": "awaiting_clue",
+                        "ispy_player_clues": [],
+                        "ispy_player_guesses": [],
+                    })
+                    ispy_role = "player_picker"
+                    invitation = (
+                        " Nu ben jij aan de beurt. Kies een veilig voorwerp in huis en geef me één hint."
+                        if language == "nl"
+                        else " Now it's your turn. Choose a safe household object and give me one clue."
+                    )
+                    answer += invitation
+            elif ispy_role == "player_picker":
+                phase = str(child_session.get("ispy_player_phase") or "awaiting_clue")
+                clues = [str(item) for item in child_session.get("ispy_player_clues") or []][-6:]
+                guesses = [str(item) for item in child_session.get("ispy_player_guesses") or []][-6:]
+                if phase == "awaiting_clue":
+                    if _ispy_text_unsafe(text):
+                        answer = (
+                            "Kies alsjeblieft een ander, veilig voorwerp in huis en geef me een nieuwe hint."
+                            if language == "nl"
+                            else "Please choose a different safe household object and give me a new clue."
+                        )
+                    else:
+                        clues.append(text[:200])
+                        try:
+                            guess = await self._guess_player_ispy_object(
+                                clues,
+                                guesses,
+                                language=language,
+                                openai_key=openai_key,
+                            )
+                        except (web.HTTPBadGateway, web.HTTPServiceUnavailable):
+                            answer = (
+                                "Ik weet het nog niet. Geef me alsjeblieft een andere hint."
+                                if language == "nl"
+                                else "I'm not sure yet. Please give me a different clue."
+                            )
+                        else:
+                            guesses.append(guess)
+                            child_session.update({
+                                "ispy_player_clues": clues,
+                                "ispy_player_guesses": guesses,
+                                "ispy_player_last_guess": guess,
+                                "ispy_player_phase": "awaiting_confirmation",
+                            })
+                            answer = f"Is het een {guess}?" if language == "nl" else f"Is it a {guess}?"
+                elif phase == "awaiting_confirmation":
+                    confirmation = _ispy_confirmation(text)
+                    if confirmation == "yes":
+                        child_session["ispy_role"] = "reachy_pending"
+                        child_session["ispy_player_phase"] = "complete"
+                        ispy_role = "reachy_pending"
+                        ispy_next_action = "prepare_robot_round"
+                        answer = (
+                            "Ja! Goed voorwerp. Nu ben ik weer aan de beurt. Ik ga rondkijken."
+                            if language == "nl"
+                            else "Yes! Good object. Now it's my turn again. I'll look around."
+                        )
+                    elif confirmation == "no" and len(guesses) >= 6:
+                        child_session["ispy_player_phase"] = "awaiting_reveal"
+                        answer = (
+                            "Je hebt me verslagen! Welk voorwerp had je gekozen?"
+                            if language == "nl"
+                            else "You beat me! What object did you choose?"
+                        )
+                    elif confirmation == "no":
+                        child_session["ispy_player_phase"] = "awaiting_clue"
+                        answer = (
+                            "Goede keuze. Geef me nog één hint."
+                            if language == "nl"
+                            else "Good choice. Give me one more clue."
+                        )
+                    else:
+                        answer = (
+                            "Was mijn gok goed? Zeg ja of nee."
+                            if language == "nl"
+                            else "Was my guess right? Please say yes or no."
+                        )
+                elif phase == "awaiting_reveal":
+                    child_session["ispy_role"] = "reachy_pending"
+                    child_session["ispy_player_phase"] = "complete"
+                    ispy_role = "reachy_pending"
+                    ispy_next_action = "prepare_robot_round"
+                    answer = (
+                        "Dat was een slim voorwerp. Nu ben ik weer aan de beurt. Ik ga rondkijken."
+                        if language == "nl"
+                        else "That was a clever object. Now it's my turn again. I'll look around."
+                    )
+                else:
+                    raise web.HTTPConflict(text="I Spy player turn has invalid state")
+            elif ispy_role == "reachy_pending":
+                ispy_next_action = "prepare_robot_round"
+                answer = "Ik ga nu rondkijken." if language == "nl" else "I'll look around now."
+            else:
+                raise web.HTTPConflict(text="I Spy turn state is invalid")
         else:
             system_prompt = _build_bridge_kids_prompt(
                 age_band=age_band,
@@ -1037,6 +1233,7 @@ class Bridge:
             answer = "I don't have a spoken answer for that."
         if await self._moderation_flagged(answer, openai_key):
             answer = safety_reply
+            ispy_next_action = ""
         child_session["history"] = (
             history
             + [
@@ -1047,15 +1244,25 @@ class Bridge:
         child_session["updated_at"] = time.monotonic()
         approval_token = self._issue_kids_speech_approval(session_id, answer)
         fallback_approval = self._issue_kids_speech_approval(session_id, answer)
-        return web.json_response(
-            {
-                "text": answer,
-                "screened": True,
-                "model": model,
-                "speech_approval": approval_token,
-                "fallback_speech_approval": fallback_approval,
-            }
-        )
+        response_payload: dict[str, object] = {
+            "text": answer,
+            "screened": True,
+            "model": model,
+            "speech_approval": approval_token,
+            "fallback_speech_approval": fallback_approval,
+        }
+        if activity == "ispy":
+            ispy_phase = (
+                "reachy_guessing"
+                if ispy_role == "reachy_picker"
+                else str(child_session.get("ispy_player_phase") or "complete")
+            )
+            response_payload.update({
+                "ispy_role": ispy_role,
+                "ispy_phase": ispy_phase,
+                "ispy_next_action": ispy_next_action,
+            })
+        return web.json_response(response_payload)
 
     async def kids_ispy_select(self, request: web.Request) -> web.Response:
         """Select one safe household target from transient, caller-bounded frames."""
@@ -1145,12 +1352,60 @@ class Bridge:
             self._kids_sessions[session_id] = child_session
         child_session.update({
             "ispy_target": target,
+            "ispy_role": "reachy_picker",
             "ispy_guess_count": 0,
-            "ispy_complete": False,
             "history": [],
             "updated_at": time.monotonic(),
         })
+        for key in (
+            "ispy_player_phase",
+            "ispy_player_clues",
+            "ispy_player_guesses",
+            "ispy_player_last_guess",
+        ):
+            child_session.pop(key, None)
         return web.json_response({"target": target}, headers={"Cache-Control": "no-store"})
+
+    async def kids_ispy_clue(self, request: web.Request) -> web.Response:
+        """Issue exact-text speech approvals for the server-owned colour clue."""
+        self.require_auth(request)
+        openai_key = _resolve_secret("OPENAI_API_KEY", self.profile)
+        if not openai_key:
+            raise web.HTTPServiceUnavailable(text="I Spy safety screening is not configured")
+        try:
+            payload = await request.json()
+            session_id = str(payload.get("session_id") or "")
+            if _KIDS_SESSION_ID_RE.fullmatch(session_id) is None or set(payload) != {"session_id"}:
+                raise ValueError
+        except Exception as exc:
+            raise web.HTTPBadRequest(text="Invalid I Spy clue request") from exc
+        child_session = self._kids_sessions.get(session_id)
+        target = child_session.get("ispy_target") if child_session is not None else None
+        profile = child_session.get("profile") if child_session is not None else None
+        if (
+            not isinstance(child_session, dict)
+            or child_session.get("ispy_role") != "reachy_picker"
+            or not isinstance(target, dict)
+            or not isinstance(profile, tuple)
+            or len(profile) != 3
+            or profile[2] not in _KIDS_LANGUAGES
+        ):
+            raise web.HTTPConflict(text="I Spy has no approved Reachy turn")
+        clue = _ispy_colour_clue(target, str(profile[2]))
+        if await self._moderation_flagged(clue, openai_key):
+            raise web.HTTPBadGateway(text="I Spy clue was not approved")
+        approval = self._issue_kids_speech_approval(session_id, clue)
+        fallback = self._issue_kids_speech_approval(session_id, clue)
+        child_session["updated_at"] = time.monotonic()
+        return web.json_response(
+            {
+                "text": clue,
+                "speech_approval": approval,
+                "fallback_speech_approval": fallback,
+                "ispy_role": "reachy_picker",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
 
     async def kids_ispy_cancel(self, request: web.Request) -> web.Response:
         """Delete bridge-side target, guess state, history, and speech approvals."""
@@ -2187,6 +2442,7 @@ def create_app(*, api_key: str, hermes_url: str, profile: str | None = None) -> 
     app.router.add_post("/v1/chat/completions", bridge.chat)
     app.router.add_post("/v1/kids/chat", bridge.kids_chat)
     app.router.add_post("/v1/kids/ispy/select", bridge.kids_ispy_select)
+    app.router.add_post("/v1/kids/ispy/clue", bridge.kids_ispy_clue)
     app.router.add_post("/v1/kids/ispy/cancel", bridge.kids_ispy_cancel)
     app.router.add_post("/v1/kids/speech/stream", bridge.kids_speech_stream)
     app.router.add_post("/v1/kids/speech/fallback", bridge.kids_speech_fallback)
