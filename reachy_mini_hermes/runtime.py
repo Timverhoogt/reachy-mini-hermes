@@ -295,6 +295,7 @@ class HermesVoiceRuntime:
         self._kids_timer: threading.Timer | None = None
         self._kids_warning_timer: threading.Timer | None = None
         self._kids_generation = 0
+        self._kids_ispy_player_motion_index = 0
         self._kids_last_end_reason = ""
         self._kids_last_fold_succeeded: bool | None = None
         self._agent_lock = threading.RLock()
@@ -838,6 +839,7 @@ class HermesVoiceRuntime:
                 previous_warning.cancel()
             self._kids_generation += 1
             generation = self._kids_generation
+            self._kids_ispy_player_motion_index = 0
             self._kids_active = True
             self._kids_camera_active = False
             self._kids_locked = True
@@ -897,15 +899,43 @@ class HermesVoiceRuntime:
         )
         return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
 
-    def _prepare_ispy_round(self, generation: int, profile: KidsProfile) -> ISpyTarget:
+    @staticmethod
+    def _ispy_head_target(yaw_degrees: float, pitch_degrees: float) -> np.ndarray:
+        yaw, pitch = math.radians(yaw_degrees), math.radians(pitch_degrees)
+        cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
+        return np.array([
+            [cy * cp, -sy, cy * sp, 0.0],
+            [sy * cp, cy, sy * sp, 0.0],
+            [-sp, 0.0, cp, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+
+    def _prepare_ispy_round(
+        self,
+        generation: int,
+        profile: KidsProfile,
+        *,
+        client: HermesBridgeClient | None = None,
+    ) -> ISpyTarget:
         """Run one consented, cancellable search; frames exist only on this stack."""
         if not profile.camera_consent:
             raise RuntimeError("Caregiver camera consent is required for I Spy")
         session_id = self._kids_session_id
         self.set_power_mode("awake", cancel_announcements=False)
-        poses = ((-18.0, -28.0, -5.0), (0.0, 0.0, -5.0), (18.0, 28.0, -5.0))
+        # Five retained viewpoints cover a 240° desk arc while every commanded segment remains <= 60°.
+        # Two intermediate waypoints cross safely from the left extreme to the right side without capturing.
+        scan_route = (
+            (0.0, True),
+            (-60.0, True),
+            (-120.0, True),
+            (-60.0, False),
+            (0.0, False),
+            (60.0, True),
+            (120.0, True),
+        )
+        return_route = (60.0, 0.0)
         frames: list[bytes] = []
-        client: HermesBridgeClient | None = None
+        owns_client = client is None
         goto_target = getattr(self.robot, "goto_target", None)
         if not callable(goto_target):
             raise RuntimeError("I Spy search motion is unavailable")
@@ -915,38 +945,41 @@ class HermesVoiceRuntime:
             self._kids_camera_active = True
         try:
             with self._motor_transition_lock:
-                for body_yaw, head_yaw, head_pitch in poses:
+                previous_body_yaw = 0.0
+                for body_yaw, capture in scan_route:
                     if not self._kids_callback_is_current(generation):
                         raise RuntimeError("I Spy search was cancelled")
-                    yaw, pitch = math.radians(head_yaw), math.radians(head_pitch)
-                    cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
-                    head = np.array([
-                        [cy * cp, -sy, cy * sp, 0.0],
-                        [sy * cp, cy, sy * sp, 0.0],
-                        [-sp, 0.0, cp, 0.0],
-                        [0.0, 0.0, 0.0, 1.0],
-                    ])
+                    angular_distance = abs(body_yaw - previous_body_yaw)
                     goto_target(
-                        head=head,
+                        head=self._ispy_head_target(body_yaw, -5.0),
                         body_yaw=math.radians(body_yaw),
                         antennas=np.radians(np.asarray([8.0, -8.0])),
-                        duration=1.0,
+                        duration=max(0.6, angular_distance / 30.0),
                         method="minjerk",
                     )
-                    frame = self._capture_camera_jpeg(kids_generation=generation)
-                    frames.append(frame)
-                goto_target(
-                    head=np.eye(4),
-                    body_yaw=0.0,
-                    antennas=np.asarray([0.0, 0.0]),
-                    duration=1.0,
-                    method="minjerk",
-                )
+                    previous_body_yaw = body_yaw
+                    if capture:
+                        frames.append(self._capture_camera_jpeg(kids_generation=generation))
+                with self._kids_lock:
+                    self._kids_camera_active = False
+                for body_yaw in return_route:
+                    if not self._kids_callback_is_current(generation):
+                        raise RuntimeError("I Spy search was cancelled")
+                    angular_distance = abs(body_yaw - previous_body_yaw)
+                    goto_target(
+                        head=self._ispy_head_target(body_yaw, -5.0 if body_yaw else 0.0),
+                        body_yaw=math.radians(body_yaw),
+                        antennas=np.asarray([0.0, 0.0]),
+                        duration=max(0.6, angular_distance / 30.0),
+                        method="minjerk",
+                    )
+                    previous_body_yaw = body_yaw
             with self._kids_lock:
                 self._kids_camera_active = False
             if not self._kids_callback_is_current(generation):
                 raise RuntimeError("I Spy search was cancelled")
-            client = HermesBridgeClient(self.config_loader())
+            if client is None:
+                client = HermesBridgeClient(self.config_loader())
             target = client.select_ispy_target(
                 frames,
                 session_id=session_id,
@@ -959,13 +992,76 @@ class HermesVoiceRuntime:
                 except Exception:
                     _LOGGER.warning("Could not delete a cancelled I Spy bridge session")
                 raise RuntimeError("I Spy search was cancelled")
+            with self._kids_lock:
+                self._kids_ispy_player_motion_index = 0
             return target
         finally:
             with self._kids_lock:
                 self._kids_camera_active = False
             frames.clear()
-            if client is not None:
+            if owns_client and client is not None:
                 client.close()
+
+    def _perform_ispy_player_guess_motion(self, generation: int) -> None:
+        """Use both the base and head for each player-object guess, without camera access."""
+        goto_target = getattr(self.robot, "goto_target", None)
+        if not callable(goto_target):
+            raise RuntimeError("I Spy player-turn motion is unavailable")
+        with self._kids_lock:
+            if not self._kids_callback_is_current(generation):
+                raise RuntimeError("I Spy player-turn motion was cancelled")
+            index = self._kids_ispy_player_motion_index
+            self._kids_ispy_player_motion_index += 1
+        body_yaws = (-12.0, 12.0, -8.0, 8.0, -5.0, 5.0)
+        body_yaw = body_yaws[index % len(body_yaws)]
+        head_yaw = body_yaw * 1.5
+        with self._motor_transition_lock:
+            if not self._kids_callback_is_current(generation):
+                raise RuntimeError("I Spy player-turn motion was cancelled")
+            goto_target(
+                head=self._ispy_head_target(head_yaw, -4.0),
+                body_yaw=math.radians(body_yaw),
+                antennas=np.radians(np.asarray([5.0, -5.0])),
+                duration=0.8,
+                method="minjerk",
+            )
+        if not self._kids_callback_is_current(generation):
+            raise RuntimeError("I Spy player-turn motion was cancelled")
+
+    def _continue_ispy_reachy_turn(
+        self,
+        client: HermesBridgeClient,
+        *,
+        barge_in: bool,
+    ) -> bool:
+        """Search with base motion, select a fresh target, and speak its approved clue."""
+        with self._kids_lock:
+            generation = self._kids_generation
+            profile = self._kids_profile
+            session_id = self._kids_session_id
+            if (
+                not self._kids_active
+                or profile is None
+                or profile.activity != "ispy"
+                or client.config.kids_session_id != session_id
+            ):
+                raise RuntimeError("I Spy turn continuation is stale")
+        try:
+            self._prepare_ispy_round(generation, profile, client=client)
+            if not self._kids_callback_is_current(generation):
+                raise RuntimeError("I Spy turn continuation was cancelled")
+            clue = client.ispy_clue(session_id)
+            if not self._kids_callback_is_current(generation):
+                raise RuntimeError("I Spy clue was cancelled")
+            self._set_status(
+                "speaking",
+                "Streaming the next I Spy colour clue",
+                tts_provider="elevenlabs-flash-stream",
+            )
+            return self._play_kids_stream(client, clue, barge_in=barge_in)
+        except Exception:
+            self.stop_kids_mode(reason="ispy_round_failed", fold=True)
+            raise
 
     def _kids_callback_is_current(self, generation: int) -> bool:
         with self._kids_lock:
@@ -2320,6 +2416,15 @@ class HermesVoiceRuntime:
                     or self._effective_power_mode() in {"meeting", "sleep"}
                 ):
                     break
+                if (
+                    client.config.kids_mode_enabled
+                    and client.config.kids_activity == "ispy"
+                    and client.last_kids_ispy_role == "player_picker"
+                    and client.last_kids_ispy_phase == "awaiting_confirmation"
+                ):
+                    with self._kids_lock:
+                        ispy_generation = self._kids_generation
+                    self._perform_ispy_player_guess_motion(ispy_generation)
                 spoken_text = (
                     response_text
                     if client.config.kids_mode_enabled
@@ -2395,6 +2500,22 @@ class HermesVoiceRuntime:
                     or self._effective_power_mode() in {"meeting", "sleep"}
                 ):
                     break
+                if (
+                    not interrupted
+                    and client.config.kids_mode_enabled
+                    and client.config.kids_activity == "ispy"
+                    and client.last_kids_next_action == "prepare_robot_round"
+                ):
+                    interrupted = self._continue_ispy_reachy_turn(
+                        client,
+                        barge_in=config.barge_in_enabled,
+                    )
+                    if (
+                        not conversation_is_current()
+                        or self._conversation_stop_requested.is_set()
+                        or self._effective_power_mode() in {"meeting", "sleep"}
+                    ):
+                        break
                 with self._status_lock:
                     self._status.turns_completed += 1
                 if interrupted:

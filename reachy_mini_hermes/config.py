@@ -124,7 +124,7 @@ class AppConfig:
         if self.kids_mode_enabled:
             if self.kids_age_band not in {"4-6", "7-9", "10-12"}:
                 raise ValueError("Unsupported Kids Mode age band")
-            if self.kids_activity not in {"buddy", "story", "quiz", "riddles", "calm"}:
+            if self.kids_activity not in {"buddy", "story", "quiz", "riddles", "calm", "ispy"}:
                 raise ValueError("Unsupported Kids Mode activity")
 
     @property

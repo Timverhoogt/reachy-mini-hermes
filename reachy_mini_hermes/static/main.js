@@ -357,7 +357,7 @@ function updateStatus(payload) {
   progress.setAttribute("aria-valuenow", String(Math.round(remainingPercent)));
   $("kids-session-detail").textContent = kidsActive
     ? kidsCameraActive
-      ? "I Spy camera is active for this bounded three-frame search only. End now stops capture and folds Reachy."
+      ? "I Spy camera is active for this bounded five-frame desk search only. End now stops capture and folds Reachy."
       : `${kidsActivityLabels[kidsProfile.activity] || "Kids activity"} · age ${kidsProfile.age_band} · ${kidsMode.turns_completed || 0} completed turn${kidsMode.turns_completed === 1 ? "" : "s"} · ${kidsMode.tool_policy === "voice-state-motion-only" ? "gentle voice-state motion only" : "no tools"}`
     : "Camera, personal Hermes memory, smart-home control, messaging, purchases, and power controls are unavailable to the child session.";
   $("kids-start-button").disabled = kidsActive || kidsLocked || !kidsPinConfigured || kidsRequestPending || ["meeting", "sleep"].includes(powerMode);
@@ -1151,9 +1151,15 @@ document.querySelectorAll("[data-robot-action]").forEach((button) => {
 
 document.querySelectorAll("[data-nudge-axis]").forEach((button) => {
   button.addEventListener("click", () => {
-    const step = Number($("precision-step").value);
+    const stepControl = button.dataset.nudgeAxis === "body_yaw" ? "base-yaw-step" : "precision-step";
+    const step = Number($(stepControl).value);
     const sign = Number(button.dataset.nudgeSign);
     const delta = Number.isFinite(sign) ? step * sign : 0;
+    if (
+      button.dataset.nudgeAxis === "body_yaw"
+      && Math.abs(delta) >= 30
+      && !window.confirm("Wide base turns need clear space around Reachy. Continue?")
+    ) return;
     sendPrecisionRobotAction(button.dataset.nudgeAxis, delta);
   });
 });

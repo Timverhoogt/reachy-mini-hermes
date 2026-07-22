@@ -70,6 +70,9 @@ class HermesBridgeClient:
         self.last_tts_provider = ""
         self._kids_speech_approval = ""
         self._kids_fallback_speech_approval = ""
+        self.last_kids_next_action = ""
+        self.last_kids_ispy_role = ""
+        self.last_kids_ispy_phase = ""
 
     def close(self) -> None:
         if self._owns_client:
@@ -113,8 +116,8 @@ class HermesBridgeClient:
         age_band: str,
         language: str,
     ) -> ISpyTarget:
-        """Send at most three transient frames to the fixed child-safe vision route."""
-        if not 2 <= len(frames) <= 3 or any(not frame or len(frame) > 1_500_000 for frame in frames):
+        """Send exactly five transient frames to the fixed child-safe vision route."""
+        if len(frames) != 5 or any(not frame or len(frame) > 1_500_000 for frame in frames):
             raise HermesBridgeError("I Spy camera frame bounds were not met")
         response = self._client.post(
             f"{self.config.bridge_url}/v1/kids/ispy/select",
@@ -133,6 +136,32 @@ class HermesBridgeClient:
             return validate_ispy_target(payload["target"], frame_count=len(frames))
         except (KeyError, TypeError, ValueError) as exc:
             raise HermesBridgeError("Hermes returned an unsafe or invalid I Spy target") from exc
+
+    def ispy_clue(self, session_id: str) -> str:
+        """Fetch the server-owned colour clue with exact child-speech approvals."""
+        self._kids_speech_approval = ""
+        self._kids_fallback_speech_approval = ""
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/kids/ispy/clue",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+            json={"session_id": session_id},
+            timeout=10.0,
+        )
+        self._raise_for_error(response, "I Spy colour clue")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise HermesBridgeError("Hermes returned an invalid I Spy clue")
+        text = str(payload.get("text") or "").strip()
+        approval = str(payload.get("speech_approval") or "").strip()
+        fallback = str(payload.get("fallback_speech_approval") or "").strip()
+        if not text or not approval or not fallback or payload.get("ispy_role") != "reachy_picker":
+            raise HermesBridgeError("Hermes returned an incomplete I Spy clue approval")
+        self._kids_speech_approval = approval
+        self._kids_fallback_speech_approval = fallback
+        self.last_kids_next_action = ""
+        self.last_kids_ispy_role = "reachy_picker"
+        self.last_kids_ispy_phase = "reachy_guessing"
+        return text
 
     def cancel_ispy_session(self, session_id: str) -> None:
         """Best-effort deletion of bridge-side I Spy target and guess state."""
@@ -431,6 +460,9 @@ class HermesBridgeClient:
         """Use the dedicated no-agent child route with ephemeral in-process context only."""
         self._kids_speech_approval = ""
         self._kids_fallback_speech_approval = ""
+        self.last_kids_next_action = ""
+        self.last_kids_ispy_role = ""
+        self.last_kids_ispy_phase = ""
         clean = transcript.strip()
         if not clean:
             raise HermesBridgeError("Kids Mode received an empty transcript")
@@ -460,6 +492,25 @@ class HermesBridgeClient:
         )
         if not approval or not fallback_approval:
             raise HermesBridgeError("Kids Mode returned incomplete moderated speech approvals")
+        if self.config.kids_activity == "ispy":
+            action = str(payload.get("ispy_next_action") or "")
+            role = str(payload.get("ispy_role") or "")
+            phase = str(payload.get("ispy_phase") or "")
+            if action not in {"", "prepare_robot_round"}:
+                raise HermesBridgeError("Kids Mode returned an invalid I Spy action")
+            if role not in {"reachy_picker", "player_picker", "reachy_pending"}:
+                raise HermesBridgeError("Kids Mode returned an invalid I Spy role")
+            if phase not in {
+                "reachy_guessing",
+                "awaiting_clue",
+                "awaiting_confirmation",
+                "awaiting_reveal",
+                "complete",
+            }:
+                raise HermesBridgeError("Kids Mode returned an invalid I Spy phase")
+            self.last_kids_next_action = action
+            self.last_kids_ispy_role = role
+            self.last_kids_ispy_phase = phase
         self._kids_speech_approval = approval
         self._kids_fallback_speech_approval = fallback_approval
         return text

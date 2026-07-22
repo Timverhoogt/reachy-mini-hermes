@@ -72,7 +72,7 @@ class RobotActionRequest(BaseModel):
 
 class RobotNudgeRequest(BaseModel):
     axis: str = Field(min_length=1, max_length=32)
-    delta: float = Field(default=0.0, ge=-10, le=10)
+    delta: float = Field(default=0.0, ge=-60, le=60)
 
 
 class BluetoothDeviceRequest(BaseModel):
