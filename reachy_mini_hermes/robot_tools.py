@@ -42,6 +42,13 @@ _CAMERA_PAN_STEP = 3.0
 _CAMERA_TILT_STEP = 2.0
 _CAMERA_BODY_STEP = 2.0
 
+
+def _cancelled_action_result(name: str) -> dict[str, object]:
+    if name == "camera_joystick":
+        return {"ok": True, "cancelled": True, "action": name}
+    return {"ok": False, "error": "Robot action was cancelled", "action": name}
+
+
 _LOOK_POSES: dict[str, dict[str, float]] = {
     "left": {"yaw": 35.0},
     "right": {"yaw": -35.0},
@@ -376,7 +383,7 @@ class ReachyRobotActions:
                 start_body=math.radians(body_yaw),
                 duration=duration,
             ):
-                return {"ok": False, "error": "Robot action was cancelled", "action": name}
+                return _cancelled_action_result(name)
             return {
                 "ok": True,
                 "action": name,
@@ -557,7 +564,7 @@ class ReachyRobotActions:
                 self._queue.task_done()
                 break
             if not self._generation_matches(action.generation):
-                result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
+                result = _cancelled_action_result(action.name)
                 self._queue.task_done()
                 self._mark_finished()
                 if action.on_complete is not None:
@@ -576,11 +583,11 @@ class ReachyRobotActions:
                 if self._before_action is not None:
                     self._before_action()
                 if not self._generation_matches(action.generation):
-                    result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
+                    result = _cancelled_action_result(action.name)
                 else:
                     result = self.execute(action.name, action.arguments)
                     if not self._generation_matches(action.generation):
-                        result = {"ok": False, "error": "Robot action was cancelled", "action": action.name}
+                        result = _cancelled_action_result(action.name)
                 if not result.get("ok"):
                     _LOGGER.warning("Reachy action rejected: %s", result.get("error"))
             except Exception as exc:
@@ -626,7 +633,7 @@ class ReachyRobotActions:
                 if pending is None:
                     break
                 self._mark_finished()
-                result = {"ok": False, "error": "Robot action was cancelled", "action": pending.name}
+                result = _cancelled_action_result(pending.name)
                 if pending.on_complete is not None:
                     pending.on_complete(result)
                 if self._on_result is not None:

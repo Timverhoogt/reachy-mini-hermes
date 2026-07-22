@@ -229,6 +229,42 @@ def test_camera_joystick_is_allowlisted_at_the_action_queue_boundary() -> None:
     assert actions.pending_count == 0
 
 
+def test_camera_joystick_release_is_reported_as_expected_cancellation(monkeypatch) -> None:
+    robot = FakeRobot()
+    results: list[dict[str, object]] = []
+    actions = ReachyRobotActions(
+        robot,
+        threading.Event(),
+        library_factory=FakeLibrary,
+        on_result=lambda _name, result: results.append(result),
+    )
+
+    def wait_for_release(**_kwargs: object) -> bool:
+        return not actions._cancel_requested.wait(1.0)
+
+    monkeypatch.setattr(actions, "_run_precision_interpolation", wait_for_release)
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    actions.start()
+    try:
+        queued = actions.enqueue(
+            "camera_joystick",
+            {"pan": 0.25, "tilt": 0.0, "body_yaw_degrees": 0.0},
+            hold_pose=True,
+            reject_if_busy=True,
+        )
+        assert queued["accepted"] is True
+        deadline = time.monotonic() + 1.0
+        while not actions.busy and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert actions.busy is True
+
+        actions.cancel(stop_media=False)
+        assert actions.wait_idle(timeout=1.0) is True
+        assert results == [{"ok": True, "cancelled": True, "action": "camera_joystick"}]
+    finally:
+        actions.close()
+
+
 def test_camera_joystick_adds_bounded_base_assistance_near_head_limit(monkeypatch) -> None:
     monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
     monkeypatch.setattr(

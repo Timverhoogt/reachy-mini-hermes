@@ -35,7 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 316 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 317 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 
