@@ -1,5 +1,16 @@
 # Third-party notices for the local camera viewer
 
+The camera joystick's 20 Hz target-stream cadence and drag-start geometry were
+adapted from the official Pollen Robotics Reachy Mini Control controller module:
+
+- Project: https://github.com/pollen-robotics/reachy-mini-desktop-app
+- Reference commit: `0f150976f4a44db0cc4c3e30247f4d71e1fff42c`
+- License: Apache License 2.0
+
+The Hermes implementation is rewritten around gesture-bound sessions, a local
+watchdog, cooperative Stop, privacy/Kids/Awake policy gates, and coupled
+head-plus-base horizontal movement.
+
 The Reachy Mini Hermes browser camera viewer includes an unmodified bundled copy
 of `gstwebrtc-api.js`, sourced from Pollen Robotics' Reachy Mini Control desktop
 application and originally maintained by the GStreamer project:

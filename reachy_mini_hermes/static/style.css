@@ -213,7 +213,10 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
   left: max(12px, env(safe-area-inset-left));
   z-index: 8;
   display: none;
+  align-items: center;
+  justify-content: center;
   min-height: 44px;
+  line-height: 1;
   pointer-events: auto;
   background: #0a0c12d9;
 }

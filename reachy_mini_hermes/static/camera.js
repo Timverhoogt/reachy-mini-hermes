@@ -2,7 +2,7 @@
   "use strict";
 
   const CAMERA_CONTROL_DEAD_ZONE = 0.16;
-  const CAMERA_CONTROL_INTERVAL_MS = 250;
+  const CAMERA_CONTROL_INTERVAL_MS = 50;
   const byId = (id) => document.getElementById(id);
   const state = {
     api: null,
@@ -348,7 +348,6 @@
 
   async function sendControlCommand() {
     if (!state.cameraControlSession || state.controlPointerId === null || state.controlInFlight) return;
-    if (state.desiredPan === 0 && state.desiredTilt === 0) return;
     state.controlInFlight = true;
     state.cameraControlSequence += 1;
     const sessionId = state.cameraControlSession;

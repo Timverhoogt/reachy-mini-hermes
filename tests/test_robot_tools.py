@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from typing import cast
@@ -7,6 +8,7 @@ from typing import cast
 import pytest
 
 from reachy_mini_hermes.robot_tools import (
+    CameraJoystickStream,
     ReachyRobotActions,
     completed_robot_tool_call,
     manual_precision_action,
@@ -189,27 +191,88 @@ def test_precision_center_all_resets_head_and_base(monkeypatch) -> None:
     assert robot.body_samples[-1] == 0.0
 
 
-def test_camera_joystick_uses_small_bounded_head_steps(monkeypatch) -> None:
+def test_camera_joystick_stream_rotates_head_and_base_together_at_interactive_rate(monkeypatch) -> None:
     monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
-    monkeypatch.setattr(
-        "reachy_mini_hermes.robot_tools.interpolate_head_pose",
-        lambda start, target, ratio: target,
-    )
     robot = FakeRobot()
     actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+    stream = CameraJoystickStream(watchdog_seconds=1.0)
+    stream.update(1.0, 1.0)
+    result: dict[str, object] = {}
 
-    result = actions.execute(
-        "camera_joystick",
-        {"pan": 1.0, "tilt": 1.0, "body_yaw_degrees": 0.0},
+    worker = threading.Thread(
+        target=lambda: result.update(
+            actions.execute(
+                "camera_joystick",
+                {"stream": stream, "body_yaw_degrees": 0.0},
+            )
+        )
     )
+    worker.start()
+    time.sleep(0.25)
+    stream.stop(hold_body_yaw_degrees=0.0)
+    worker.join(timeout=1.0)
 
-    assert result == {
-        "ok": True,
-        "action": "camera_joystick",
-        "target": {"pitch": 2.0, "yaw": 3.0, "body_yaw": 0.0},
-    }
-    assert cast(dict[str, float], robot.head_samples[-1])["yaw"] == 3.0
-    assert robot.body_samples == []
+    assert worker.is_alive() is False
+    assert result == {"ok": True, "cancelled": True, "action": "camera_joystick"}
+    moving_body_samples = [math.degrees(value) for value in robot.body_samples if value > 0]
+    moving_head_samples = [cast(dict[str, float], value) for value in robot.head_samples if isinstance(value, dict)]
+    assert len(moving_body_samples) >= 3
+    assert moving_body_samples[-1] >= 4.0
+    assert moving_head_samples[-1]["yaw"] == pytest.approx(moving_body_samples[-1], abs=0.2)
+    assert moving_head_samples[-1]["pitch"] >= 3.0
+
+
+def test_camera_joystick_stream_stops_when_browser_updates_expire(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+    stream = CameraJoystickStream(watchdog_seconds=0.08)
+    stream.update(1.0, 0.0)
+
+    started = time.monotonic()
+    result = actions.execute("camera_joystick", {"stream": stream, "body_yaw_degrees": 0.0})
+
+    assert time.monotonic() - started < 0.4
+    assert result == {"ok": True, "cancelled": True, "action": "camera_joystick"}
+    assert robot.body_samples
+    with pytest.raises(RuntimeError, match="not active"):
+        stream.update(0.5, 0.0)
+
+
+def test_camera_joystick_stream_stops_cleanly_through_action_queue(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    robot = FakeRobot()
+    results: list[dict[str, object]] = []
+    actions = ReachyRobotActions(
+        robot,
+        threading.Event(),
+        library_factory=FakeLibrary,
+        on_result=lambda _name, result: results.append(result),
+    )
+    stream = CameraJoystickStream(watchdog_seconds=1.0)
+    stream.update(1.0, 0.0)
+    actions.start()
+    try:
+        queued = actions.enqueue(
+            "camera_joystick",
+            {"stream": stream, "body_yaw_degrees": 0.0},
+            hold_pose=True,
+            reject_if_busy=True,
+        )
+        assert queued["accepted"] is True
+        deadline = time.monotonic() + 1.0
+        while not actions.busy and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert actions.busy is True
+
+        stream.stop(hold_body_yaw_degrees=0.0)
+        actions.cancel(stop_media=False)
+
+        assert actions.wait_idle(timeout=1.0) is True
+        assert results == [{"ok": True, "cancelled": True, "action": "camera_joystick"}]
+        assert robot.body_samples
+    finally:
+        actions.close()
 
 
 def test_camera_joystick_is_allowlisted_at_the_action_queue_boundary() -> None:

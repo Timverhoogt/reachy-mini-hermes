@@ -35,6 +35,7 @@ from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
 from .robot_tools import (
+    CameraJoystickStream,
     ReachyRobotActions,
     completed_robot_tool_call,
     manual_precision_action,
@@ -265,6 +266,7 @@ class HermesVoiceRuntime:
         self._camera_control_session_id = ""
         self._camera_control_last_sequence = 0
         self._camera_control_last_activity = 0.0
+        self._camera_control_stream: CameraJoystickStream | None = None
         self._power_mode = "standby"
         self._meeting_until = 0.0
         self._recording = False
@@ -1413,9 +1415,20 @@ class HermesVoiceRuntime:
                 if self._actions.busy or self._actions.pending_count:
                     raise RuntimeError("Robot is busy")
                 with self._camera_control_lock:
+                    pose = self.robot_pose()
+                    stream = CameraJoystickStream()
+                    result = self._actions.enqueue(
+                        "camera_joystick",
+                        {"stream": stream, "body_yaw_degrees": pose["body_yaw"]},
+                        hold_pose=True,
+                        reject_if_busy=True,
+                    )
+                    if not result.get("accepted"):
+                        raise RuntimeError(str(result.get("error") or "Camera movement could not start"))
                     self._camera_control_session_id = f"camera-{secrets.token_hex(16)}"
                     self._camera_control_last_sequence = 0
                     self._camera_control_last_activity = time.monotonic()
+                    self._camera_control_stream = stream
                     return {"ok": True, "session_id": self._camera_control_session_id}
 
     def queue_camera_control(
@@ -1435,17 +1448,11 @@ class HermesVoiceRuntime:
                 self._assert_camera_control_policy()
                 with self._camera_control_lock:
                     self._validate_camera_control_session(session_id, sequence)
-                    assert self._actions is not None
-                    pose = self.robot_pose()
-                    result = self._actions.enqueue(
-                        "camera_joystick",
-                        {"pan": float(pan), "tilt": float(tilt), "body_yaw_degrees": pose["body_yaw"]},
-                        hold_pose=True,
-                        reject_if_busy=True,
-                    )
-                if not result.get("accepted"):
-                    raise RuntimeError(str(result.get("error") or "Camera movement could not be queued"))
-                return {"ok": True, "sequence": sequence, **result}
+                    stream = self._camera_control_stream
+                    if stream is None:
+                        raise RuntimeError("Camera joystick stream is not active")
+                    stream.update(float(pan), float(tilt))
+                return {"ok": True, "sequence": sequence, "accepted": True, "streamed": True}
 
     def center_camera_control(self, session_id: str, sequence: int) -> dict[str, object]:
         """Explicitly return the camera head and body yaw to neutral."""
@@ -1455,7 +1462,14 @@ class HermesVoiceRuntime:
                 with self._camera_control_lock:
                     self._validate_camera_control_session(session_id, sequence)
                     assert self._actions is not None
+                    stream = self._camera_control_stream
+                    self._camera_control_stream = None
                     pose = self.robot_pose()
+                    if stream is not None:
+                        stream.stop(hold_body_yaw_degrees=pose["body_yaw"])
+                    self._actions.cancel(stop_media=False)
+                    if not self._actions.wait_idle(timeout=1.0):
+                        raise RuntimeError("Camera movement did not stop before Center")
                     result = self._actions.enqueue(
                         "nudge_reachy",
                         {"axis": "center_all", "delta": 0.0, "body_yaw_degrees": pose["body_yaw"]},
@@ -1473,8 +1487,15 @@ class HermesVoiceRuntime:
         with self._camera_control_lock:
             self._validate_camera_control_session(session_id, sequence)
             self._camera_control_session_id = ""
+            stream = self._camera_control_stream
+            self._camera_control_stream = None
         if self._actions is None:
             raise RuntimeError("Robot action controller is not ready")
+        if stream is not None:
+            try:
+                stream.stop(hold_body_yaw_degrees=self.robot_pose()["body_yaw"])
+            except RuntimeError:
+                stream.stop()
         self._actions.cancel(stop_media=False)
         held = self._actions.wait_idle(timeout=1.0)
         if not held:
@@ -1484,17 +1505,25 @@ class HermesVoiceRuntime:
     def invalidate_camera_control(self) -> None:
         """Reject delayed gesture packets after Stop, privacy, power, or session changes."""
         with self._camera_control_lock:
+            stream = self._camera_control_stream
+            self._camera_control_stream = None
             self._camera_control_session_id = ""
             self._camera_control_last_sequence = 0
             self._camera_control_last_activity = 0.0
+        if stream is not None:
+            stream.stop()
 
     def revoke_camera_control(self) -> None:
         """Invalidate an active gesture and cooperatively freeze its movement."""
         with self._camera_control_lock:
             was_active = bool(self._camera_control_session_id)
+            stream = self._camera_control_stream
+            self._camera_control_stream = None
             self._camera_control_session_id = ""
             self._camera_control_last_sequence = 0
             self._camera_control_last_activity = 0.0
+        if stream is not None:
+            stream.stop()
         if was_active and self._actions is not None:
             self._actions.cancel(stop_media=False)
             self._actions.wait_idle(timeout=1.0)

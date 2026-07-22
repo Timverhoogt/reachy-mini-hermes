@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import reachy_mini_hermes.main as main_module
 from reachy_mini_hermes.config import AppConfig
 from reachy_mini_hermes.main import ReachyMiniHermes
+from reachy_mini_hermes.robot_tools import CameraJoystickStream
 from reachy_mini_hermes.runtime import HermesVoiceRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -117,6 +118,10 @@ def test_camera_viewer_contains_optional_accessible_control_overlay() -> None:
     assert ".camera-control-overlay[data-handedness=\"left\"]" in style
     assert "touch-action: none" in style
     assert "min-height: 34px" in style
+    assert ".camera-overlay-exit" in style
+    exit_rule = style.split(".camera-overlay-exit {", 1)[1].split("}", 1)[0]
+    assert "align-items: center" in exit_rule
+    assert "justify-content: center" in exit_rule
     assert "env(safe-area-inset-bottom)" in style
     assert ".camera-viewer:fullscreen .camera-control-overlay" in style
     assert ".camera-viewer.camera-app-fullscreen" in style
@@ -284,24 +289,30 @@ def test_runtime_rejects_standby_kids_lock_and_replayed_sequence() -> None:
         runtime.queue_camera_control(session_id, 1, 0.2, 0.2)
 
 
-def test_runtime_camera_release_holds_pose_and_invalidates_session() -> None:
+def test_runtime_camera_stream_coalesces_updates_then_release_holds_and_invalidates() -> None:
     runtime, actions = ready_runtime()
     started = runtime.start_camera_control(camera_feed_enabled=True, controls_enabled=True, adult_ui_unlocked=True)
     session_id = str(started["session_id"])
 
+    assert len(actions.commands) == 1
+    name, arguments, hold_pose, reject_if_busy = actions.commands[0]
+    assert name == "camera_joystick"
+    assert hold_pose is True
+    assert reject_if_busy is True
+    stream = arguments["stream"]
+    assert isinstance(stream, CameraJoystickStream)
+
     moved = runtime.queue_camera_control(session_id, 1, 1.0, -1.0)
     assert moved["ok"] is True
-    assert actions.commands == [
-        (
-            "camera_joystick",
-            {"pan": 1.0, "tilt": -1.0, "body_yaw_degrees": 0.0},
-            True,
-            True,
-        )
-    ]
+    assert len(actions.commands) == 1
+    snapshot = stream.snapshot()
+    assert snapshot.pan == 1.0
+    assert snapshot.tilt == -1.0
+    assert snapshot.active is True
 
     ended = runtime.end_camera_control(session_id, 2)
     assert ended == {"ok": True, "held": True}
+    assert stream.snapshot().active is False
     assert actions.cancel_calls == [False]
     with pytest.raises(RuntimeError, match="session is not active"):
         runtime.queue_camera_control(session_id, 3, 0.5, 0.0)
@@ -333,6 +344,14 @@ def test_camera_pointer_move_sends_immediately_through_the_in_flight_guard() -> 
     assert "state.desiredPan = vector.pan" in move_handler
     assert "state.desiredTilt = vector.tilt" in move_handler
     assert "void sendControlCommand()" in move_handler
+
+
+def test_camera_stream_uses_official_app_twenty_hertz_command_cadence() -> None:
+    camera = (STATIC / "camera.js").read_text()
+
+    assert "const CAMERA_CONTROL_INTERVAL_MS = 50;" in camera
+    sender = camera.split("async function sendControlCommand() {", 1)[1].split("\n  }", 1)[0]
+    assert "desiredPan === 0" not in sender
 
 
 def test_camera_pointer_gesture_pins_its_origin_across_status_layout_changes() -> None:

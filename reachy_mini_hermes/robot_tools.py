@@ -41,6 +41,10 @@ _CAMERA_HEAD_YAW_LIMIT = 35.0
 _CAMERA_PAN_STEP = 3.0
 _CAMERA_TILT_STEP = 2.0
 _CAMERA_BODY_STEP = 2.0
+_CAMERA_STREAM_PERIOD = 1.0 / 20.0
+_CAMERA_STREAM_SMOOTHING_SECONDS = 0.12
+_CAMERA_STREAM_PAN_SPEED = 45.0
+_CAMERA_STREAM_TILT_SPEED = 35.0
 
 
 def _cancelled_action_result(name: str) -> dict[str, object]:
@@ -151,6 +155,60 @@ def _head_pose_components(pose: object) -> dict[str, float]:
 
 def _clamp(value: float, limits: tuple[float, float]) -> float:
     return max(limits[0], min(limits[1], value))
+
+
+@dataclass(frozen=True, slots=True)
+class CameraJoystickSnapshot:
+    """Atomic browser joystick state consumed by the 20 Hz robot action."""
+
+    active: bool
+    pan: float
+    tilt: float
+    hold_body_yaw_degrees: float | None
+
+
+class CameraJoystickStream:
+    """Coalesce one gesture's browser updates with a short fail-closed watchdog."""
+
+    def __init__(self, *, watchdog_seconds: float = 0.75) -> None:
+        self._lock = threading.Lock()
+        self._watchdog_seconds = max(0.05, float(watchdog_seconds))
+        self._active = True
+        self._pan = 0.0
+        self._tilt = 0.0
+        self._updated_at = time.monotonic()
+        self._hold_body_yaw_degrees: float | None = None
+
+    def update(self, pan: float, tilt: float) -> None:
+        if any(isinstance(value, bool) for value in (pan, tilt)) or not all(
+            math.isfinite(value) and -1.0 <= value <= 1.0 for value in (pan, tilt)
+        ):
+            raise ValueError("Camera joystick input must be finite and bounded")
+        with self._lock:
+            if not self._active:
+                raise RuntimeError("Camera joystick stream is not active")
+            self._pan = float(pan)
+            self._tilt = float(tilt)
+            self._updated_at = time.monotonic()
+
+    def stop(self, *, hold_body_yaw_degrees: float | None = None) -> None:
+        with self._lock:
+            self._active = False
+            self._pan = 0.0
+            self._tilt = 0.0
+            self._hold_body_yaw_degrees = hold_body_yaw_degrees
+
+    def snapshot(self) -> CameraJoystickSnapshot:
+        with self._lock:
+            if self._active and time.monotonic() - self._updated_at > self._watchdog_seconds:
+                self._active = False
+            active = self._active
+            return CameraJoystickSnapshot(
+                active=active,
+                pan=self._pan if active else 0.0,
+                tilt=self._tilt if active else 0.0,
+                hold_body_yaw_degrees=self._hold_body_yaw_degrees,
+            )
 
 
 def robot_control_options() -> dict[str, list[str]]:
@@ -324,6 +382,68 @@ class ReachyRobotActions:
         with self._state_lock:
             return generation == self._generation and not self._closed.is_set()
 
+    def _run_camera_joystick_stream(
+        self,
+        stream: CameraJoystickStream,
+        *,
+        initial_body_yaw_degrees: float,
+    ) -> dict[str, object]:
+        """Apply one browser gesture as a smoothed 20 Hz head/base target stream."""
+        components = _head_pose_components(self.robot.get_current_head_pose())
+        target_body = _clamp(float(initial_body_yaw_degrees), _BODY_YAW_LIMIT)
+        relative_yaw = _clamp(
+            components["yaw"] - target_body,
+            (-_CAMERA_HEAD_YAW_LIMIT, _CAMERA_HEAD_YAW_LIMIT),
+        )
+        target_head_yaw = target_body + relative_yaw
+        target_pitch = _clamp(components["pitch"], _HEAD_LIMITS["pitch"])
+        smoothed_pan = 0.0
+        smoothed_tilt = 0.0
+        last_update = time.monotonic()
+
+        while True:
+            snapshot = stream.snapshot()
+            cancelled = self._cancel_requested.is_set() or self.stop_event.is_set() or self._closed.is_set()
+            if cancelled or not snapshot.active:
+                hold_body = (
+                    snapshot.hold_body_yaw_degrees
+                    if snapshot.hold_body_yaw_degrees is not None
+                    else target_body
+                )
+                self.robot.set_target_head_pose(self.robot.get_current_head_pose())
+                self.robot.set_target_body_yaw(math.radians(_clamp(hold_body, _BODY_YAW_LIMIT)))
+                return _cancelled_action_result("camera_joystick")
+
+            now = time.monotonic()
+            elapsed = min(0.1, max(0.001, now - last_update))
+            last_update = now
+            alpha = 1.0 - math.exp(-elapsed / _CAMERA_STREAM_SMOOTHING_SECONDS)
+            smoothed_pan += (snapshot.pan - smoothed_pan) * alpha
+            smoothed_tilt += (snapshot.tilt - smoothed_tilt) * alpha
+
+            body_delta = smoothed_pan * _CAMERA_STREAM_PAN_SPEED * elapsed
+            next_body = _clamp(target_body + body_delta, _BODY_YAW_LIMIT)
+            applied_body_delta = next_body - target_body
+            target_body = next_body
+            target_head_yaw = _clamp(target_head_yaw + applied_body_delta, (-180.0, 180.0))
+            target_pitch = _clamp(
+                target_pitch + smoothed_tilt * _CAMERA_STREAM_TILT_SPEED * elapsed,
+                _HEAD_LIMITS["pitch"],
+            )
+            target_head = create_head_pose(
+                x=components["x"],
+                y=components["y"],
+                z=components["z"],
+                roll=components["roll"],
+                pitch=target_pitch,
+                yaw=target_head_yaw,
+                mm=True,
+                degrees=True,
+            )
+            self.robot.set_target_head_pose(target_head)
+            self.robot.set_target_body_yaw(math.radians(target_body))
+            self._cancel_requested.wait(_CAMERA_STREAM_PERIOD)
+
     def execute(self, name: str, arguments: dict[str, object]) -> dict[str, object]:
         """Execute one action synchronously; the worker calls this off the audio loop."""
         if name == "move_reachy_head":
@@ -336,6 +456,18 @@ class ReachyRobotActions:
             return {"ok": True, "action": name, "direction": direction}
 
         if name == "camera_joystick":
+            stream = arguments.get("stream")
+            if isinstance(stream, CameraJoystickStream):
+                raw_body_yaw = arguments.get("body_yaw_degrees", 0.0)
+                if isinstance(raw_body_yaw, bool) or not isinstance(raw_body_yaw, (int, float)):
+                    return {"ok": False, "error": "Camera joystick body yaw must be finite"}
+                body_yaw = float(raw_body_yaw)
+                if not math.isfinite(body_yaw):
+                    return {"ok": False, "error": "Camera joystick body yaw must be finite"}
+                return self._run_camera_joystick_stream(
+                    stream,
+                    initial_body_yaw_degrees=body_yaw,
+                )
             if any(isinstance(arguments.get(key), bool) for key in ("pan", "tilt")):
                 return {"ok": False, "error": "Camera joystick input must be finite and bounded"}
             pan = float(arguments.get("pan") or 0.0)

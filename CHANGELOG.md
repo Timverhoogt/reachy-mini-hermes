@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Kids I Spy now retains five bounded viewpoints across a 240° base arc, uses non-capturing 60° transit waypoints, revokes camera access before its neutral return, and keeps the head aligned with the base.
 - Manual base control now uses separate 5°/15°/30°/60° steps, clear-space confirmation for wide turns, coupled head yaw, and a ±120° application limit inside the SDK's ±160° range.
+- Camera joystick motion now follows a Pollen-inspired 20 Hz smoothed target stream: horizontal input rotates the head and base together, vertical input tilts the head, and a short watchdog stops abandoned browser gestures.
+- Fullscreen Exit uses explicit horizontal and vertical centering, and the PWA shell advances to v34 for the new controls.
 - PWA shell advanced to v33 for the pinned joystick geometry and stable status layout.
 - PWA shell advanced to v32 for the camera-control overlay and fullscreen-safe controls.
 - PWA shell advanced to v31 for the wider base controls and five-frame I Spy status.
@@ -36,7 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 320 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 323 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 
