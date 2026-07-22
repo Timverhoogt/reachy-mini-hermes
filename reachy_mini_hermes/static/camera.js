@@ -28,6 +28,9 @@
     controlTimer: null,
     desiredPan: 0,
     desiredTilt: 0,
+    controlOriginX: null,
+    controlOriginY: null,
+    controlRadius: null,
     appFullscreen: false,
     appFullscreenAnchor: null,
   };
@@ -107,6 +110,9 @@
     byId("camera-joystick-knob").style.transform = "translate(-50%, -50%)";
     state.desiredPan = 0;
     state.desiredTilt = 0;
+    state.controlOriginX = null;
+    state.controlOriginY = null;
+    state.controlRadius = null;
   }
 
   async function postControl(path, payload, { keepalive = false, headers = {} } = {}) {
@@ -322,9 +328,11 @@
   function pointerVector(event) {
     const joystick = byId("camera-joystick");
     const rect = joystick.getBoundingClientRect();
-    const radius = Math.min(rect.width, rect.height) * 0.36;
-    const rawX = (event.clientX - (rect.left + rect.width / 2)) / radius;
-    const rawY = (event.clientY - (rect.top + rect.height / 2)) / radius;
+    const radius = state.controlRadius ?? Math.min(rect.width, rect.height) * 0.36;
+    const originX = state.controlOriginX ?? rect.left + rect.width / 2;
+    const originY = state.controlOriginY ?? rect.top + rect.height / 2;
+    const rawX = (event.clientX - originX) / radius;
+    const rawY = (event.clientY - originY) / radius;
     const rawMagnitude = Math.hypot(rawX, rawY);
     const boundedMagnitude = Math.min(1, rawMagnitude);
     const unitX = rawMagnitude ? rawX / rawMagnitude : 0;
@@ -371,6 +379,10 @@
     state.controlPointerId = event.pointerId;
     state.controlGeneration += 1;
     const generation = state.controlGeneration;
+    const rect = joystick.getBoundingClientRect();
+    state.controlOriginX = rect.left + rect.width / 2;
+    state.controlOriginY = rect.top + rect.height / 2;
+    state.controlRadius = Math.min(rect.width, rect.height) * 0.36;
     joystick.dataset.active = "true";
     joystick.setPointerCapture(event.pointerId);
     const vector = pointerVector(event);

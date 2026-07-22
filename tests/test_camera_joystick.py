@@ -332,3 +332,13 @@ def test_camera_pointer_move_sends_immediately_through_the_in_flight_guard() -> 
     assert "state.desiredPan = vector.pan" in move_handler
     assert "state.desiredTilt = vector.tilt" in move_handler
     assert "void sendControlCommand()" in move_handler
+
+
+def test_camera_pointer_gesture_pins_its_origin_across_status_layout_changes() -> None:
+    camera = (STATIC / "camera.js").read_text()
+
+    assert "state.controlOriginX = rect.left + rect.width / 2" in camera
+    assert "state.controlOriginY = rect.top + rect.height / 2" in camera
+    assert "state.controlRadius = Math.min(rect.width, rect.height) * 0.36" in camera
+    assert "const originX = state.controlOriginX ?? rect.left + rect.width / 2" in camera
+    assert "const originY = state.controlOriginY ?? rect.top + rect.height / 2" in camera
