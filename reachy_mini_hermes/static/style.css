@@ -261,7 +261,20 @@ button:disabled, select:disabled { opacity: .46; cursor: not-allowed; transform:
 }
 .camera-joystick[data-active="true"] .camera-joystick-knob { transition: none; }
 .camera-center-button { min-height: 40px; padding: 0 12px; color: #fff; background: #0a0c12d9; backdrop-filter: blur(6px); }
-.camera-control-status { max-width: 180px; padding: 4px 7px; border-radius: 6px; color: #fff; background: #000a; font-size: .7rem; text-align: center; }
+.camera-control-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 180px;
+  min-height: 34px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  color: #fff;
+  background: #000a;
+  font-size: .7rem;
+  text-align: center;
+}
 .camera-viewer:fullscreen .camera-control-overlay,
 .camera-viewer.camera-app-fullscreen .camera-control-overlay { display: block; }
 .camera-viewer.camera-app-fullscreen {

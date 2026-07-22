@@ -116,6 +116,7 @@ def test_camera_viewer_contains_optional_accessible_control_overlay() -> None:
     assert ".camera-control-overlay" in style
     assert ".camera-control-overlay[data-handedness=\"left\"]" in style
     assert "touch-action: none" in style
+    assert "min-height: 34px" in style
     assert "env(safe-area-inset-bottom)" in style
     assert ".camera-viewer:fullscreen .camera-control-overlay" in style
     assert ".camera-viewer.camera-app-fullscreen" in style
