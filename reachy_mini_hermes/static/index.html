@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=30" />
+  <link rel="stylesheet" href="/static/style.css?v=31" />
 </head>
 <body>
   <main>
@@ -135,7 +135,7 @@
           <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="quiz"><span class="kids-activity-icon" aria-hidden="true">?</span><strong>Quiz quest</strong><small>Learn with kind hints</small></button>
           <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="riddles"><span class="kids-activity-icon" aria-hidden="true">◇</span><strong>Riddle box</strong><small>Guess, hint, reveal</small></button>
           <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="calm"><span class="kids-activity-icon" aria-hidden="true">≈</span><strong>Calm corner</strong><small>Breathe and slow down</small></button>
-          <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="ispy"><span class="kids-activity-icon" aria-hidden="true">◉</span><strong>I Spy</strong><small>Brief camera search, then guess</small></button>
+          <button type="button" class="kids-activity" role="radio" aria-checked="false" data-kids-activity="ispy"><span class="kids-activity-icon" aria-hidden="true">◉</span><strong>I Spy</strong><small>Wide desk search, then swap guesses</small></button>
         </div>
       </section>
 
@@ -165,9 +165,9 @@
           <small id="kids-pin-help" class="muted">Set this from a trusted parent device before giving a child access. The first caller can claim an unset PIN; only a salted scrypt verifier is stored.</small>
         </div>
         <label class="toggle-row kids-motion-toggle"><span><strong>Gentle robot motion</strong><small>Allow occasional bounded head and antenna gestures; no camera and no wide dance</small></span><input id="kids-motion-enabled" type="checkbox" checked /></label>
-        <label id="kids-ispy-consent-row" class="toggle-row" hidden><span><strong>Allow camera for this I Spy start only</strong><small>Three in-memory frames during one bounded search; no faces, recording, storage, or camera during guessing.</small></span><input id="kids-ispy-camera-consent" type="checkbox" /></label>
+        <label id="kids-ispy-consent-row" class="toggle-row" hidden><span><strong>Allow camera for this I Spy start only</strong><small>Five in-memory frames across one bounded ±120° desk search; no recording, storage, target selection involving people, or camera during guessing.</small></span><input id="kids-ispy-camera-consent" type="checkbox" /></label>
         <div class="kids-safety-grid" aria-label="Kids Mode safeguards">
-          <span><strong>Camera off after search</strong><small>I Spy uses only three transient frames after caregiver opt-in</small></span>
+          <span><strong>Camera off after search</strong><small>I Spy uses only five transient frames after caregiver opt-in</small></span>
           <span><strong>No private tools</strong><small>No files, memory, messages, or devices</small></span>
           <span><strong>Time limit</strong><small>Ends and folds automatically</small></span>
           <span><strong>Age-aware</strong><small>Short, activity-specific replies</small></span>
@@ -323,16 +323,24 @@
 
         <div class="control-group precision-group">
           <div class="control-group-heading">
-            <div><h3>Precision pose control</h3><p class="muted compact-note">Small Cartesian steps with conservative software limits. Position uses millimetres; pitch, roll, yaw, and base use degrees.</p></div>
+            <div><h3>Precision pose control</h3><p class="muted compact-note">Conservative head steps plus a separate rotating-base step. Position uses millimetres; orientation and base use degrees.</p></div>
             <span class="control-chip">Head + base</span>
           </div>
           <div class="precision-toolbar">
-            <label>Step size
+            <label>Head step
               <select id="precision-step">
                 <option value="1">Fine · 1 mm / 1°</option>
                 <option value="2.5" selected>Small · 2.5 mm / 2.5°</option>
                 <option value="5">Medium · 5 mm / 5°</option>
                 <option value="10">Large · 10 mm / 10°</option>
+              </select>
+            </label>
+            <label>Base step
+              <select id="base-yaw-step">
+                <option value="5">Fine · 5°</option>
+                <option value="15" selected>Small sector · 15°</option>
+                <option value="30">Desk sector · 30°</option>
+                <option value="60">Wide sector · 60°</option>
               </select>
             </label>
             <div class="pose-readout" role="group" aria-label="Current measured head and base pose">
@@ -360,6 +368,7 @@
             </div>
             <div class="precision-axis-card">
               <h4>Rotating base</h4>
+              <p class="muted compact-note">Head follows the base to preserve the SDK’s 65° head/body safety relationship. Steps clamp at ±120°.</p>
               <div class="axis-row"><span>Base yaw</span><button type="button" class="secondary manual-control" data-nudge-axis="body_yaw" data-nudge-sign="1" aria-label="Rotate base left">Left</button><button type="button" class="secondary manual-control" data-nudge-axis="body_yaw" data-nudge-sign="-1" aria-label="Rotate base right">Right</button></div>
               <div class="precision-centers">
                 <button type="button" class="secondary manual-control" data-nudge-axis="center_head" data-nudge-sign="0">Center head</button>
@@ -368,7 +377,7 @@
               </div>
             </div>
           </div>
-          <p class="muted compact-note">Limits: X ±15 mm, Y/Z ±20 mm, roll ±15°, pitch ±25°, head yaw ±35°, base yaw ±30°. Stop action freezes the current pose.</p>
+          <p class="muted compact-note">Limits: X ±15 mm, Y/Z ±20 mm, roll ±15°, pitch ±25°, precision head yaw ±35°, base yaw ±120° (inside the SDK’s ±160° safety limit). Base steps of 30° or 60° require clear-space confirmation. Stop action freezes the current pose.</p>
         </div>
 
         <div class="control-group dance-group">
@@ -557,7 +566,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=30"></script>
-  <script src="/static/main.js?v=30"></script>
+  <script src="/static/camera.js?v=31"></script>
+  <script src="/static/main.js?v=31"></script>
 </body>
 </html>

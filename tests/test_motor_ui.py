@@ -50,6 +50,7 @@ def test_robot_tab_offers_precision_pose_and_base_controls() -> None:
     main = (STATIC / "main.js").read_text()
 
     assert 'id="precision-step"' in html
+    assert 'id="base-yaw-step"' in html
     for axis in ("x", "y", "z", "roll", "pitch", "yaw", "body_yaw"):
         assert f'data-nudge-axis="{axis}"' in html
         assert f'id="pose-{axis.replace("_", "-")}"' in html
@@ -57,6 +58,11 @@ def test_robot_tab_offers_precision_pose_and_base_controls() -> None:
         assert f'data-nudge-axis="{center}"' in html
     assert "Fine · 1 mm / 1°" in html
     assert "Small · 2.5 mm / 2.5°" in html
+    assert "Desk sector · 30°" in html
+    assert "Wide sector · 60°" in html
+    assert "base yaw ±120°" in html
+    assert 'const stepControl = button.dataset.nudgeAxis === "body_yaw" ? "base-yaw-step" : "precision-step"' in main
+    assert "Wide base turns need clear space" in main
     assert 'fetch("/api/robot/nudge"' in main
     assert 'fetch("/api/robot/pose"' in main
     assert "if (!robotBusy) refreshRobotPose()" in main
@@ -92,7 +98,7 @@ def test_motor_ui_serializes_power_transitions_and_reports_confirmed_state() -> 
     assert 'data-action-busy="true"' in style
     assert "position: fixed" in style
     assert 'data-action-busy="false"' in html
-    assert 'reachy-hermes-shell-v30' in worker
-    assert '/static/style.css?v=30' in html
-    assert '/static/camera.js?v=30' in html
-    assert '/static/main.js?v=30' in html
+    assert 'reachy-hermes-shell-v31' in worker
+    assert '/static/style.css?v=31' in html
+    assert '/static/camera.js?v=31' in html
+    assert '/static/main.js?v=31' in html

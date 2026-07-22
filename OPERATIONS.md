@@ -96,7 +96,7 @@ For Kids Mode, additionally require:
 - `kids_tts_streaming_available: true`;
 - successful authenticated `/v1/kids/chat` moderation/chat and `/v1/kids/speech/stream` PCM probes.
 
-For an I Spy release, additionally verify with an adult supervising the robot: explicit consent before capture; the visible camera-search indicator; exactly three bounded search poses/frames; camera revocation before guesses; English and Dutch clue/hint/reveal flows; reveal no later than the sixth guess; Stop during both search and provider wait; bridge target deletion; safe neutral/fold; and no retained frame bytes. Never run this physical acceptance unattended.
+For an I Spy release, additionally verify with an adult supervising the robot: explicit consent before capture; the visible camera-search indicator; exactly five bounded retained viewpoints at `0° / −60° / −120° / +60° / +120°`; no commanded base segment larger than 60°; camera revocation before the neutral return and guesses; English and Dutch clue/hint/reveal flows; reveal no later than the sixth guess; Stop during both search and provider wait; bridge target deletion; safe neutral/fold; and no retained frame bytes. Never run this physical acceptance unattended.
 
 For Agent Mode, verify the authenticated manifest and keep every allowlist explicit:
 

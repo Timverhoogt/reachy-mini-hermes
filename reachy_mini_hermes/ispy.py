@@ -71,7 +71,7 @@ def validate_ispy_target(payload: object, *, frame_count: int = 3) -> ISpyTarget
     """Accept only stable, visible, unambiguously safe household targets."""
     if not isinstance(payload, dict) or payload.get("stable") is not True:
         raise ValueError("I Spy target is not stable")
-    if not 2 <= frame_count <= 3:
+    if not 2 <= frame_count <= 5:
         raise ValueError("I Spy frame count is outside the bounded contract")
     visible_frame_count = int(payload.get("visible_frame_count", 0))
     if visible_frame_count < min(2, frame_count) or visible_frame_count > frame_count:

@@ -152,8 +152,8 @@ def test_ispy_both_picker_roles_use_the_base_motor(monkeypatch: pytest.MonkeyPat
 
     class Selector:
         def select_ispy_target(self, frames, **_kwargs):
-            assert frames == [b"jpeg", b"jpeg", b"jpeg"]
-            return validate_ispy_target(candidate, frame_count=3)
+            assert frames == [b"jpeg"] * 5
+            return validate_ispy_target(candidate, frame_count=5)
 
         def cancel_ispy_session(self, _session_id: str) -> None:
             raise AssertionError("current round must not be cancelled")
@@ -170,21 +170,24 @@ def test_ispy_both_picker_roles_use_the_base_motor(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(runtime, "set_power_mode", lambda *_args, **_kwargs: None)
 
     runtime._prepare_ispy_round(4, profile, client=Selector())  # type: ignore[arg-type]
-    search_base_degrees = [round(float(np.degrees(target["body_yaw"]))) for target in robot.targets[:3]]
-    assert search_base_degrees == [-18, 0, 18]
-    assert robot.targets[3]["body_yaw"] == 0.0
-    assert robot.media.calls == 3
+    search_base_degrees = [round(float(np.degrees(target["body_yaw"]))) for target in robot.targets[:9]]
+    assert search_base_degrees == [0, -60, -120, -60, 0, 60, 120, 60, 0]
+    assert all(
+        abs(right - left) <= 60
+        for left, right in zip(search_base_degrees, search_base_degrees[1:], strict=False)
+    )
+    assert robot.media.calls == 5
     assert runtime.status()["kids_mode"]["camera_active"] is False  # type: ignore[index]
 
     runtime._perform_ispy_player_guess_motion(4)
-    player_guess_target = robot.targets[4]
+    player_guess_target = robot.targets[9]
     assert round(float(np.degrees(player_guess_target["body_yaw"]))) == -12
     assert not np.array_equal(player_guess_target["head"], np.eye(4))
-    assert robot.media.calls == 3  # player-picker motion never re-enables or reads the camera
+    assert robot.media.calls == 5  # player-picker motion never re-enables or reads the camera
 
     with pytest.raises(RuntimeError, match="cancelled"):
         runtime._perform_ispy_player_guess_motion(3)
-    assert len(robot.targets) == 5
+    assert len(robot.targets) == 10
 
 
 def test_parent_pin_uses_salted_scrypt_and_never_round_trips_plaintext() -> None:
@@ -528,7 +531,7 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
 def test_kids_static_assets_advance_pwa_cache_together() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     worker = (STATIC / "service-worker.js").read_text(encoding="utf-8")
-    assert "reachy-hermes-shell-v30" in worker
+    assert "reachy-hermes-shell-v31" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=30" in html
-        assert f'"/static/{asset}?v=30"' in worker
+        assert f"/static/{asset}?v=31" in html
+        assert f'"/static/{asset}?v=31"' in worker

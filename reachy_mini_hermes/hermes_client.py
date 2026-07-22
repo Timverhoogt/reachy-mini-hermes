@@ -116,8 +116,8 @@ class HermesBridgeClient:
         age_band: str,
         language: str,
     ) -> ISpyTarget:
-        """Send at most three transient frames to the fixed child-safe vision route."""
-        if not 2 <= len(frames) <= 3 or any(not frame or len(frame) > 1_500_000 for frame in frames):
+        """Send exactly five transient frames to the fixed child-safe vision route."""
+        if len(frames) != 5 or any(not frame or len(frame) > 1_500_000 for frame in frames):
             raise HermesBridgeError("I Spy camera frame bounds were not met")
         response = self._client.post(
             f"{self.config.bridge_url}/v1/kids/ispy/select",

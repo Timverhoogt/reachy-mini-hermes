@@ -33,7 +33,9 @@ _HEAD_LIMITS = {
     "pitch": (-25.0, 25.0),
     "yaw": (-35.0, 35.0),
 }
-_BODY_YAW_LIMIT = (-30.0, 30.0)
+_BODY_YAW_LIMIT = (-120.0, 120.0)
+_BODY_YAW_STEP_LIMIT = 60.0
+_HEAD_BODY_YAW_DELTA_LIMIT = 65.0
 
 _LOOK_POSES: dict[str, dict[str, float]] = {
     "left": {"yaw": 35.0},
@@ -102,8 +104,11 @@ def manual_precision_action(
     if axis.startswith("center_"):
         return "nudge_reachy", {"axis": axis, "delta": 0.0, "body_yaw_degrees": body_yaw_degrees}
     delta = float(delta)
-    if not math.isfinite(delta) or delta == 0 or abs(delta) > 10:
-        raise ValueError("Precision movement must be finite and between -10 and 10")
+    step_limit = _BODY_YAW_STEP_LIMIT if axis == "body_yaw" else 10.0
+    if not math.isfinite(delta) or delta == 0 or abs(delta) > step_limit:
+        raise ValueError(
+            f"Precision {axis} movement must be finite and between {-step_limit:g} and {step_limit:g}"
+        )
     return "nudge_reachy", {
         "axis": axis,
         "delta": delta,
@@ -328,13 +333,36 @@ class ReachyRobotActions:
             target_body: float | None = None
             result_pose: dict[str, float] = {}
 
+            target_body_degrees: float | None = None
             if axis in {"body_yaw", "center_base", "center_all"}:
                 target_body_degrees = 0.0 if axis in {"center_base", "center_all"} else body_yaw + delta
                 target_body_degrees = _clamp(target_body_degrees, _BODY_YAW_LIMIT)
                 target_body = math.radians(target_body_degrees)
                 result_pose["body_yaw"] = round(target_body_degrees, 2)
 
-            if axis not in {"body_yaw", "center_base"}:
+            if axis in {"body_yaw", "center_base"}:
+                components = _head_pose_components(self.robot.get_current_head_pose())
+                assert target_body_degrees is not None
+                relative_head_yaw = _clamp(
+                    components["yaw"] - body_yaw,
+                    (-_HEAD_BODY_YAW_DELTA_LIMIT, _HEAD_BODY_YAW_DELTA_LIMIT),
+                )
+                components["yaw"] = _clamp(
+                    target_body_degrees + relative_head_yaw,
+                    (-180.0, 180.0),
+                )
+                target_head = create_head_pose(
+                    x=components["x"],
+                    y=components["y"],
+                    z=components["z"],
+                    roll=components["roll"],
+                    pitch=components["pitch"],
+                    yaw=components["yaw"],
+                    mm=True,
+                    degrees=True,
+                )
+                result_pose.update({key: round(value, 2) for key, value in components.items()})
+            elif axis not in {"body_yaw", "center_base"}:
                 components = _head_pose_components(self.robot.get_current_head_pose())
                 if axis in {"center_head", "center_all"}:
                     components = {key: 0.0 for key in _HEAD_LIMITS}
@@ -352,7 +380,12 @@ class ReachyRobotActions:
                 )
                 result_pose.update({key: round(value, 2) for key, value in components.items()})
 
-            duration = max(0.22, min(0.6, 0.22 + abs(delta) * 0.03))
+            motion_magnitude = (
+                abs(target_body_degrees - body_yaw)
+                if target_body_degrees is not None
+                else abs(delta)
+            )
+            duration = max(0.4, min(4.5, 0.4 + motion_magnitude / 30.0))
             if not self._run_precision_interpolation(
                 target_head=target_head,
                 target_body=target_body,

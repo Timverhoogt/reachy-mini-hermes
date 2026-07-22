@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import cast
 
 import pytest
 
@@ -113,10 +114,16 @@ def test_precision_controls_validate_only_cartesian_axes() -> None:
         "nudge_reachy",
         {"axis": "center_all", "delta": 0.0, "body_yaw_degrees": 0.0},
     )
+    assert manual_precision_action("body_yaw", 60.0, body_yaw_degrees=30.0) == (
+        "nudge_reachy",
+        {"axis": "body_yaw", "delta": 60.0, "body_yaw_degrees": 30.0},
+    )
     with pytest.raises(ValueError):
         manual_precision_action("joint_4", 1.0)
     with pytest.raises(ValueError):
         manual_precision_action("yaw", 25.0)
+    with pytest.raises(ValueError):
+        manual_precision_action("body_yaw", 61.0)
     with pytest.raises(ValueError):
         manual_precision_action("body_yaw", float("nan"))
     with pytest.raises(ValueError):
@@ -136,17 +143,22 @@ def test_precision_head_and_base_moves_are_clamped_and_interpolated(monkeypatch)
         "nudge_reachy",
         {"axis": "pitch", "delta": -2.5, "body_yaw_degrees": 0.0},
     )
+    pitch_head_sample = robot.head_samples[-1]
     base = actions.execute(
         "nudge_reachy",
-        {"axis": "body_yaw", "delta": 10.0, "body_yaw_degrees": 27.0},
+        {"axis": "body_yaw", "delta": 60.0, "body_yaw_degrees": 100.0},
     )
 
     assert pitch["ok"] is True
     assert pitch["target"]["pitch"] == -2.5
-    assert robot.head_samples[-1]["pitch"] == -2.5
-    assert robot.head_samples[-1]["mm"] is True
-    assert base["target"] == {"body_yaw": 30.0}
-    assert robot.body_samples[-1] == pytest.approx(0.5235987756)
+    assert pitch_head_sample["pitch"] == -2.5
+    assert pitch_head_sample["mm"] is True
+    base_target = cast(dict[str, float], base["target"])
+    assert base_target["body_yaw"] == 120.0
+    assert base_target["yaw"] == 55.0
+    assert cast(dict[str, float], robot.head_samples[-1])["yaw"] == 55.0
+    assert base_target["body_yaw"] - base_target["yaw"] == 65.0
+    assert robot.body_samples[-1] == pytest.approx(2.0943951024)
 
 
 def test_precision_center_all_resets_head_and_base(monkeypatch) -> None:

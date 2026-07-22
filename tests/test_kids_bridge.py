@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from reachy_mini_hermes.config import AppConfig
-from reachy_mini_hermes.hermes_client import HermesBridgeClient
+from reachy_mini_hermes.hermes_client import HermesBridgeClient, HermesBridgeError
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -112,6 +113,51 @@ def test_kids_client_fallback_speech_carries_separate_exact_approval() -> None:
     speech = client.synthesize("Approved answer")
     assert speech.data == b"fallback-audio"
     assert client._kids_fallback_speech_approval == ""
+
+
+def test_ispy_client_requires_exactly_five_bounded_frames() -> None:
+    session_id = "kids-" + "c" * 32
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/kids/ispy/select"
+        body = json.loads(request.content)
+        assert len(body["frames_jpeg"]) == 5
+        return httpx.Response(
+            200,
+            json={
+                "target": {
+                    "object_name": "chair",
+                    "colour": "blue",
+                    "category": "furniture",
+                    "location": "beside the table",
+                    "frame_index": 4,
+                    "bbox": [0.2, 0.2, 0.3, 0.4],
+                    "confidence": 0.91,
+                    "stable": True,
+                    "visible_frame_count": 2,
+                    "hints_en": ["You can sit on it"],
+                    "hints_nl": ["Je kunt erop zitten"],
+                }
+            },
+        )
+
+    config = AppConfig(bridge_url="http://bridge.test", api_key="secret")
+    client = HermesBridgeClient(config, client=httpx.Client(transport=httpx.MockTransport(handler)))
+
+    target = client.select_ispy_target(
+        [b"jpeg"] * 5,
+        session_id=session_id,
+        age_band="7-9",
+        language="en",
+    )
+    assert target.frame_index == 4
+    with pytest.raises(HermesBridgeError, match="frame bounds"):
+        client.select_ispy_target(
+            [b"jpeg"] * 3,
+            session_id=session_id,
+            age_band="7-9",
+            language="en",
+        )
 
 
 def test_ispy_client_tracks_turn_state_and_fetches_server_owned_clue() -> None:

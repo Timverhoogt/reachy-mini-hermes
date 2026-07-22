@@ -268,7 +268,7 @@ def test_ispy_bridge_policy_and_reply_state_are_deterministic() -> None:
         "colour": "blue",
         "category": "furniture",
         "location": "in the room",
-        "frame_index": 1,
+        "frame_index": 4,
         "bbox": [0.2, 0.2, 0.3, 0.4],
         "confidence": 0.92,
         "stable": True,
@@ -276,7 +276,7 @@ def test_ispy_bridge_policy_and_reply_state_are_deterministic() -> None:
         "hints_en": ["You can sit on it", "It has legs"],
         "hints_nl": ["Je kunt erop zitten", "Het heeft poten"],
     }
-    target = bridge._validate_bridge_ispy_target(candidate, frame_count=3)
+    target = bridge._validate_bridge_ispy_target(candidate, frame_count=5)
     answer, count, complete = bridge._ispy_reply(
         target, language="en", matched=False, previous_count=0
     )
@@ -293,9 +293,9 @@ def test_ispy_bridge_policy_and_reply_state_are_deterministic() -> None:
     assert answer == "Yes! It was the chair."
     assert (count, complete) == (2, True)
     with pytest.raises(ValueError):
-        bridge._validate_bridge_ispy_target({**candidate, "object_name": "monitor"}, frame_count=3)
+        bridge._validate_bridge_ispy_target({**candidate, "object_name": "monitor"}, frame_count=5)
     with pytest.raises(ValueError):
-        bridge._validate_bridge_ispy_target({**candidate, "bbox": [0.1, 0.1, 0.05, 0.05]}, frame_count=3)
+        bridge._validate_bridge_ispy_target({**candidate, "bbox": [0.1, 0.1, 0.05, 0.05]}, frame_count=5)
     assert bridge._ispy_confirmation("Yes, that is right") == "yes"
     assert bridge._ispy_confirmation("No, that is not right") == "no"
     assert bridge._ispy_confirmation("Maybe") == "unknown"

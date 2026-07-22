@@ -922,7 +922,18 @@ class HermesVoiceRuntime:
             raise RuntimeError("Caregiver camera consent is required for I Spy")
         session_id = self._kids_session_id
         self.set_power_mode("awake", cancel_announcements=False)
-        poses = ((-18.0, -28.0, -5.0), (0.0, 0.0, -5.0), (18.0, 28.0, -5.0))
+        # Five retained viewpoints cover a 240° desk arc while every commanded segment remains <= 60°.
+        # Two intermediate waypoints cross safely from the left extreme to the right side without capturing.
+        scan_route = (
+            (0.0, True),
+            (-60.0, True),
+            (-120.0, True),
+            (-60.0, False),
+            (0.0, False),
+            (60.0, True),
+            (120.0, True),
+        )
+        return_route = (60.0, 0.0)
         frames: list[bytes] = []
         owns_client = client is None
         goto_target = getattr(self.robot, "goto_target", None)
@@ -934,26 +945,35 @@ class HermesVoiceRuntime:
             self._kids_camera_active = True
         try:
             with self._motor_transition_lock:
-                for body_yaw, head_yaw, head_pitch in poses:
+                previous_body_yaw = 0.0
+                for body_yaw, capture in scan_route:
                     if not self._kids_callback_is_current(generation):
                         raise RuntimeError("I Spy search was cancelled")
-                    head = self._ispy_head_target(head_yaw, head_pitch)
+                    angular_distance = abs(body_yaw - previous_body_yaw)
                     goto_target(
-                        head=head,
+                        head=self._ispy_head_target(body_yaw, -5.0),
                         body_yaw=math.radians(body_yaw),
                         antennas=np.radians(np.asarray([8.0, -8.0])),
-                        duration=1.0,
+                        duration=max(0.6, angular_distance / 30.0),
                         method="minjerk",
                     )
-                    frame = self._capture_camera_jpeg(kids_generation=generation)
-                    frames.append(frame)
-                goto_target(
-                    head=np.eye(4),
-                    body_yaw=0.0,
-                    antennas=np.asarray([0.0, 0.0]),
-                    duration=1.0,
-                    method="minjerk",
-                )
+                    previous_body_yaw = body_yaw
+                    if capture:
+                        frames.append(self._capture_camera_jpeg(kids_generation=generation))
+                with self._kids_lock:
+                    self._kids_camera_active = False
+                for body_yaw in return_route:
+                    if not self._kids_callback_is_current(generation):
+                        raise RuntimeError("I Spy search was cancelled")
+                    angular_distance = abs(body_yaw - previous_body_yaw)
+                    goto_target(
+                        head=self._ispy_head_target(body_yaw, -5.0 if body_yaw else 0.0),
+                        body_yaw=math.radians(body_yaw),
+                        antennas=np.asarray([0.0, 0.0]),
+                        duration=max(0.6, angular_distance / 30.0),
+                        method="minjerk",
+                    )
+                    previous_body_yaw = body_yaw
             with self._kids_lock:
                 self._kids_camera_active = False
             if not self._kids_callback_is_current(generation):

@@ -80,11 +80,11 @@ _ISPY_TARGET_SCHEMA: dict[str, object] = {
         "colour": {"type": "string", "enum": list(_ISPY_COLOURS)},
         "category": {"type": "string", "minLength": 1, "maxLength": 40},
         "location": {"type": "string", "minLength": 1, "maxLength": 100},
-        "frame_index": {"type": "integer", "minimum": 0, "maximum": 2},
+        "frame_index": {"type": "integer", "minimum": 0, "maximum": 4},
         "bbox": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
         "confidence": {"type": "number", "minimum": 0.78, "maximum": 1.0},
         "stable": {"type": "boolean"},
-        "visible_frame_count": {"type": "integer", "minimum": 2, "maximum": 3},
+        "visible_frame_count": {"type": "integer", "minimum": 2, "maximum": 5},
         "hints_en": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
         "hints_nl": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
     },
@@ -1283,7 +1283,7 @@ class Bridge:
                 or age_band not in _KIDS_AGE_BANDS
                 or language not in _KIDS_LANGUAGES
                 or not isinstance(encoded_frames, list)
-                or not 2 <= len(encoded_frames) <= 3
+                or len(encoded_frames) != 5
             ):
                 raise ValueError("invalid I Spy request")
             frames = [base64.b64decode(value, validate=True) for value in encoded_frames]
