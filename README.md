@@ -37,7 +37,7 @@ An extensible, all-in-one companion and control app for Reachy Mini: local wake 
 2. **Start locally and safely.** The browser UI exposes Standby, Awake, Meeting and Sleep; guarded wake/fold; bounded movement; Stop; announcements; and opt-in camera controls. Meeting and Sleep stop microphone capture and wake detection. Camera sharing is off by default.
 3. **Try the short demo.** With clear space around Reachy, open the Dashboard, confirm folded Standby and released torque, wake from the Robot tab, try one bounded look, press Stop, return to Standby, and confirm fold-before-torque-off. Only then enable one camera or voice path at a time.
 4. **Add Hermes when wanted.** A private authenticated bridge enables speech, provider routing, personal memory, skills and progressively gated tools while keeping provider credentials on the Hermes host.
-5. **Treat advanced features as gated.** Kids Mode requires adult supervision. Agent 0.1 is read-only. Bluetooth controller management remains Wireless-only and still needs final physical controller acceptance on that hardware.
+5. **Treat advanced features as gated.** Kids Mode requires adult supervision. Agent Mode uses empty-by-default allowlists, reversible actions, and exact phone approval for consequential work. Bluetooth controller management remains Wireless-only and still needs final physical controller acceptance on that hardware.
 
 ## Capability and setup matrix
 
@@ -95,7 +95,7 @@ Reachy microphone
   → authenticated private WebSocket bridge
   → OpenAI gpt-realtime-2.1 speech-to-speech
        ↳ one ask_hermes tool; Agent profile routes it through the
-         fixed read-only Reachy Agent Broker
+         fixed bounded Reachy Agent Broker
        ↳ capture_reachy_camera for a fresh on-demand image
        ↳ local look, emotion, and authentic recorded-dance tools
   → streamed Reachy audio and motion
@@ -124,14 +124,15 @@ Pipeline mode supports selectable STT, TTS, agent model, voice, and continued co
 - Dual conversation modes: configurable Hermes pipeline and `gpt-realtime-2.1`.
 - Realtime semantic VAD, streaming audio, reasoning-effort selection, and natural interruption.
 - Pipeline interruption by saying **“Hey Hermes”**, **“Okay Nabu”**, or **“Hey Reachy”** while Reachy is speaking.
-- One `ask_hermes` Realtime delegation tool: normal Hermes routing in Conversation profile and eight fixed read-only broker capabilities in adult Agent profile.
+- One `ask_hermes` Realtime delegation tool: normal Hermes routing in Conversation profile and a fixed owner-scoped T0–T3 broker in adult Agent profile.
 - Curated Realtime embodiment tools for looking, emotions, and authentic recorded Reachy dances.
 - Optional daemon-local face following, active only after the wake phrase for the current conversation.
 - Optional wake-time microphone-array direction finding so Reachy turns once toward the speaker locally.
 - Privacy-preserving cameras: one JPEG is captured only when a visual request needs it, while an independent opt-in UI viewer connects directly to Reachy's local WebRTC feed.
 - Selectable ElevenLabs Scribe/TTS models and account voices without storing provider keys on Reachy.
 - Full announcement console with typed TTS, per-announcement provider/model/voice overrides, quick templates, repeat/pause controls, a bounded queue, independent Stop, and voice-only or safe wake/fold behavior.
-- Supervised **Kids Mode** with five age-aware activities, English/Dutch profiles, 15–60 minute parent-selected sessions, automatic safe folding, optional gentle voice-state motion, and a dedicated moderated no-agent pipeline that removes camera, personal memory, files, messaging, devices, purchases, and power controls.
+- Supervised **Kids Mode** with six age-aware activities—including I Spy—English/Dutch profiles, 15–60 minute parent-selected sessions, automatic safe folding, optional gentle voice-state motion, and a dedicated moderated no-agent pipeline that removes personal memory, files, messaging, devices, purchases, and power controls.
+- Kids I Spy requires per-session caregiver camera consent, visibly captures only a bounded three-frame search, revokes camera access before guessing, validates stable targets through a strict broker schema, reveals after at most six guesses, and deletes its bridge target state on Stop/expiry.
 - Kids replies use ElevenLabs Flash v2.5 through a fixed private streaming endpoint; 24 kHz PCM is pushed to Reachy's speaker as chunks arrive, with the configured app voice retained as a failure fallback.
 - Stable Hermes memory scope plus rotating conversation sessions after inactivity.
 - Listening, processing, speaking, and error cues with optional voice-state motion.

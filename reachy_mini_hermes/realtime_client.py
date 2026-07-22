@@ -6,7 +6,7 @@ import base64
 import json
 import queue
 import threading
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -15,6 +15,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import ClientConnection, connect
 
 from .config import AppConfig
+from .hermes_client import AgentBrokerContext
 
 
 class RealtimeBridgeError(RuntimeError):
@@ -36,8 +37,16 @@ def realtime_url(bridge_url: str) -> str:
 class RealtimeBridgeSession:
     """Keep WebSocket receive work off the robot's audio loop."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        agent_context: AgentBrokerContext | None = None,
+        agent_request_id: str = "",
+    ) -> None:
         self.config = config
+        self.agent_context = agent_context
+        self.agent_request_id = agent_request_id
         self._socket: ClientConnection | None = None
         self._events: queue.Queue[RealtimeEvent] = queue.Queue(maxsize=512)
         self._receiver: threading.Thread | None = None
@@ -47,7 +56,10 @@ class RealtimeBridgeSession:
         try:
             self._socket = connect(
                 realtime_url(self.config.bridge_url),
-                additional_headers={"Authorization": f"Bearer {self.config.api_key}"},
+                additional_headers={
+                    "Authorization": f"Bearer {self.config.api_key}",
+                    "X-Reachy-Device-Id": self.config.instance_id,
+                },
                 open_timeout=10,
                 close_timeout=3,
                 ping_interval=20,
@@ -67,6 +79,8 @@ class RealtimeBridgeSession:
                         "agent_model": self.config.model,
                         "session_id": f"reachy-realtime-{self.config.instance_id}",
                         "system_prompt": self.config.system_prompt,
+                        "agent_context": asdict(self.agent_context) if self.agent_context is not None else {},
+                        "agent_request_id": self.agent_request_id,
                     }
                 )
             )

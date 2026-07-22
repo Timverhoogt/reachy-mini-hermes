@@ -29,7 +29,8 @@ from .audio import (
     resample_linear,
 )
 from .config import AppConfig, load_config
-from .hermes_client import HermesBridgeClient, HermesBridgeError, SpeechAudio
+from .hermes_client import AgentBrokerContext, HermesBridgeClient, HermesBridgeError, SpeechAudio
+from .ispy import ISpyTarget
 from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
@@ -146,6 +147,18 @@ def realtime_audio_item_id(kind: str, payload: dict[str, object]) -> str:
     if item.get("type") != "message" or item.get("role") != "assistant":
         return ""
     return str(item.get("id") or "")
+
+
+def realtime_response_id(kind: str, payload: dict[str, object]) -> str:
+    """Return the response owning an event so interrupted output can be dropped."""
+    direct = str(payload.get("response_id") or "")
+    if direct:
+        return direct
+    if kind in {"response.created", "response.done", "response.cancelled", "response.failed"}:
+        response = payload.get("response")
+        if isinstance(response, dict):
+            return str(response.get("id") or "")
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,8 +281,11 @@ class HermesVoiceRuntime:
         self._announcement_playing = threading.Event()
         self._announcement_worker: threading.Thread | None = None
         self._audio_ready = False
+        self._runtime_started = False
+        self._control_ready = threading.Event()
         self._kids_lock = threading.RLock()
         self._kids_active = False
+        self._kids_camera_active = False
         self._kids_locked = False
         self._kids_profile: KidsProfile | None = None
         self._kids_started_at = 0.0
@@ -287,6 +303,7 @@ class HermesVoiceRuntime:
         self._capability_profile = "conversation"
         self._agent_session_generation = 0
         self._agent_current_task = ""
+        self._agent_active_request_id = ""
         self._agent_pending_approval = False
         self._agent_activity: list[dict[str, object]] = []
         self._agent_policy = AgentPolicy()
@@ -299,6 +316,8 @@ class HermesVoiceRuntime:
         cancel_announcements: bool = True,
     ) -> dict[str, object]:
         """Change the voice lifecycle as one serialized, hardware-checked transition."""
+        if self._runtime_started and not self._control_ready.is_set():
+            raise RuntimeError("Voice runtime is still starting; no power transition was attempted")
         mode = mode.strip().lower()
         if mode not in _POWER_MODES:
             raise ValueError(f"Unsupported power mode: {mode}")
@@ -527,6 +546,10 @@ class HermesVoiceRuntime:
     def status(self) -> dict[str, object]:
         with self._status_lock:
             payload = asdict(self._status)
+        # Browser status is a low-trust polling surface. Conversation bodies
+        # never belong in it, even briefly while a turn is in flight.
+        payload.pop("transcript", None)
+        payload.pop("response_preview", None)
         payload["robot_action_busy"] = bool(self._actions and self._actions.pending_count)
         payload["motors_enabled"] = self._motors_enabled
         payload["head_safely_folded"] = self._head_safely_folded
@@ -553,6 +576,7 @@ class HermesVoiceRuntime:
                     else "no-tools"
                 ),
                 "camera_enabled": False,
+                "camera_active": self._kids_camera_active,
             }
             payload["kids_mode"] = kids_payload
             if self._kids_locked:
@@ -565,31 +589,48 @@ class HermesVoiceRuntime:
                 }
         return payload
 
+    @property
+    def control_ready(self) -> bool:
+        """Return whether external controls may begin hardware transitions."""
+        return self._control_ready.is_set()
+
     def set_capability_profile(self, profile: str, *, adult_ui_unlocked: bool) -> dict[str, object]:
         """Switch profiles only from the unlocked adult UI and start a fresh generation."""
         profile = profile.strip().lower()
         if profile not in {"conversation", "agent"}:
             raise ValueError("Unsupported capability profile")
-        with self._kids_lock:
-            if self._kids_active or self._kids_locked:
-                raise RuntimeError("Agent profile is unavailable while Kids Mode is active or locked")
         if profile == "agent":
             if not adult_ui_unlocked:
                 raise RuntimeError("Agent profile requires an unlocked adult UI action")
             if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
                 raise RuntimeError("Agent profile is blocked by the current privacy mode")
-        with self._agent_lock:
-            self._agent_session_generation += 1
-            self._capability_profile = profile
-            self._agent_current_task = ""
-            self._agent_pending_approval = False
-            self._record_agent_activity_unlocked("profile_changed")
-            payload = self._agent_status_unlocked()
+        # Profile/Kids transitions always acquire _kids_lock before _agent_lock.
+        # Holding both makes the mutual-exclusion check and profile mutation atomic.
+        with self._kids_lock:
+            if self._kids_active or self._kids_locked:
+                raise RuntimeError("Agent profile is unavailable while Kids Mode is active or locked")
+            with self._agent_lock:
+                active_request_id = self._agent_active_request_id
+                self._agent_session_generation += 1
+                self._capability_profile = profile
+                self._agent_current_task = ""
+                self._agent_active_request_id = ""
+                self._agent_pending_approval = False
+                self._record_agent_activity_unlocked("profile_changed")
+                payload = self._agent_status_unlocked()
         self._conversation_stop_requested.set()
+        if active_request_id:
+            threading.Thread(
+                target=self._cancel_remote_agent_request,
+                args=(active_request_id,),
+                name="reachy-agent-cancel",
+                daemon=True,
+            ).start()
+        self._publish_remote_agent_session()
         return payload
 
     def cancel_agent_work(self, reason: str = "stopped") -> dict[str, object]:
-        """Invalidate pending work/results by advancing the session generation."""
+        """Invalidate pending Agent work and stop voice only for teardown reasons."""
         allowed_reasons = {
             "stopped",
             "profile_changed",
@@ -601,15 +642,131 @@ class HermesVoiceRuntime:
             "emergency_stop",
             "session_changed",
         }
-        safe_reason = reason if reason in allowed_reasons else "session_changed"
+        # Only the internal, explicit session_changed reason may preserve the
+        # voice loop. Unknown callers fail closed as a normal Stop request.
+        safe_reason = reason if reason in allowed_reasons else "stopped"
         with self._agent_lock:
+            active_request_id = self._agent_active_request_id
             self._agent_session_generation += 1
             self._agent_current_task = ""
+            self._agent_active_request_id = ""
             self._agent_pending_approval = False
             self._record_agent_activity_unlocked(safe_reason)
             payload = self._agent_status_unlocked()
-        self._conversation_stop_requested.set()
+        # A newly accepted wake advances the Agent generation so stale tool
+        # results cannot cross into the new voice session. It is not itself a
+        # Stop request. In particular, do not clear the event here: a real
+        # Stop/privacy/power/Kids cancellation may have raced with this call.
+        if safe_reason != "session_changed":
+            self._conversation_stop_requested.set()
+        if active_request_id:
+            threading.Thread(
+                target=self._cancel_remote_agent_request,
+                args=(active_request_id,),
+                name="reachy-agent-cancel",
+                daemon=True,
+            ).start()
+        self._publish_remote_agent_session()
         return payload
+
+    def _cancel_remote_agent_request(self, request_id: str) -> None:
+        client = HermesBridgeClient(self.config_loader())
+        try:
+            client.cancel_agent_request(request_id)
+        except Exception:
+            _LOGGER.warning("Could not confirm remote Agent request cancellation", exc_info=True)
+        finally:
+            client.close()
+
+    def _publish_remote_agent_session(self) -> None:
+        """Best-effort invalidation of the Hermes-hosted device lease."""
+        config = self.config_loader()
+        if not config.api_key:
+            return
+        context = self.agent_broker_context(explicit_private_intent=False)
+
+        def publish() -> None:
+            client = HermesBridgeClient(config)
+            try:
+                client.establish_agent_session(context)
+            except Exception:
+                _LOGGER.warning("Could not publish Agent session generation", exc_info=True)
+            finally:
+                client.close()
+
+        threading.Thread(target=publish, name="reachy-agent-session", daemon=True).start()
+
+    def _establish_remote_agent_session(self, context: AgentBrokerContext) -> None:
+        client = HermesBridgeClient(self.config_loader())
+        try:
+            client.establish_agent_session(context)
+        finally:
+            client.close()
+
+    def agent_broker_context(self, *, explicit_private_intent: bool) -> AgentBrokerContext:
+        """Capture one sanitized, generation-bound broker authorization context."""
+        with self._kids_lock:
+            kids_active = self._kids_active or self._kids_locked
+            with self._agent_lock:
+                profile = self._capability_profile
+                generation = self._agent_session_generation
+        with self._status_lock:
+            state = self._status.state
+            detail = self._status.detail
+            bridge_healthy = self._status.bridge_healthy
+            last_error = self._status.last_error
+        power_mode = self._effective_power_mode()
+        return AgentBrokerContext(
+            capability_profile=profile,
+            adult_ui_unlocked=profile == "agent",
+            kids_mode_active=kids_active,
+            power_mode=power_mode,
+            privacy_enabled=not self._privacy_requested.is_set(),
+            emergency_stop_active=False,
+            robot_available=not self.stop_event.is_set() and self._audio_ready,
+            session_generation=generation,
+            requested_session_generation=generation,
+            explicit_private_intent=explicit_private_intent,
+            reachy_status={
+                "observed_at": time.time(),
+                "state": state,
+                "detail": detail,
+                "power_mode": power_mode,
+                "motors_enabled": self._motors_enabled,
+                "head_safely_folded": self._head_safely_folded,
+                "bridge_healthy": bridge_healthy,
+                "robot_action_busy": bool(self._actions and self._actions.pending_count),
+                "last_error": last_error,
+            },
+        )
+
+    def _begin_agent_request(self, _summary: str) -> tuple[str, AgentBrokerContext]:
+        # The bridge derives T1 intent from this exact request and capability;
+        # the robot never grants blanket private-read intent for an Agent session.
+        context = self.agent_broker_context(explicit_private_intent=False)
+        request_id = f"agent-{secrets.token_hex(16)}"
+        self._establish_remote_agent_session(context)
+        with self._agent_lock:
+            if context.session_generation != self._agent_session_generation or self._capability_profile != "agent":
+                raise RuntimeError("Agent session changed before the request started")
+            if self._agent_active_request_id:
+                raise RuntimeError("Another Agent request is already active")
+            self._agent_active_request_id = request_id
+            # Browser status is a low-trust surface: never mirror a transcript,
+            # query, note name, token, or other request content into it.
+            self._agent_current_task = "Processing a bounded owner request"
+            self._record_agent_activity_unlocked("request_started")
+        return request_id, context
+
+    def _finish_agent_request(self, request_id: str, generation: int, *, succeeded: bool) -> bool:
+        with self._agent_lock:
+            current = generation == self._agent_session_generation and self._agent_active_request_id == request_id
+            if not current:
+                return False
+            self._agent_active_request_id = ""
+            self._agent_current_task = ""
+            self._record_agent_activity_unlocked("request_completed" if succeeded else "request_failed")
+            return True
 
     def agent_session_is_current(self, generation: int) -> bool:
         with self._agent_lock:
@@ -619,11 +776,17 @@ class HermesVoiceRuntime:
         self._agent_activity.append({"event": event, "generation": self._agent_session_generation})
         del self._agent_activity[:-20]
         if self._agent_audit is not None:
+            result_classes = {
+                "profile_changed": "profile_updated",
+                "request_started": "running",
+                "request_completed": "success",
+                "request_failed": "failed",
+            }
             self._agent_audit.append(
                 "agent_session",
                 reason=event,
                 session_generation=self._agent_session_generation,
-                result_class="profile_updated" if event == "profile_changed" else "cancelled",
+                result_class=result_classes.get(event, "cancelled"),
             )
 
     def _agent_status_unlocked(self) -> dict[str, object]:
@@ -632,7 +795,7 @@ class HermesVoiceRuntime:
             "session_generation": self._agent_session_generation,
             "enabled_capabilities": [
                 definition.capability_id.value for definition in self._agent_policy.enabled_capabilities()
-            ],
+            ] if self._capability_profile == "agent" else [],
             "current_task": self._agent_current_task,
             "pending_approval": self._agent_pending_approval,
             "recent_activity": [dict(item) for item in self._agent_activity[-20:]],
@@ -657,14 +820,16 @@ class HermesVoiceRuntime:
 
     def start_kids_mode(self, profile: KidsProfile, *, greet: bool = True) -> dict[str, object]:
         """Start one time-bounded, camera-free, private-tool-free Realtime session."""
-        self.cancel_agent_work("kids_mode")
-        with self._agent_lock:
-            self._capability_profile = "conversation"
         if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
             raise RuntimeError("Kids Mode is blocked in Meeting and Sleep")
         if not self._audio_ready:
             raise RuntimeError("Kids Mode audio is not ready")
         with self._kids_lock:
+            # Keep the Kids guard while invalidating Agent work and forcing the
+            # conversation profile, matching set_capability_profile's lock order.
+            self.cancel_agent_work("kids_mode")
+            with self._agent_lock:
+                self._capability_profile = "conversation"
             previous = self._kids_timer
             previous_warning = self._kids_warning_timer
             if previous is not None:
@@ -674,6 +839,7 @@ class HermesVoiceRuntime:
             self._kids_generation += 1
             generation = self._kids_generation
             self._kids_active = True
+            self._kids_camera_active = False
             self._kids_locked = True
             self._kids_profile = profile
             self._kids_started_at = time.monotonic()
@@ -701,10 +867,19 @@ class HermesVoiceRuntime:
             self._status.response_preview = ""
         if self._motion is not None:
             self._motion.enabled = profile.motion_enabled
+        ispy_target: ISpyTarget | None = None
+        if profile.activity == "ispy":
+            try:
+                ispy_target = self._prepare_ispy_round(generation, profile)
+            except Exception:
+                self.stop_kids_mode(reason="ispy_start_failed", fold=True)
+                raise
         if greet:
             try:
+                if profile.activity == "ispy" and not self._kids_callback_is_current(generation):
+                    raise RuntimeError("I Spy start was cancelled before its clue")
                 self.queue_announcement(
-                    kids_greeting(profile),
+                    ispy_target.clue(profile.language) if ispy_target else kids_greeting(profile),
                     behavior="wake_and_stay",
                     provider="elevenlabs",
                     model="eleven_flash_v2_5",
@@ -721,6 +896,80 @@ class HermesVoiceRuntime:
             profile.motion_enabled,
         )
         return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
+
+    def _prepare_ispy_round(self, generation: int, profile: KidsProfile) -> ISpyTarget:
+        """Run one consented, cancellable search; frames exist only on this stack."""
+        if not profile.camera_consent:
+            raise RuntimeError("Caregiver camera consent is required for I Spy")
+        session_id = self._kids_session_id
+        self.set_power_mode("awake", cancel_announcements=False)
+        poses = ((-18.0, -28.0, -5.0), (0.0, 0.0, -5.0), (18.0, 28.0, -5.0))
+        frames: list[bytes] = []
+        client: HermesBridgeClient | None = None
+        goto_target = getattr(self.robot, "goto_target", None)
+        if not callable(goto_target):
+            raise RuntimeError("I Spy search motion is unavailable")
+        with self._kids_lock:
+            if not self._kids_callback_is_current(generation):
+                raise RuntimeError("I Spy search was cancelled")
+            self._kids_camera_active = True
+        try:
+            with self._motor_transition_lock:
+                for body_yaw, head_yaw, head_pitch in poses:
+                    if not self._kids_callback_is_current(generation):
+                        raise RuntimeError("I Spy search was cancelled")
+                    yaw, pitch = math.radians(head_yaw), math.radians(head_pitch)
+                    cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(pitch), math.sin(pitch)
+                    head = np.array([
+                        [cy * cp, -sy, cy * sp, 0.0],
+                        [sy * cp, cy, sy * sp, 0.0],
+                        [-sp, 0.0, cp, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ])
+                    goto_target(
+                        head=head,
+                        body_yaw=math.radians(body_yaw),
+                        antennas=np.radians(np.asarray([8.0, -8.0])),
+                        duration=1.0,
+                        method="minjerk",
+                    )
+                    frame = self._capture_camera_jpeg(kids_generation=generation)
+                    frames.append(frame)
+                goto_target(
+                    head=np.eye(4),
+                    body_yaw=0.0,
+                    antennas=np.asarray([0.0, 0.0]),
+                    duration=1.0,
+                    method="minjerk",
+                )
+            with self._kids_lock:
+                self._kids_camera_active = False
+            if not self._kids_callback_is_current(generation):
+                raise RuntimeError("I Spy search was cancelled")
+            client = HermesBridgeClient(self.config_loader())
+            target = client.select_ispy_target(
+                frames,
+                session_id=session_id,
+                age_band=profile.age_band,
+                language=profile.language,
+            )
+            if not self._kids_callback_is_current(generation):
+                try:
+                    client.cancel_ispy_session(session_id)
+                except Exception:
+                    _LOGGER.warning("Could not delete a cancelled I Spy bridge session")
+                raise RuntimeError("I Spy search was cancelled")
+            return target
+        finally:
+            with self._kids_lock:
+                self._kids_camera_active = False
+            frames.clear()
+            if client is not None:
+                client.close()
+
+    def _kids_callback_is_current(self, generation: int) -> bool:
+        with self._kids_lock:
+            return self._kids_active and generation == self._kids_generation
 
     def _warn_kids_mode(self, generation: int) -> None:
         with self._kids_lock:
@@ -750,10 +999,24 @@ class HermesVoiceRuntime:
         except Exception:
             _LOGGER.exception("Kids Mode expiry could not complete the safe fold")
 
+    def _cancel_ispy_bridge_session(self, session_id: str) -> None:
+        client = HermesBridgeClient(self.config_loader())
+        try:
+            client.cancel_ispy_session(session_id)
+        except Exception:
+            _LOGGER.warning("Could not delete stopped I Spy bridge session")
+        finally:
+            client.close()
+
     def stop_kids_mode(self, *, reason: str = "parent", fold: bool = True) -> dict[str, object]:
         """End Kids Mode immediately, cancel its voice/motion, and optionally fold safely."""
         with self._kids_lock:
             was_active = self._kids_active
+            ispy_session_id = (
+                self._kids_session_id
+                if self._kids_profile is not None and self._kids_profile.activity == "ispy"
+                else ""
+            )
             timer, self._kids_timer = self._kids_timer, None
             warning, self._kids_warning_timer = self._kids_warning_timer, None
             if timer is not None and timer is not threading.current_thread():
@@ -762,6 +1025,7 @@ class HermesVoiceRuntime:
                 warning.cancel()
             self._kids_generation += 1
             self._kids_active = False
+            self._kids_camera_active = False
             self._kids_ends_at = 0.0
             self._kids_session_id = ""
             self._kids_last_end_reason = reason[:40]
@@ -769,6 +1033,14 @@ class HermesVoiceRuntime:
         self._conversation_stop_requested.set()
         self._cancel_announcements(clear_queue=True)
         self._clear_streamed_audio()
+        if ispy_session_id:
+            cancel_thread = threading.Thread(
+                target=self._cancel_ispy_bridge_session,
+                args=(ispy_session_id,),
+                name="kids-ispy-cancel",
+                daemon=True,
+            )
+            cancel_thread.start()
         with self._status_lock:
             self._status.transcript = ""
             self._status.response_preview = ""
@@ -1079,24 +1351,39 @@ class HermesVoiceRuntime:
             self._status.camera_last_error = ""
         return jpeg
 
-    def _capture_camera_jpeg(self) -> bytes:
+    def _capture_camera_jpeg(self, *, kids_generation: int | None = None) -> bytes:
         media = getattr(self.robot, "media", None)
         capture = getattr(media, "get_frame_jpeg", None)
         if not callable(capture):
             raise RuntimeError("Reachy camera capture is unavailable")
-        with self._camera_lock:
-            for _ in range(20):
+
+        def assert_allowed() -> None:
+            if kids_generation is None:
                 self._assert_camera_allowed()
+                return
+            with self._kids_lock:
+                if (
+                    not self._kids_active
+                    or self._kids_generation != kids_generation
+                    or not self._kids_camera_active
+                    or self._kids_profile is None
+                    or self._kids_profile.activity != "ispy"
+                    or not self._kids_profile.camera_consent
+                ):
+                    raise RuntimeError("I Spy camera capture was cancelled")
+
+        with self._camera_lock:
+            for _ in range(60):
+                assert_allowed()
                 frame = capture()
                 if frame:
-                    self._assert_camera_allowed()
+                    assert_allowed()
                     if not isinstance(frame, (bytes, bytearray, memoryview)):
                         raise RuntimeError("Reachy camera returned an unsupported JPEG payload")
                     jpeg = bytes(frame)
-                    if len(jpeg) > 1_000_000:
-                        raise RuntimeError(
-                            f"Camera JPEG is too large for the private Realtime bridge ({len(jpeg)} bytes)"
-                        )
+                    maximum = 1_500_000 if kids_generation is not None else 1_000_000
+                    if len(jpeg) > maximum:
+                        raise RuntimeError("Camera JPEG exceeded the active safety limit")
                     return jpeg
                 time.sleep(0.05)
         raise RuntimeError("Reachy camera did not return a frame")
@@ -1212,6 +1499,8 @@ class HermesVoiceRuntime:
                     setattr(self._status, key, value)
 
     def run(self) -> None:
+        self._runtime_started = True
+        self._control_ready.clear()
         self._set_status("starting", "Preparing the local wake-word model")
         config = self.config_loader()
         self._motion = VoiceMotion(self.robot, enabled=config.motion_enabled)
@@ -1257,10 +1546,12 @@ class HermesVoiceRuntime:
         )
         self._head_safely_folded = self._read_head_safely_folded()
         self._apply_power_mode()
+        self._control_ready.set()
 
         try:
             self._listen_for_wake_word()
         finally:
+            self._control_ready.clear()
             self._set_status("stopping")
             with self._kids_lock:
                 kids_timer, self._kids_timer = self._kids_timer, None
@@ -1295,7 +1586,10 @@ class HermesVoiceRuntime:
             except Exception:
                 _LOGGER.debug("Audio playback was already stopped", exc_info=True)
             if self._motion is not None:
-                self._motion.idle()
+                try:
+                    self._motion.close()
+                except Exception:
+                    _LOGGER.exception("Could not disable voice wobbling after audio teardown")
 
     def _set_motor_mode(self, enabled: bool, *, wake: bool = False) -> None:
         """Change motor torque through the daemon's supported local API or fail explicitly."""
@@ -1315,10 +1609,28 @@ class HermesVoiceRuntime:
             try:
                 self.robot.wake_up()
             except Exception as exc:
+                if self._wake_pose_is_ready():
+                    _LOGGER.warning(
+                        "Reachy wake call raised after the measured head reached Awake; preserving enabled torque: %s",
+                        exc,
+                    )
+                    return
                 message = f"Reachy motor torque was enabled, but the wake motion failed: {exc}"
                 _LOGGER.exception(message)
                 raise RuntimeError(message) from exc
         _LOGGER.info("Reachy motors %s%s", mode, " with wake motion" if wake else "")
+
+    def _wake_pose_is_ready(self) -> bool:
+        """Confirm the native wake motion reached a clearly unfolded pose."""
+        try:
+            response = httpx.get("http://127.0.0.1:8000/api/state/full", timeout=2.0)
+            response.raise_for_status()
+            pose = response.json().get("head_pose") or {}
+            z = float(pose["z"])
+            pitch = float(pose["pitch"])
+            return math.isfinite(z) and math.isfinite(pitch) and z > -0.02 and pitch < 0.20
+        except Exception:
+            return False
 
     def _listen_for_wake_word(self) -> None:
         assert self._spotter is not None
@@ -1484,7 +1796,17 @@ class HermesVoiceRuntime:
 
     def _run_realtime_conversation(self, config: AppConfig) -> None:
         """Run a persistent speech-to-speech session after the local wake word."""
-        session = RealtimeBridgeSession(config)
+        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
+            return
+        broker_context = self.agent_broker_context(explicit_private_intent=False)
+        agent_request_id = ""
+        if broker_context.capability_profile == "agent":
+            agent_request_id, broker_context = self._begin_agent_request("Realtime Agent session")
+        session = RealtimeBridgeSession(
+            config,
+            agent_context=broker_context,
+            agent_request_id=agent_request_id,
+        )
         transcript_parts: list[str] = []
         response_parts: list[str] = []
         last_activity = time.monotonic()
@@ -1494,6 +1816,8 @@ class HermesVoiceRuntime:
         handled_camera_call_ids: set[str] = set()
         handled_robot_call_ids: set[str] = set()
         handled_power_call_ids: set[str] = set()
+        active_response_id = ""
+        interrupted_response_ids: set[str] = set()
         self._play_asset("listening.wav")
         self._discard_audio(0.34)
         self._set_status(
@@ -1502,11 +1826,20 @@ class HermesVoiceRuntime:
             bridge_healthy=True,
             last_error="",
         )
-        if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
-            return
-        session.start()
+        try:
+            session.start()
+        except Exception:
+            if agent_request_id:
+                self._finish_agent_request(
+                    agent_request_id, broker_context.session_generation, succeeded=False
+                )
+            raise
         if self._privacy_requested.is_set() or self._effective_power_mode() in {"meeting", "sleep"}:
             session.close()
+            if agent_request_id:
+                self._finish_agent_request(
+                    agent_request_id, broker_context.session_generation, succeeded=False
+                )
             return
         self._set_status("listening", "Realtime session active")
         if self._motion is not None:
@@ -1526,6 +1859,7 @@ class HermesVoiceRuntime:
                 for event in session.events():
                     kind = event.type
                     payload = event.payload
+                    event_response_id = realtime_response_id(kind, payload)
                     audio_item_id = realtime_audio_item_id(kind, payload)
                     if audio_item_id:
                         playback.item_id = audio_item_id
@@ -1541,10 +1875,20 @@ class HermesVoiceRuntime:
                             )
                             continue
                         raise RealtimeBridgeError(message)
+                    if kind != "input_audio_buffer.speech_started" and (
+                        event_response_id and event_response_id in interrupted_response_ids
+                    ):
+                        if kind in {"response.done", "response.cancelled", "response.failed"}:
+                            interrupted_response_ids.discard(event_response_id)
+                            if event_response_id == active_response_id:
+                                active_response_id = ""
+                        continue
                     if kind == "input_audio_buffer.speech_started":
                         now = time.monotonic()
                         last_activity = now
                         transcript_parts.clear()
+                        if active_response_id:
+                            interrupted_response_ids.add(active_response_id)
                         if speaking or playback.audible(now):
                             played_ms = playback.played_ms(now)
                             self._clear_streamed_audio()
@@ -1646,6 +1990,7 @@ class HermesVoiceRuntime:
                         _LOGGER.info("Realtime robot tool %s: %s", robot_call.name, result)
                         self._set_status("thinking", "Hermes queued a Reachy action")
                     elif kind == "response.created":
+                        active_response_id = event_response_id
                         last_activity = time.monotonic()
                         generation_done = False
                         playback.reset()
@@ -1685,6 +2030,8 @@ class HermesVoiceRuntime:
                         )
                     elif kind in {"response.done", "response.output_audio.done", "response.audio.done"}:
                         if kind == "response.done":
+                            if not event_response_id or event_response_id == active_response_id:
+                                active_response_id = ""
                             with self._status_lock:
                                 self._status.turns_completed += 1
                             generation_done = True
@@ -1703,6 +2050,10 @@ class HermesVoiceRuntime:
         finally:
             session.close()
             self._clear_streamed_audio()
+            if agent_request_id:
+                self._finish_agent_request(
+                    agent_request_id, broker_context.session_generation, succeeded=True
+                )
 
     def _clear_streamed_audio(self) -> None:
         """Flush Realtime appsrc output without stopping microphone capture."""
@@ -1936,7 +2287,31 @@ class HermesVoiceRuntime:
                     stt_provider=client.last_stt_provider,
                 )
 
-                response_text = client.chat(transcript)
+                with self._agent_lock:
+                    agent_profile_active = self._capability_profile == "agent"
+                if agent_profile_active:
+                    request_id, broker_context = self._begin_agent_request(transcript)
+                    try:
+                        response_text = client.ask_agent(
+                            transcript,
+                            broker_context,
+                            request_id=request_id,
+                        )
+                    except Exception:
+                        self._finish_agent_request(
+                            request_id,
+                            broker_context.session_generation,
+                            succeeded=False,
+                        )
+                        raise
+                    if not self._finish_agent_request(
+                        request_id,
+                        broker_context.session_generation,
+                        succeeded=True,
+                    ):
+                        break
+                else:
+                    response_text = client.chat(transcript)
                 if (
                     not conversation_is_current()
                     or self.stop_event.is_set()

@@ -7,6 +7,7 @@ The companion bridge gives Reachy one authenticated endpoint for:
 - configured or explicitly selected STT/TTS providers;
 - a private OpenAI Realtime WebSocket;
 - `ask_hermes` delegation from Realtime back into the user's Hermes agent.
+- the fixed owner-scoped Agent broker: read tools, reversible home actions, timers/reminders, media, drafts, exact approvals, cancellation, and a sanitized timeline.
 - local Realtime power-mode calls for Standby, Awake, timed Meeting, and Sleep.
 - pass-through of on-demand Reachy camera frames to Realtime image input.
 
@@ -33,6 +34,28 @@ OPENAI_API_KEY=your-openai-project-key
 ```
 
 The OpenAI account must have API billing and access to `gpt-realtime-2.1`. A ChatGPT subscription alone is not an API credential.
+
+Agent Mode is fail-closed: every read/action allowlist and reminder callback defaults empty. Configure only the resources Reachy may use in the bridge service environment:
+
+```bash
+HASS_URL=http://homeassistant.internal:8123
+HASS_TOKEN=host-only-long-lived-token
+REACHY_AGENT_HA_ALLOWLIST='{"sensor.living_room":["friendly_name","unit_of_measurement"]}'
+REACHY_AGENT_HA_ACTION_ALLOWLIST='{"light.desk":["turn_on","turn_off"]}'
+REACHY_AGENT_MEDIA_ALLOWLIST='["media_player.living_room"]'
+REACHY_AGENT_CALENDAR_ALLOWLIST='["calendar.personal"]'
+REACHY_AGENT_NOTIFY_ALLOWLIST='{"mobile_app":["tim"]}'
+REACHY_AGENT_NOTE_ROOTS='{"notes":"/absolute/path/to/reachy-notes"}'
+REACHY_AGENT_PERSONAL_ROOTS='{"memory":"/absolute/path/to/scoped-memory"}'
+REACHY_AGENT_HISTORY_ROOTS='{"history":"/absolute/path/to/scoped-history"}'
+REACHY_AGENT_SEARCH_URL=http://127.0.0.1:8888/search
+REACHY_AGENT_MODEL=gpt-5-mini
+REACHY_AGENT_ASK_TIMEOUT_SECONDS=80
+REACHY_AGENT_REMINDER_CALLBACK_URL=https://reachy-private-host
+REACHY_AGENT_REMINDER_CALLBACK_TOKEN=the-same-private-bridge-bearer-token
+```
+
+Roots must be absolute. Note reads and approved appends reject traversal, symlinks, hardlinks, non-regular files, unsupported extensions, and oversized files. Home Assistant returns or controls only explicit allowlists; its token never enters a result. Timers/reminders are accepted only when the authenticated callback is configured. Media and calendar/message/note writes pause in a five-minute exact-action sheet on the trusted phone UI; approval is one-shot and content edits require a new draft.
 
 ## Run the bridge
 
@@ -79,6 +102,14 @@ Authorization: Bearer <API_SERVER_KEY>
 | `POST /v1/audio/transcriptions` | Configured/local/ElevenLabs STT |
 | `POST /v1/audio/speech` | Configured/Edge/ElevenLabs TTS |
 | `GET /v1/realtime` | Authenticated WebSocket proxy to OpenAI Realtime |
+|| `GET /v1/agent/capabilities` | Live typed bounded capability manifest |
+| `POST /v1/agent/session` | Establish or invalidate the runtime-authoritative device generation |
+| `POST /v1/agent/activity` | Recent sanitized device/generation-scoped broker activity |
+|| `POST /v1/agent/execute` | Execute or stage one generation-bound typed capability |
+|| `POST /v1/agent/pending-approval` | Read the current device/session-scoped exact draft |
+|| `POST /v1/agent/approve-pending` | One-shot execution of the unchanged pending draft |
+|| `POST /v1/agent/ask` | Bounded model loop using only broker tools |
+| `POST /v1/agent/cancel/{request_id}` | Cancel an in-flight broker/Agent request |
 
 The Realtime client sends an initial `session.start` envelope containing model, voice, reasoning effort, Hermes agent route, stable memory scope, system prompt, and the camera/robot-tool feature flags. The bridge then creates the OpenAI GA Realtime session and exposes `ask_hermes`, the always-available local `set_reachy_power_mode` tool, and only the enabled camera/motion tools. Sleep and Meeting are applied on Reachy itself; no privileged credential is sent to the robot.
 
@@ -92,7 +123,7 @@ OpenAI may answer ordinary conversation directly. The session instructions requi
 - local files and system state;
 - consequential actions.
 
-The bridge executes `ask_hermes` through the authenticated local Hermes API Server and returns the tool result to the Realtime session. OpenAI does not receive the Hermes bearer token, and Reachy does not receive the OpenAI key.
+In Conversation profile, the bridge executes `ask_hermes` through the authenticated local Hermes API Server. In Agent profile, the same single Realtime tool enters a bounded model loop with fixed T0–T3 schemas and no shell, arbitrary filesystem, maintenance, purchase, lock, alarm, garage, climate-safety, or security-system authority. T1 private reads require matching present-turn intent. T3 writes and all media actions stage exact device/session-scoped drafts for trusted-phone approval. OpenAI does not receive the Hermes bearer token or provider/home credentials, and Reachy does not receive the OpenAI or Home Assistant keys.
 
 When Reachy enables camera support, the bridge advertises `capture_reachy_camera`. The tool call is forwarded to Reachy, which captures one bounded JPEG and sends it as an `input_image` conversation item. The bridge never polls or continuously streams the camera.
 
@@ -100,7 +131,9 @@ When Reachy enables robot tools, the bridge advertises `move_reachy_head`, `expr
 
 ### Kids Mode trust boundary
 
-`/v1/kids/chat` is a separate, bounded OpenAI chat route. It does not forward Hermes session headers or normal agent history, and it applies moderation before and after generation. The bridge accepts only age-band/activity/language enums, constructs the child policy itself, and owns bounded ephemeral history keyed by the random child session ID; caller-supplied system prompts and history are rejected. Camera, robot, agent/delegation, Home Assistant, file, messaging, purchase, and power capabilities are absent.
+`/v1/kids/chat` is a separate, bounded OpenAI chat route. It does not forward Hermes session headers or normal agent history, and it applies moderation before and after generation. The bridge accepts only age-band/activity/language enums, constructs the child policy itself, and owns bounded ephemeral history keyed by the random child session ID; caller-supplied system prompts and history are rejected. Camera, robot, agent/delegation, Home Assistant, file, messaging, purchase, and power capabilities are absent during child conversation.
+
+I Spy uses a separate consented boundary: `/v1/kids/ispy/select` accepts exactly three bounded JPEGs, requests a strict structured target, revalidates stability, visibility count, confidence, frame index, normalized bounding box, colour, forbidden vocabulary and hints, then moderates the target text before storing only target metadata. The camera is revoked before guessing. `/v1/kids/chat` judges guesses with a boolean-only schema while local bridge state owns the hint order and six-guess reveal limit. `/v1/kids/ispy/cancel` deletes the target and approval state on Stop, expiry, or a cancelled start; image bytes are never retained in session state.
 
 The Kids `/v1/kids/speech/stream` and `/v1/kids/speech/fallback` paths accept only bounded text carrying their own short-lived, single-use bridge approval tied to the exact child session and normalized post-moderated text digest. The streaming provider, model, output format, and default voice are bridge-controlled: ElevenLabs `eleven_flash_v2_5`, 24 kHz PCM, and the configured `ELEVENLABS_KIDS_VOICE_ID` (or bundled child-voice default); fallback ignores caller provider/model/voice fields and invokes the Hermes host's configured TTS. Missing, expired, altered, or replayed approvals are rejected; the route does not accept arbitrary provider/model selection or unmoderated model tokens.
 

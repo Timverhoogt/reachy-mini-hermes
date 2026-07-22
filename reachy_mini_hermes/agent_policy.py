@@ -19,6 +19,22 @@ class CapabilityId(StrEnum):
     RECALL_PERSONAL_CONTEXT = "recall_personal_context"
     SEARCH_CONVERSATION_HISTORY = "search_conversation_history"
     READ_SCOPED_NOTE = "read_scoped_note"
+    CONTROL_HOME_ENTITY = "control_home_entity"
+    SET_TIMER = "set_timer"
+    CANCEL_TIMER = "cancel_timer"
+    CREATE_REMINDER = "create_reminder"
+    CANCEL_REMINDER = "cancel_reminder"
+    PLAY_MEDIA = "play_media"
+    PAUSE_MEDIA = "pause_media"
+    SET_MEDIA_VOLUME = "set_media_volume"
+    UNDO_LAST_REVERSIBLE_ACTION = "undo_last_reversible_action"
+    LIST_CALENDAR_EVENTS = "list_calendar_events"
+    DRAFT_CALENDAR_EVENT = "draft_calendar_event"
+    CREATE_CALENDAR_EVENT = "create_calendar_event"
+    DRAFT_MESSAGE = "draft_message"
+    SEND_APPROVED_MESSAGE = "send_approved_message"
+    DRAFT_NOTE = "draft_note"
+    APPEND_SCOPED_NOTE = "append_scoped_note"
 
 
 class RiskTier(IntEnum):
@@ -63,22 +79,58 @@ class PolicyDecision:
     risk_tier: RiskTier | None = None
 
 
-# Phase 0 deliberately enables no broker capability. This inventory is truthful
-# about the planned typed surface without granting authority before Phase 1.
-PHASE_0_CAPABILITIES: Mapping[CapabilityId, CapabilityDefinition] = MappingProxyType(
+# Agent 0.1-0.4 expose only the fixed owner surface. Authority still requires
+# every live PolicyContext check below; the profile list alone never grants access.
+_PRIVATE_READ_CAPABILITIES = {
+    CapabilityId.GET_HOME_STATUS,
+    CapabilityId.RECALL_PERSONAL_CONTEXT,
+    CapabilityId.SEARCH_CONVERSATION_HISTORY,
+    CapabilityId.READ_SCOPED_NOTE,
+    CapabilityId.LIST_CALENDAR_EVENTS,
+    CapabilityId.DRAFT_CALENDAR_EVENT,
+    CapabilityId.DRAFT_MESSAGE,
+    CapabilityId.DRAFT_NOTE,
+}
+_BOUNDED_ACTION_CAPABILITIES = {
+    CapabilityId.CONTROL_HOME_ENTITY,
+    CapabilityId.SET_TIMER,
+    CapabilityId.CANCEL_TIMER,
+    CapabilityId.CREATE_REMINDER,
+    CapabilityId.CANCEL_REMINDER,
+    CapabilityId.PLAY_MEDIA,
+    CapabilityId.PAUSE_MEDIA,
+    CapabilityId.SET_MEDIA_VOLUME,
+    CapabilityId.UNDO_LAST_REVERSIBLE_ACTION,
+}
+_APPROVED_SIDE_EFFECT_CAPABILITIES = {
+    CapabilityId.CREATE_CALENDAR_EVENT,
+    CapabilityId.SEND_APPROVED_MESSAGE,
+    CapabilityId.APPEND_SCOPED_NOTE,
+}
+
+AGENT_CAPABILITIES: Mapping[CapabilityId, CapabilityDefinition] = MappingProxyType(
     {
         capability: CapabilityDefinition(
             capability_id=capability,
-            risk_tier=RiskTier.T1_PRIVATE_READ
-            if capability in {
-                CapabilityId.GET_HOME_STATUS,
-                CapabilityId.RECALL_PERSONAL_CONTEXT,
-                CapabilityId.SEARCH_CONVERSATION_HISTORY,
-                CapabilityId.READ_SCOPED_NOTE,
-            }
-            else RiskTier.T0_PUBLIC_READ,
+            risk_tier=(
+                RiskTier.T3_EXTERNAL_SIDE_EFFECT
+                if capability in _APPROVED_SIDE_EFFECT_CAPABILITIES
+                else RiskTier.T2_BOUNDED_LOCAL_ACTION
+                if capability in _BOUNDED_ACTION_CAPABILITIES
+                else RiskTier.T1_PRIVATE_READ
+                if capability in _PRIVATE_READ_CAPABILITIES
+                else RiskTier.T0_PUBLIC_READ
+            ),
             description=capability.value.replace("_", " "),
-            enabled=False,
+            requires_approval=(
+                capability in _APPROVED_SIDE_EFFECT_CAPABILITIES
+                or capability in {
+                    CapabilityId.PLAY_MEDIA,
+                    CapabilityId.PAUSE_MEDIA,
+                    CapabilityId.SET_MEDIA_VOLUME,
+                }
+            ),
+            enabled=True,
         )
         for capability in CapabilityId
     }
@@ -88,7 +140,7 @@ PHASE_0_CAPABILITIES: Mapping[CapabilityId, CapabilityDefinition] = MappingProxy
 @dataclass(slots=True)
 class AgentPolicy:
     definitions: Mapping[CapabilityId, CapabilityDefinition] = field(
-        default_factory=lambda: PHASE_0_CAPABILITIES
+        default_factory=lambda: AGENT_CAPABILITIES
     )
 
     def enabled_capabilities(self) -> tuple[CapabilityDefinition, ...]:

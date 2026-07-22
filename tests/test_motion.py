@@ -32,7 +32,7 @@ class FakeRobot:
         self.wobbling_events.append(False)
 
 
-def test_speaking_wobbles_and_idle_stops_it() -> None:
+def test_speaking_wobbler_stays_allocated_until_safe_close() -> None:
     robot = FakeRobot()
     motion = VoiceMotion(robot)
 
@@ -41,8 +41,24 @@ def test_speaking_wobbles_and_idle_stops_it() -> None:
     assert robot.targets
 
     motion.idle()
+    assert robot.wobbling is True
+    assert robot.wobbling_events == [True]
+
+    motion.close()
     assert robot.wobbling is False
     assert robot.wobbling_events == [True, False]
+
+
+def test_interruption_does_not_disable_wobbler_while_audio_callbacks_are_live() -> None:
+    robot = FakeRobot()
+    motion = VoiceMotion(robot)
+
+    motion.speaking()
+    motion.listening()
+    motion.thinking()
+    motion.suspend()
+
+    assert robot.wobbling_events == [True]
 
 
 def test_disabled_motion_does_not_move_robot() -> None:

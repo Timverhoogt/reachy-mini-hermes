@@ -39,9 +39,17 @@ def allowed_context() -> PolicyContext:
     )
 
 
-def test_phase_zero_inventory_enables_no_new_capability() -> None:
-    assert AgentPolicy().enabled_capabilities() == ()
-    assert AgentPolicy().decide(CapabilityId.GET_REACHY_STATUS, allowed_context()).reason == "capability_disabled"
+def test_agent_inventory_has_fixed_risk_and_approval_boundaries() -> None:
+    enabled = AgentPolicy().enabled_capabilities()
+    assert {item.capability_id for item in enabled} == set(CapabilityId)
+    assert max(item.risk_tier for item in enabled) == RiskTier.T3_EXTERNAL_SIDE_EFFECT
+    assert all(
+        item.requires_approval
+        for item in enabled
+        if item.risk_tier == RiskTier.T3_EXTERNAL_SIDE_EFFECT
+    )
+    assert not any(item.risk_tier == RiskTier.T4_PRIVILEGED for item in enabled)
+    assert AgentPolicy().decide(CapabilityId.GET_REACHY_STATUS, allowed_context()).allowed is True
 
 
 @pytest.mark.parametrize(

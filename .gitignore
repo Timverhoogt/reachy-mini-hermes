@@ -17,3 +17,7 @@ settings.json
 .DS_Store
 .idea/
 .vscode/
+.release/
+test-results/
+.verify-kids-ispy-dist/
+GATE_1R_ACCEPTANCE_REPORT.md

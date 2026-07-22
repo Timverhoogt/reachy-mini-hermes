@@ -90,3 +90,146 @@ def test_transcription_payload() -> None:
 
     client = make_client(handler)
     assert client.transcribe(b"RIFFfake") == "turn on the lights"
+
+
+def test_typed_agent_broker_client_contract() -> None:
+    from reachy_mini_hermes.hermes_client import AgentBrokerContext
+
+    seen: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/agent/capabilities":
+            return httpx.Response(
+                200,
+                json={"capabilities": [{"id": "get_reachy_status", "read_only": True}]},
+            )
+        if request.url.path == "/v1/agent/session":
+            body = json.loads(request.content)
+            seen.append(body)
+            return httpx.Response(
+                200,
+                json={"ok": True, "session_generation": body["context"]["session_generation"]},
+            )
+        if request.url.path == "/v1/agent/execute":
+            body = json.loads(request.content)
+            seen.append(body)
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "request_id": body["request_id"],
+                    "capability_id": body["capability_id"],
+                    "data": {"state": "awake"},
+                    "evidence": [{"source": "reachy_runtime"}],
+                    "freshness": {"observed_at": 1.0, "completed_at": 1.1, "age_seconds": 0.1},
+                    "read_only": True,
+                    "side_effect": False,
+                },
+            )
+        if request.url.path == "/v1/agent/ask":
+            seen.append(json.loads(request.content))
+            return httpx.Response(200, json={"text": "Reachy is awake."})
+        if request.url.path == "/v1/agent/activity":
+            return httpx.Response(200, json={"activity": [{"event": "completed"}]})
+        if request.url.path == "/v1/agent/pending-approval":
+            return httpx.Response(
+                200,
+                json={
+                    "pending_approval": {
+                        "draft_id": "draft-0123456789abcdef01234567",
+                        "capability_id": "append_scoped_note",
+                        "arguments": {"root": "notes", "path": "x.md", "text": "exact"},
+                    }
+                },
+            )
+        if request.url.path == "/v1/agent/approve-pending":
+            body = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "draft_id": body["draft_id"],
+                    "data": {"verified": True},
+                    "evidence": [],
+                    "freshness": {},
+                    "read_only": False,
+                    "side_effect": True,
+                },
+            )
+        if request.url.path.startswith("/v1/agent/cancel/"):
+            return httpx.Response(200, json={"cancelled": True})
+        raise AssertionError(request.url)
+
+    context = AgentBrokerContext(
+        capability_profile="agent",
+        adult_ui_unlocked=True,
+        kids_mode_active=False,
+        power_mode="awake",
+        privacy_enabled=True,
+        emergency_stop_active=False,
+        robot_available=True,
+        session_generation=2,
+        requested_session_generation=2,
+        explicit_private_intent=True,
+    )
+    client = make_client(handler)
+    assert client.agent_capabilities()[0]["id"] == "get_reachy_status"
+    client.establish_agent_session(context)
+    result = client.execute_agent_capability("get_reachy_status", {}, context, request_id="agent-fixed-id")
+    assert result.read_only is True
+    assert result.data == {"state": "awake"}
+    assert result.evidence == ({"source": "reachy_runtime"},)
+    assert client.ask_agent("Status?", context, request_id="agent-ask-id") == "Reachy is awake."
+    assert client.agent_activity(context, request_id="agent-activity-id") == [{"event": "completed"}]
+    pending = client.pending_agent_approval(context)
+    assert pending is not None
+    assert pending["capability_id"] == "append_scoped_note"
+    approved = client.approve_pending_agent_action(str(pending["draft_id"]), context)
+    assert approved["side_effect"] is True
+    assert client.cancel_agent_request("agent-ask-id") is True
+    assert seen[0]["context"]["session_generation"] == 2
+    assert seen[1]["context"]["session_generation"] == 2
+    assert seen[2]["request_id"] == "agent-ask-id"
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"request_id": "agent-other-id"},
+        {"capability_id": "read_scoped_note"},
+        {"evidence": ["not-an-object"]},
+        {"freshness": {"observed_at": 1.0}},
+    ],
+)
+def test_agent_broker_client_rejects_unverified_result_metadata(changed: dict[str, object]) -> None:
+    from reachy_mini_hermes.hermes_client import AgentBrokerContext
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        payload: dict[str, object] = {
+            "ok": True,
+            "request_id": "agent-fixed-id",
+            "capability_id": "get_reachy_status",
+            "data": {},
+            "evidence": [],
+            "freshness": {"observed_at": 1.0, "completed_at": 1.1, "age_seconds": 0.1},
+            "read_only": True,
+            "side_effect": False,
+        }
+        payload.update(changed)
+        return httpx.Response(200, json=payload)
+
+    context = AgentBrokerContext(
+        capability_profile="agent",
+        adult_ui_unlocked=True,
+        kids_mode_active=False,
+        power_mode="awake",
+        privacy_enabled=True,
+        emergency_stop_active=False,
+        robot_available=True,
+        session_generation=2,
+        requested_session_generation=2,
+        explicit_private_intent=False,
+    )
+    client = make_client(handler)
+    with pytest.raises(HermesBridgeError, match="invalid Agent Mode result"):
+        client.execute_agent_capability("get_reachy_status", {}, context, request_id="agent-fixed-id")

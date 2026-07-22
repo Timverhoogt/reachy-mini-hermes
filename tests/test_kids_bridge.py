@@ -116,7 +116,7 @@ def test_kids_client_fallback_speech_carries_separate_exact_approval() -> None:
 
 def test_kids_policy_and_history_are_bridge_authoritative() -> None:
     source = (ROOT / "companion" / "hermes_reachy_bridge.py").read_text(encoding="utf-8")
-    method = source.split("    async def kids_chat", 1)[1].split("    async def _hermes_answer", 1)[0]
+    method = source.split("    async def kids_chat", 1)[1].split("    async def kids_ispy_select", 1)[0]
 
     assert "_build_bridge_kids_prompt" in method
     assert 'payload.get("system_prompt")' not in method
@@ -127,7 +127,7 @@ def test_kids_policy_and_history_are_bridge_authoritative() -> None:
 
 def test_bridge_kids_route_has_moderation_on_both_sides_and_no_hermes_forwarding() -> None:
     source = (ROOT / "companion" / "hermes_reachy_bridge.py").read_text(encoding="utf-8")
-    method = source.split("    async def kids_chat", 1)[1].split("    async def _hermes_answer", 1)[0]
+    method = source.split("    async def kids_chat", 1)[1].split("    async def kids_ispy_select", 1)[0]
 
     assert method.count("await self._moderation_flagged") == 2
     assert "https://api.openai.com/v1/chat/completions" in method

@@ -39,17 +39,27 @@ class VoiceMotion:
         self._suspended = False
 
     def _set_wobbling(self, enabled: bool) -> None:
-        """Toggle Reachy's subtle audio-reactive speaking motion."""
+        """Enable wobbling once; disable only after playback teardown in close()."""
         if not self.enabled or self._suspended or enabled == self._wobbling:
             return
+        # reachy-mini 1.9's GStreamer callback reads the wobbler concurrently.
+        # Clearing it while playback is live can turn the callback's checked
+        # object into None before feed(). Silence naturally produces no offsets,
+        # so keep the supported SDK wobbler alive until the pipeline is stopped.
+        if not enabled:
+            return
         try:
-            if enabled:
-                self.robot.enable_wobbling()
-            else:
-                self.robot.disable_wobbling()
-            self._wobbling = enabled
+            self.robot.enable_wobbling()
+            self._wobbling = True
         except Exception as exc:
             _LOGGER.warning("Could not change Reachy voice wobbling: %s", exc)
+
+    def close(self) -> None:
+        """Disable wobbling after the owner has stopped all audio callbacks."""
+        if not self._wobbling:
+            return
+        self.robot.disable_wobbling()
+        self._wobbling = False
 
     def _pose(
         self,

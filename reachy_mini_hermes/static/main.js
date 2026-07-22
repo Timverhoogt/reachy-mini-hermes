@@ -24,6 +24,25 @@ let selectedKidsActivity = "buddy";
 let bluetoothRefreshPending = false;
 let bluetoothState = null;
 let agentRequestPending = false;
+let agentProfileActive = false;
+let runtimeAgentActivity = [];
+let brokerAgentActivity = [];
+let pendingAgentApproval = null;
+
+function renderAgentActivity() {
+  const activity = $("agent-activity");
+  activity.replaceChildren();
+  const combined = [...runtimeAgentActivity, ...brokerAgentActivity]
+    .sort((left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0))
+    .slice(-20);
+  (combined.length ? combined : [{ event: "No activity yet" }]).forEach((item) => {
+    const row = document.createElement("li");
+    const capability = item.capability_id ? `${String(item.capability_id).replaceAll("_", " ")} · ` : "";
+    const result = item.result_class && item.result_class !== "running" ? ` · ${item.result_class}` : "";
+    row.textContent = `${capability}${String(item.event || "activity").replaceAll("_", " ")}${result}`;
+    activity.appendChild(row);
+  });
+}
 
 const kidsActivityLabels = {
   buddy: "Buddy chat",
@@ -31,6 +50,7 @@ const kidsActivityLabels = {
   quiz: "Quiz quest",
   riddles: "Riddle box",
   calm: "Calm corner",
+  ispy: "I Spy",
 };
 
 const announcementText = $("announcement-text");
@@ -48,6 +68,7 @@ $("kids-parent-unlock-button").disabled = true;
 $("agent-conversation-button").disabled = true;
 $("agent-enable-button").disabled = true;
 $("agent-stop-button").disabled = true;
+$("agent-approve-button").disabled = true;
 [
   "bluetooth-scan-button", "bluetooth-pair-button", "bluetooth-connect-button",
   "bluetooth-disconnect-button", "bluetooth-remove-button", "gamepad-enabled",
@@ -70,6 +91,7 @@ document.querySelectorAll("[data-kids-activity]").forEach((button) => {
   button.setAttribute("aria-checked", String(selected));
 });
 $("kids-activity-badge").textContent = kidsActivityLabels[selectedKidsActivity];
+$("kids-ispy-consent-row").hidden = selectedKidsActivity !== "ispy";
 
 function activateTab(name, focus = false, recordHistory = false) {
   const target = document.querySelector(`[data-tab="${name}"]`) || document.querySelector("[data-tab]");
@@ -228,22 +250,21 @@ function updateStatus(payload) {
   currentPowerMode = powerMode;
   const kidsMode = runtime.kids_mode || {};
   const kidsActive = Boolean(kidsMode.active);
+  const kidsCameraActive = Boolean(kidsMode.camera_active);
   const kidsLocked = Boolean(kidsMode.locked);
   const kidsPinConfigured = Boolean(payload.config?.kids_parent_pin_configured);
   const agent = runtime.agent || {};
   const agentProfile = agent.profile || "conversation";
+  agentProfileActive = agentProfile === "agent";
   $("agent-profile-badge").textContent = agentProfile;
-  $("agent-capabilities").textContent = (agent.enabled_capabilities || []).join(", ") || "None — Phase 0";
+  $("agent-capabilities").textContent = (agent.enabled_capabilities || []).join(", ") || "None in Conversation profile";
   $("agent-current-task").textContent = agent.current_task || "—";
-  $("agent-pending-approval").textContent = agent.pending_approval ? "Waiting for adult approval" : "None";
-  const activity = $("agent-activity");
-  activity.replaceChildren();
-  const recentActivity = agent.recent_activity || [];
-  (recentActivity.length ? recentActivity : [{ event: "No activity yet" }]).forEach((item) => {
-    const row = document.createElement("li");
-    row.textContent = String(item.event || "activity").replaceAll("_", " ");
-    activity.appendChild(row);
-  });
+  $("agent-pending-approval").textContent = pendingAgentApproval
+    ? `Waiting · expires in ${Number(pendingAgentApproval.expires_in_seconds || 0)}s`
+    : agent.pending_approval ? "Waiting for adult approval" : "None";
+  runtimeAgentActivity = agent.recent_activity || [];
+  renderAgentActivity();
+  document.querySelector(".agent-card").hidden = kidsActive || kidsLocked;
   const agentBlocked = kidsActive || kidsLocked || ["meeting", "sleep"].includes(powerMode) || agentRequestPending;
   $("agent-conversation-button").disabled = agentBlocked || agentProfile === "conversation";
   $("agent-enable-button").disabled = agentBlocked || agentProfile === "agent";
@@ -322,7 +343,7 @@ function updateStatus(payload) {
   const remainingPercent = kidsActive ? Math.max(0, Math.min(100, (remainingSeconds / totalSeconds) * 100)) : 0;
   const remainingMinutes = Math.floor(remainingSeconds / 60);
   const remainingRemainder = remainingSeconds % 60;
-  $("kids-status-badge").textContent = kidsActive ? "Active" : "Off";
+  $("kids-status-badge").textContent = kidsCameraActive ? "Camera search" : kidsActive ? "Active" : "Off";
   $("kids-status-badge").classList.toggle("active", kidsActive);
   $("kids-timer").textContent = kidsActive
     ? `${remainingMinutes}:${String(remainingRemainder).padStart(2, "0")} remaining`
@@ -335,10 +356,12 @@ function updateStatus(payload) {
   const progress = document.querySelector(".kids-progress");
   progress.setAttribute("aria-valuenow", String(Math.round(remainingPercent)));
   $("kids-session-detail").textContent = kidsActive
-    ? `${kidsActivityLabels[kidsProfile.activity] || "Kids activity"} · age ${kidsProfile.age_band} · ${kidsMode.turns_completed || 0} completed turn${kidsMode.turns_completed === 1 ? "" : "s"} · ${kidsMode.tool_policy === "voice-state-motion-only" ? "gentle voice-state motion only" : "no tools"}`
+    ? kidsCameraActive
+      ? "I Spy camera is active for this bounded three-frame search only. End now stops capture and folds Reachy."
+      : `${kidsActivityLabels[kidsProfile.activity] || "Kids activity"} · age ${kidsProfile.age_band} · ${kidsMode.turns_completed || 0} completed turn${kidsMode.turns_completed === 1 ? "" : "s"} · ${kidsMode.tool_policy === "voice-state-motion-only" ? "gentle voice-state motion only" : "no tools"}`
     : "Camera, personal Hermes memory, smart-home control, messaging, purchases, and power controls are unavailable to the child session.";
   $("kids-start-button").disabled = kidsActive || kidsLocked || !kidsPinConfigured || kidsRequestPending || ["meeting", "sleep"].includes(powerMode);
-  $("kids-stop-button").disabled = !kidsActive || kidsRequestPending;
+  $("kids-stop-button").disabled = !kidsActive;
   $("kids-pin-setup-button").hidden = kidsPinConfigured || kidsLocked;
   $("kids-pin-setup-button").disabled = kidsRequestPending;
   $("kids-parent-unlock-button").hidden = !kidsLocked;
@@ -538,6 +561,43 @@ async function refreshStatus() {
   }
 }
 
+async function refreshAgentActivity() {
+  if (!agentProfileActive) {
+    brokerAgentActivity = [];
+    pendingAgentApproval = null;
+    $("agent-approval-sheet").hidden = true;
+    renderAgentActivity();
+    return;
+  }
+  try {
+    const response = await fetch("/api/agent/activity", {
+      cache: "no-store",
+      headers: { "X-Reachy-Adult-UI": "unlocked" },
+    });
+    if (!response.ok) return;
+    const body = await response.json();
+    brokerAgentActivity = Array.isArray(body.activity) ? body.activity : [];
+    renderAgentActivity();
+    const pendingResponse = await fetch("/api/agent/pending-approval", {
+      cache: "no-store",
+      headers: { "X-Reachy-Adult-UI": "unlocked" },
+    });
+    if (!pendingResponse.ok) return;
+    const pendingBody = await pendingResponse.json();
+    pendingAgentApproval = pendingBody.pending_approval || null;
+    const sheet = $("agent-approval-sheet");
+    sheet.hidden = !pendingAgentApproval;
+    $("agent-approve-button").disabled = !pendingAgentApproval || agentRequestPending;
+    if (pendingAgentApproval) {
+      $("agent-approval-capability").textContent = String(pendingAgentApproval.capability_id || "").replaceAll("_", " ");
+      $("agent-approval-arguments").textContent = JSON.stringify(pendingAgentApproval.arguments || {}, null, 2);
+      $("agent-pending-approval").textContent = `Waiting · expires in ${Number(pendingAgentApproval.expires_in_seconds || 0)}s`;
+    }
+  } catch (error) {
+    // Runtime status remains authoritative if the Hermes-host timeline is unavailable.
+  }
+}
+
 function payloadFromForm() {
   const payload = {};
   fields.forEach((name) => {
@@ -602,6 +662,8 @@ document.querySelectorAll("[data-kids-activity]").forEach((button) => {
       candidate.setAttribute("aria-checked", String(selected));
     });
     $("kids-activity-badge").textContent = kidsActivityLabels[selectedKidsActivity];
+    $("kids-ispy-consent-row").hidden = selectedKidsActivity !== "ispy";
+    $("kids-ispy-camera-consent").checked = false;
   });
   button.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
@@ -621,6 +683,7 @@ function kidsProfileFromForm() {
     language: $("kids-language").value,
     duration_minutes: Number($("kids-duration").value),
     motion_enabled: $("kids-motion-enabled").checked,
+    camera_consent: selectedKidsActivity === "ispy" && $("kids-ispy-camera-consent").checked,
   };
 }
 
@@ -674,8 +737,16 @@ $("kids-start-button").addEventListener("click", async () => {
     $("kids-parent-pin").focus();
     return;
   }
+  if (profile.activity === "ispy" && !profile.camera_consent) {
+    message.textContent = "A caregiver must allow the narrow camera search for this I Spy start.";
+    message.className = "message error";
+    $("kids-ispy-camera-consent").focus();
+    return;
+  }
   kidsRequestPending = true;
-  window.localStorage.setItem("reachy-hermes-kids-profile", JSON.stringify(profile));
+  const savedProfile = { ...profile };
+  delete savedProfile.camera_consent;
+  window.localStorage.setItem("reachy-hermes-kids-profile", JSON.stringify(savedProfile));
   message.textContent = "Starting the private, time-boxed child session…";
   message.className = "message";
   if (window.ReachyCamera?.isActive()) window.ReachyCamera.stop("Camera stopped before Kids Mode.");
@@ -1148,7 +1219,7 @@ async function setAgentProfile(profile) {
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
     message.textContent = profile === "agent"
-      ? "Agent profile active. Phase 0 has no additional action capabilities."
+      ? "Agent profile active. Reversible owner tools are available; consequential actions pause for exact phone approval."
       : "Conversation profile active.";
     message.className = "message ok";
   } catch (error) {
@@ -1162,6 +1233,32 @@ async function setAgentProfile(profile) {
 
 $("agent-enable-button").addEventListener("click", () => setAgentProfile("agent"));
 $("agent-conversation-button").addEventListener("click", () => setAgentProfile("conversation"));
+$("agent-approve-button").addEventListener("click", async () => {
+  if (agentRequestPending || !pendingAgentApproval) return;
+  agentRequestPending = true;
+  const message = $("agent-message");
+  $("agent-approve-button").disabled = true;
+  try {
+    const response = await fetch("/api/agent/approve-pending", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Reachy-Adult-UI": "unlocked" },
+      body: JSON.stringify({ draft_id: pendingAgentApproval.draft_id }),
+    });
+    const body = await response.json();
+    if (!response.ok || body.verified !== true) throw new Error(body.detail || `HTTP ${response.status}`);
+    message.textContent = "Exact action completed and verified.";
+    message.className = "message ok";
+    pendingAgentApproval = null;
+    $("agent-approval-sheet").hidden = true;
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    agentRequestPending = false;
+    await refreshStatus();
+    await refreshAgentActivity();
+  }
+});
 $("agent-stop-button").addEventListener("click", async () => {
   if (agentRequestPending) return;
   agentRequestPending = true;
@@ -1303,6 +1400,7 @@ async function startUi() {
 
 startUi();
 setInterval(refreshStatus, 1500);
+setInterval(refreshAgentActivity, 5000);
 setInterval(() => {
   if (!$("panel-robot").hidden) refreshBluetooth();
 }, 5000);

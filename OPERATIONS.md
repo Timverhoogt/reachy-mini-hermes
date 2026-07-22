@@ -92,8 +92,20 @@ For Realtime mode, require:
 For Kids Mode, additionally require:
 
 - `kids_chat_available: true`;
+- `kids_ispy_available: true` before offering the I Spy activity;
 - `kids_tts_streaming_available: true`;
 - successful authenticated `/v1/kids/chat` moderation/chat and `/v1/kids/speech/stream` PCM probes.
+
+For an I Spy release, additionally verify with an adult supervising the robot: explicit consent before capture; the visible camera-search indicator; exactly three bounded search poses/frames; camera revocation before guesses; English and Dutch clue/hint/reveal flows; reveal no later than the sixth guess; Stop during both search and provider wait; bridge target deletion; safe neutral/fold; and no retained frame bytes. Never run this physical acceptance unattended.
+
+For Agent Mode, verify the authenticated manifest and keep every allowlist explicit:
+
+```bash
+curl -fsS -H "Authorization: Bearer ***" \
+  http://127.0.0.1:8643/v1/agent/capabilities
+```
+
+Confirm that the manifest contains no T4, shell, arbitrary-file, or maintenance capability. Test one configured read, one reversible Home Assistant action plus undo, one timer callback, and one draft whose exact phone approval executes once and rejects replay/edits. Keep Home Assistant/provider credentials on the Hermes host. `REACHY_AGENT_REMINDER_CALLBACK_URL` must target Reachy's private settings endpoint and its callback token must match Reachy's bridge bearer. Stop Agent and starting Kids Mode must invalidate in-flight work and pending approvals before speech; `/v1/agent/activity` remains metadata-only.
 
 ## Health checks
 

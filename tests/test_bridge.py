@@ -19,6 +19,38 @@ def load_bridge_module():
     return module
 
 
+def test_realtime_response_lifecycle_serializes_create_and_drops_interrupted_continuation() -> None:
+    bridge = load_bridge_module()
+
+    async def scenario() -> list[dict[str, object]]:
+        sent: list[dict[str, object]] = []
+
+        async def send(event: dict[str, object]) -> None:
+            sent.append(event)
+
+        lifecycle = bridge.RealtimeResponseLifecycle(send, settle_seconds=0.001)
+        await lifecycle.observe({"type": "response.created", "response": {"id": "resp-1"}})
+        generation = lifecycle.generation
+        assert await lifecycle.request_create(generation) is True
+        await asyncio.sleep(0.003)
+        assert sent == []
+
+        await lifecycle.observe({"type": "response.done", "response": {"id": "resp-1"}})
+        await asyncio.sleep(0.003)
+        assert sent == [{"type": "response.create"}]
+
+        await lifecycle.observe({"type": "response.created", "response": {"id": "resp-2"}})
+        old_generation = lifecycle.generation
+        await lifecycle.observe({"type": "input_audio_buffer.speech_started"})
+        assert await lifecycle.request_create(old_generation) is False
+        await lifecycle.observe({"type": "response.done", "response": {"id": "resp-2"}})
+        await asyncio.sleep(0.003)
+        await lifecycle.close()
+        return sent
+
+    assert asyncio.run(scenario()) == [{"type": "response.create"}]
+
+
 def test_env_parser_and_api_key_resolution(tmp_path, monkeypatch) -> None:
     bridge = load_bridge_module()
     env_path = tmp_path / ".env"
@@ -229,20 +261,141 @@ def test_kids_speech_rejects_direct_unapproved_text() -> None:
     assert captured_payloads == [{"input": approved_text, "provider": "configured"}]
 
 
+def test_ispy_bridge_policy_and_reply_state_are_deterministic() -> None:
+    bridge = load_bridge_module()
+    candidate = {
+        "object_name": "chair",
+        "colour": "blue",
+        "category": "furniture",
+        "location": "in the room",
+        "frame_index": 1,
+        "bbox": [0.2, 0.2, 0.3, 0.4],
+        "confidence": 0.92,
+        "stable": True,
+        "visible_frame_count": 3,
+        "hints_en": ["You can sit on it", "It has legs"],
+        "hints_nl": ["Je kunt erop zitten", "Het heeft poten"],
+    }
+    target = bridge._validate_bridge_ispy_target(candidate, frame_count=3)
+    answer, count, complete = bridge._ispy_reply(
+        target, language="en", matched=False, previous_count=0
+    )
+    assert answer == "Nice guess. Here is a hint: You can sit on it"
+    assert (count, complete) == (1, False)
+    answer, count, complete = bridge._ispy_reply(
+        target, language="nl", matched=False, previous_count=5
+    )
+    assert answer == "Goed geprobeerd! Het was de chair."
+    assert (count, complete) == (6, True)
+    answer, count, complete = bridge._ispy_reply(
+        target, language="en", matched=True, previous_count=1
+    )
+    assert answer == "Yes! It was the chair."
+    assert (count, complete) == (2, True)
+    with pytest.raises(ValueError):
+        bridge._validate_bridge_ispy_target({**candidate, "object_name": "monitor"}, frame_count=3)
+    with pytest.raises(ValueError):
+        bridge._validate_bridge_ispy_target({**candidate, "bbox": [0.1, 0.1, 0.05, 0.05]}, frame_count=3)
+
+
 def test_create_app_routes_are_present() -> None:
     bridge = load_bridge_module()
     app = bridge.create_app(api_key="secret", hermes_url="http://127.0.0.1:8642")
     routes = {(route.method, route.resource.canonical) for route in app.router.routes()}
     assert ("POST", "/v1/chat/completions") in routes
     assert ("POST", "/v1/kids/chat") in routes
+    assert ("POST", "/v1/kids/ispy/select") in routes
+    assert ("POST", "/v1/kids/ispy/cancel") in routes
     assert ("POST", "/v1/kids/speech/stream") in routes
     assert ("POST", "/v1/kids/speech/fallback") in routes
     assert ("POST", "/v1/audio/transcriptions") in routes
     assert ("POST", "/v1/audio/speech") in routes
+    assert ("POST", "/v1/agent/session") in routes
     assert ("GET", "/health") in routes
     assert ("GET", "/v1/models") in routes
     assert ("GET", "/v1/voice-options") in routes
     assert ("GET", "/v1/realtime") in routes
+    assert ("GET", "/v1/agent/capabilities") in routes
+    assert ("POST", "/v1/agent/activity") in routes
+    assert ("POST", "/v1/agent/execute") in routes
+    assert ("POST", "/v1/agent/approve") in routes
+    assert ("POST", "/v1/agent/pending-approval") in routes
+    assert ("POST", "/v1/agent/approve-pending") in routes
+    assert ("POST", "/v1/agent/ask") in routes
+    assert ("POST", "/v1/agent/cancel/{request_id}") in routes
+
+
+def test_broker_routes_require_auth_and_manifest_has_no_unrestricted_tools() -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret",
+        hermes_url="http://127.0.0.1:8642",
+        profile=None,
+    )
+
+    class Request:
+        def __init__(self, authorization: str = "") -> None:
+            self.headers = {"Authorization": authorization}
+
+    with pytest.raises(bridge_module.web.HTTPUnauthorized):
+        asyncio.run(bridge.broker_capabilities(Request()))  # type: ignore[arg-type]
+    response = asyncio.run(bridge.broker_capabilities(Request("Bearer bridge-secret")))  # type: ignore[arg-type]
+    payload = json.loads(response.text)
+    assert payload["bounded"] is True
+    names = {item["id"] for item in payload["capabilities"]}
+    assert {
+        "get_agent_capabilities",
+        "get_reachy_status",
+        "get_home_status",
+        "search_current_information",
+        "read_public_web_page",
+        "recall_personal_context",
+        "search_conversation_history",
+        "read_scoped_note",
+    } <= names
+    assert {"control_home_entity", "set_timer", "draft_message", "append_scoped_note"} <= names
+    assert not names & {"terminal", "write_file", "send_message", "execute_code"}
+
+
+def test_broker_cancel_cannot_cross_authenticated_device_scope() -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret",
+        hermes_url="http://127.0.0.1:8642",
+        profile=None,
+    )
+
+    class Request:
+        def __init__(self, device_id: str) -> None:
+            self.headers = {
+                "Authorization": "Bearer bridge-secret",
+                "X-Reachy-Device-Id": device_id,
+            }
+            self.match_info = {"request_id": "agent-shared-request"}
+
+    async def scenario() -> None:
+        task = asyncio.create_task(asyncio.sleep(60))
+        bridge._broker_tasks[("reachy-a", "agent-shared-request")] = task
+
+        wrong_device = await bridge.broker_cancel(Request("reachy-b"))  # type: ignore[arg-type]
+        assert json.loads(wrong_device.text)["cancelled"] is False
+        assert not task.done()
+
+        owning_device = await bridge.broker_cancel(Request("reachy-a"))  # type: ignore[arg-type]
+        assert json.loads(owning_device.text)["cancelled"] is True
+        assert task.cancelled()
+
+    asyncio.run(scenario())
+
+
+def test_private_broker_intent_is_bound_to_current_request_data_class() -> None:
+    bridge = load_bridge_module()
+
+    assert bridge._has_explicit_private_intent("What is the living-room sensor status?", "get_home_status")
+    assert not bridge._has_explicit_private_intent("What is the weather?", "get_home_status")
+    assert bridge._has_explicit_private_intent("Read my project note", "read_scoped_note")
+    assert not bridge._has_explicit_private_intent("Read that public page", "read_scoped_note")
+    assert bridge._has_explicit_private_intent("Wat is mijn voorkeur?", "recall_personal_context")
 
 
 def test_realtime_robot_tools_are_curated_and_can_be_disabled() -> None:
@@ -343,3 +496,127 @@ def test_ask_hermes_requires_completed_output_item() -> None:
         "call-hermes",
         {"request": "turn on the light"},
     )
+
+
+def test_agent_answer_is_structured_provenance_checked_and_dlp_redacted(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret", hermes_url="http://127.0.0.1:8642", profile=None
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    model_payloads: list[dict[str, object]] = []
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def json(self, **_kwargs):
+            secret = "sk-" + "proj-" + "abcdefghijklmnopqrstuvwxyz"
+            return {
+                "choices": [{"message": {"content": json.dumps({
+                    "text": f"I do not have enough evidence. {secret}",
+                    "status": "insufficient",
+                    "used_capabilities": [],
+                })}}]
+            }
+
+    class Http:
+        def post(self, _url: str, *, json: dict[str, object], **_kwargs):
+            model_payloads.append(json)
+            return Response()
+
+    bridge.http = Http()
+    agent_context = _agent_context(7)
+
+    async def scenario() -> str:
+        await bridge.agent_broker.establish_session("reachy-a", agent_context)
+        parsed = await bridge.agent_broker.register_request(
+            "reachy-a", agent_context, "agent-answer-test"
+        )
+        try:
+            bridge.agent_broker.authorize_context(parsed)
+            return await bridge._agent_answer(
+                "What is the status?", context=agent_context, device_id="reachy-a"
+            )
+        finally:
+            await bridge.agent_broker.unregister_request("reachy-a", 7, "agent-answer-test")
+
+    answer = asyncio.run(scenario())
+    assert answer == "I do not have enough evidence. [redacted]"
+    response_format = model_payloads[0]["response_format"]
+    assert isinstance(response_format, dict)
+    assert response_format["json_schema"]["strict"] is True
+
+
+@pytest.mark.parametrize(
+    "answer_payload",
+    [
+        {"text": "I sent the message.", "status": "answered", "used_capabilities": []},
+        {"text": "Unsupported provenance", "status": "answered", "used_capabilities": ["get_home_status"]},
+        {"text": "Missing status", "used_capabilities": []},
+    ],
+)
+def test_agent_answer_rejects_success_claims_and_unverified_provenance(
+    monkeypatch, answer_payload: dict[str, object]
+) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret", hermes_url="http://127.0.0.1:8642", profile=None
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def json(self, **_kwargs):
+            return {"choices": [{"message": {"content": json.dumps(answer_payload)}}]}
+
+    class Http:
+        def post(self, *_args, **_kwargs):
+            return Response()
+
+    bridge.http = Http()
+    agent_context = _agent_context(8)
+
+    async def scenario() -> None:
+        await bridge.agent_broker.establish_session("reachy-a", agent_context)
+        parsed = await bridge.agent_broker.register_request(
+            "reachy-a", agent_context, "agent-invalid-answer"
+        )
+        try:
+            bridge.agent_broker.authorize_context(parsed)
+            with pytest.raises(bridge_module.BrokerValidationError):
+                await bridge._agent_answer(
+                    "Do something", context=agent_context, device_id="reachy-a"
+                )
+        finally:
+            await bridge.agent_broker.unregister_request("reachy-a", 8, "agent-invalid-answer")
+
+    asyncio.run(scenario())
+
+
+def _agent_context(generation: int) -> dict[str, object]:
+    return {
+        "capability_profile": "agent",
+        "adult_ui_unlocked": True,
+        "kids_mode_active": False,
+        "power_mode": "awake",
+        "privacy_enabled": True,
+        "emergency_stop_active": False,
+        "robot_available": True,
+        "session_generation": generation,
+        "requested_session_generation": generation,
+        "explicit_private_intent": False,
+        "reachy_status": {},
+    }

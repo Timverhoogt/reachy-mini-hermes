@@ -58,7 +58,7 @@ def test_dashboard_exposes_native_install_prompt_with_http_fallback() -> None:
     assert '"Service-Worker-Allowed": "/"' in backend
 
 
-def test_dashboard_exposes_phase_zero_agent_status_and_stop_controls() -> None:
+def test_dashboard_exposes_bounded_agent_status_approval_and_stop_controls() -> None:
     html = (STATIC / "index.html").read_text()
     javascript = (STATIC / "main.js").read_text()
 
@@ -68,9 +68,15 @@ def test_dashboard_exposes_phase_zero_agent_status_and_stop_controls() -> None:
         "agent-current-task",
         "agent-pending-approval",
         "agent-stop-button",
+        "agent-approval-sheet",
+        "agent-approval-arguments",
+        "agent-approve-button",
         "agent-activity",
     ):
         assert f'id="{element_id}"' in html
     assert 'fetch("/api/agent/profile"' in javascript
     assert 'fetch("/api/agent/stop"' in javascript
-    assert "None — Phase 0" in javascript
+    assert 'fetch("/api/agent/activity"' in javascript
+    assert 'fetch("/api/agent/pending-approval"' in javascript
+    assert 'fetch("/api/agent/approve-pending"' in javascript
+    assert 'document.querySelector(".agent-card").hidden = kidsActive || kidsLocked' in javascript

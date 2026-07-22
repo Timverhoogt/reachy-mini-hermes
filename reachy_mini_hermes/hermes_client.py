@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 
 import httpx
 
 from .config import AppConfig
+from .ispy import ISpyTarget, validate_ispy_target
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +27,34 @@ class SpeechAudio:
     content_type: str
     extension: str
     provider: str = "configured"
+
+
+@dataclass(frozen=True, slots=True)
+class AgentBrokerContext:
+    """Authoritative Reachy state bound to one broker request."""
+
+    capability_profile: str
+    adult_ui_unlocked: bool
+    kids_mode_active: bool
+    power_mode: str
+    privacy_enabled: bool
+    emergency_stop_active: bool
+    robot_available: bool
+    session_generation: int
+    requested_session_generation: int
+    explicit_private_intent: bool
+    reachy_status: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentBrokerResult:
+    request_id: str
+    capability_id: str
+    data: object
+    evidence: tuple[dict[str, object], ...]
+    freshness: dict[str, object]
+    read_only: bool
+    side_effect: bool
 
 
 class HermesBridgeClient:
@@ -51,6 +81,7 @@ class HermesBridgeClient:
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.config.api_key}",
+            "X-Reachy-Device-Id": self.config.instance_id,
             "X-Hermes-Session-Id": self._session_id,
             "X-Hermes-Session-Key": f"agent:main:reachy-mini:{self.config.instance_id}",
         }
@@ -73,6 +104,47 @@ class HermesBridgeClient:
             return payload
         except Exception as exc:
             raise HermesBridgeError(f"Hermes bridge is unavailable: {exc}") from exc
+
+    def select_ispy_target(
+        self,
+        frames: list[bytes],
+        *,
+        session_id: str,
+        age_band: str,
+        language: str,
+    ) -> ISpyTarget:
+        """Send at most three transient frames to the fixed child-safe vision route."""
+        if not 2 <= len(frames) <= 3 or any(not frame or len(frame) > 1_500_000 for frame in frames):
+            raise HermesBridgeError("I Spy camera frame bounds were not met")
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/kids/ispy/select",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+            json={
+                "session_id": session_id,
+                "age_band": age_band,
+                "language": language,
+                "frames_jpeg": [base64.b64encode(frame).decode("ascii") for frame in frames],
+            },
+            timeout=30.0,
+        )
+        self._raise_for_error(response, "I Spy target selection")
+        payload = response.json()
+        try:
+            return validate_ispy_target(payload["target"], frame_count=len(frames))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HermesBridgeError("Hermes returned an unsafe or invalid I Spy target") from exc
+
+    def cancel_ispy_session(self, session_id: str) -> None:
+        """Best-effort deletion of bridge-side I Spy target and guess state."""
+        if not session_id.startswith("kids-") or len(session_id) != 37:
+            return
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/kids/ispy/cancel",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+            json={"session_id": session_id},
+            timeout=3.0,
+        )
+        self._raise_for_error(response, "I Spy session cancellation")
 
     def voice_options(self) -> dict[str, object]:
         response = self._client.get(
@@ -115,6 +187,219 @@ class HermesBridgeClient:
         if not isinstance(data, list):
             raise HermesBridgeError("Hermes returned an invalid model list")
         return [item for item in data if isinstance(item, dict) and item.get("id")]
+
+    def agent_capabilities(self) -> list[dict[str, object]]:
+        response = self._client.get(
+            f"{self.config.bridge_url}/v1/agent/capabilities",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+        )
+        self._raise_for_error(response, "Agent Mode capability discovery")
+        payload = response.json()
+        capabilities = payload.get("capabilities") if isinstance(payload, dict) else None
+        if not isinstance(capabilities, list) or any(not isinstance(item, dict) for item in capabilities):
+            raise HermesBridgeError("Hermes returned an invalid Agent Mode capability manifest")
+        return capabilities
+
+    def establish_agent_session(self, context: AgentBrokerContext) -> None:
+        """Publish this device's authoritative live generation to the broker."""
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/session",
+            headers=self._headers(),
+            json={"context": asdict(context)},
+        )
+        self._raise_for_error(response, "Agent Mode session update")
+        payload = response.json()
+        if (
+            not isinstance(payload, dict)
+            or payload.get("ok") is not True
+            or payload.get("session_generation") != context.session_generation
+        ):
+            raise HermesBridgeError("Hermes returned an invalid Agent Mode session acknowledgement")
+
+    def execute_agent_capability(
+        self,
+        capability_id: str,
+        arguments: dict[str, object],
+        context: AgentBrokerContext,
+        *,
+        request_id: str | None = None,
+        approval_token: str = "",
+    ) -> AgentBrokerResult:
+        identifier = request_id or f"agent-{uuid.uuid4().hex}"
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/execute",
+            headers=self._headers(),
+            json={
+                "request_id": identifier,
+                "capability_id": capability_id,
+                "arguments": arguments,
+                "context": asdict(context),
+                **({"approval_token": approval_token} if approval_token else {}),
+            },
+        )
+        self._raise_for_error(response, f"Agent Mode capability {capability_id}")
+        payload = response.json()
+        try:
+            read_only = payload.get("read_only")
+            side_effect = payload.get("side_effect")
+            if (
+                payload.get("ok") is not True
+                or type(read_only) is not bool
+                or type(side_effect) is not bool
+                or read_only is side_effect
+            ):
+                raise ValueError("unverified result")
+            if payload.get("request_id") != identifier or payload.get("capability_id") != capability_id:
+                raise ValueError("mismatched result identity")
+            evidence = payload["evidence"]
+            freshness = payload["freshness"]
+            if (
+                not isinstance(evidence, list)
+                or any(not isinstance(item, dict) for item in evidence)
+                or not isinstance(freshness, dict)
+                or set(freshness) != {"observed_at", "completed_at", "age_seconds"}
+                or any(type(freshness[name]) not in {int, float} for name in freshness)
+            ):
+                raise ValueError("invalid metadata")
+            return AgentBrokerResult(
+                request_id=str(payload["request_id"]),
+                capability_id=str(payload["capability_id"]),
+                data=payload["data"],
+                evidence=tuple(dict(item) for item in evidence),
+                freshness=dict(freshness),
+                read_only=read_only,
+                side_effect=side_effect,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HermesBridgeError("Hermes returned an invalid Agent Mode result") from exc
+
+    def approve_agent_action(
+        self,
+        capability_id: str,
+        arguments: dict[str, object],
+        context: AgentBrokerContext,
+        *,
+        request_id: str | None = None,
+    ) -> AgentBrokerResult:
+        """Approve and execute exactly one phone-reviewed broker action."""
+        identifier = request_id or f"agent-{uuid.uuid4().hex}"
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/approve",
+            headers=self._headers(),
+            json={
+                "request_id": identifier,
+                "capability_id": capability_id,
+                "arguments": arguments,
+                "context": asdict(context),
+            },
+        )
+        self._raise_for_error(response, f"approved Agent Mode capability {capability_id}")
+        payload = response.json()
+        try:
+            if (
+                payload.get("ok") is not True
+                or payload.get("request_id") != identifier
+                or payload.get("capability_id") != capability_id
+                or payload.get("read_only") is not False
+                or payload.get("side_effect") is not True
+            ):
+                raise ValueError("unverified approved result")
+            evidence = payload["evidence"]
+            freshness = payload["freshness"]
+            if not isinstance(evidence, list) or not isinstance(freshness, dict):
+                raise ValueError("invalid approved metadata")
+            return AgentBrokerResult(
+                request_id=identifier,
+                capability_id=capability_id,
+                data=payload["data"],
+                evidence=tuple(dict(item) for item in evidence if isinstance(item, dict)),
+                freshness=dict(freshness),
+                read_only=False,
+                side_effect=True,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HermesBridgeError("Hermes returned an invalid approved Agent Mode result") from exc
+
+    def pending_agent_approval(
+        self, context: AgentBrokerContext
+    ) -> dict[str, object] | None:
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/pending-approval",
+            headers=self._headers(),
+            json={"context": asdict(context)},
+        )
+        self._raise_for_error(response, "Agent Mode pending approval")
+        payload = response.json()
+        pending = payload.get("pending_approval") if isinstance(payload, dict) else None
+        if pending is not None and not isinstance(pending, dict):
+            raise HermesBridgeError("Hermes returned an invalid pending Agent approval")
+        return dict(pending) if isinstance(pending, dict) else None
+
+    def approve_pending_agent_action(
+        self,
+        draft_id: str,
+        context: AgentBrokerContext,
+    ) -> dict[str, object]:
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/approve-pending",
+            headers=self._headers(),
+            json={"context": asdict(context), "draft_id": draft_id},
+        )
+        self._raise_for_error(response, "pending Agent Mode approval")
+        payload = response.json()
+        if (
+            not isinstance(payload, dict)
+            or payload.get("ok") is not True
+            or payload.get("draft_id") != draft_id
+            or payload.get("side_effect") is not True
+        ):
+            raise HermesBridgeError("Hermes returned an invalid pending approval result")
+        return dict(payload)
+
+    def ask_agent(
+        self,
+        request: str,
+        context: AgentBrokerContext,
+        *,
+        request_id: str | None = None,
+    ) -> str:
+        identifier = request_id or f"agent-{uuid.uuid4().hex}"
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/ask",
+            headers=self._headers(),
+            json={"request_id": identifier, "request": request, "context": asdict(context)},
+        )
+        self._raise_for_error(response, "Agent Mode response")
+        payload = response.json()
+        text = str(payload.get("text") or "").strip() if isinstance(payload, dict) else ""
+        if not text:
+            raise HermesBridgeError("Hermes returned an empty Agent Mode response")
+        return text
+
+    def cancel_agent_request(self, request_id: str) -> bool:
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/cancel/{request_id}",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response, "Agent Mode cancellation")
+        payload = response.json()
+        return bool(payload.get("cancelled")) if isinstance(payload, dict) else False
+
+    def agent_activity(
+        self, context: AgentBrokerContext, *, request_id: str | None = None
+    ) -> list[dict[str, object]]:
+        identifier = request_id or f"agent-{uuid.uuid4().hex}"
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/activity",
+            headers=self._headers(),
+            json={"context": asdict(context), "request_id": identifier},
+        )
+        self._raise_for_error(response, "Agent Mode activity")
+        payload = response.json()
+        activity = payload.get("activity") if isinstance(payload, dict) else None
+        if not isinstance(activity, list):
+            raise HermesBridgeError("Hermes returned invalid Agent Mode activity")
+        return [dict(item) for item in activity if isinstance(item, dict)]
 
     def chat(self, transcript: str) -> str:
         if self.config.kids_mode_enabled:

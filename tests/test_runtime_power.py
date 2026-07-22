@@ -15,6 +15,7 @@ from reachy_mini_hermes.runtime import (
     completed_power_mode_call,
     doa_yaw_degrees,
     realtime_audio_item_id,
+    realtime_response_id,
 )
 
 
@@ -270,6 +271,51 @@ def test_awake_runs_physical_wake_motion() -> None:
 
     assert status["power_mode"] == "awake"
     assert calls[-1] == (True, True)
+
+
+def test_starting_runtime_rejects_awake_before_any_motion() -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    calls: list[tuple[bool, bool]] = []
+    runtime._runtime_started = True
+    runtime._set_motor_mode = (  # type: ignore[method-assign]
+        lambda enabled, wake=False: calls.append((enabled, wake))
+    )
+
+    with pytest.raises(RuntimeError, match="still starting; no power transition was attempted"):
+        runtime.set_power_mode("awake")
+
+    assert calls == []
+    assert runtime.status()["power_mode"] == "standby"
+
+
+def test_wake_timeout_after_confirmed_unfolded_pose_reports_success(monkeypatch) -> None:
+    class LateWakeRobot(FakeRobot):
+        def wake_up(self) -> None:
+            raise TimeoutError("native wake task timed out")
+
+    class Response:
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"head_pose": {"z": 0.0, "pitch": 0.0}}
+
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.post", lambda *args, **kwargs: Response())
+    monkeypatch.setattr("reachy_mini_hermes.runtime.httpx.get", lambda *args, **kwargs: Response())
+    runtime = HermesVoiceRuntime(LateWakeRobot(), threading.Event())
+
+    status = runtime.set_power_mode("awake")
+
+    assert status["power_mode"] == "awake"
+    assert status["motors_enabled"] is True
+    assert status["last_error"] == ""
+
+
+def test_realtime_response_id_identifies_late_interrupted_output() -> None:
+    assert realtime_response_id("response.created", {"response": {"id": "resp-1"}}) == "resp-1"
+    assert realtime_response_id("response.audio.delta", {"response_id": "resp-1"}) == "resp-1"
 
 
 def test_motor_daemon_failure_is_reported_instead_of_false_standby(monkeypatch) -> None:

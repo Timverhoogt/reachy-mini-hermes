@@ -8,18 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Agent 0.1 read-only Reachy Agent Broker with eight typed capabilities for live manifest/status, allowlisted Home Assistant state, current public information/pages, personal context, conversation history, and scoped notes.
+- Authenticated execute/ask/cancel/activity bridge routes, typed Reachy client contracts, evidence/freshness metadata, strict private-intent and session-generation checks, bounded redaction, and a sanitized PWA activity timeline.
+- Traversal/symlink-safe scoped reads, public-page SSRF/redirect/size protections, empty-by-default entity/root allowlists, and cancellation that prevents stale results from reaching speech.
+- Agent owner actions for verified reversible Home Assistant control and undo, authenticated timer/reminder delivery, approval-gated media, calendar reads/drafts/creates, single-recipient message drafts/sends, and symlink/hardlink-safe note drafts/appends.
+- Trusted-phone exact approval sheet with five-minute device/session-scoped drafts, one-shot execution, edit/replay rejection, and Kids/privacy/generation invalidation.
 - BlueZ-backed Bluetooth discovery, pairing, trust, connect, disconnect, and forget controls in the trusted Robot tab.
 - Opt-in Linux joystick monitoring restricted to Sony-vendor DualShock 4 and DualSense identities with the validated PlayStation mapping; other layouts fail closed.
 - Safe gamepad mapping for bounded look, center, Happy, Surprised, and cooperative Stop actions.
+- Integrated Kids Mode I Spy with explicit caregiver camera consent, a visible bounded three-frame search, strict stable-target validation, deterministic hint/guess/reveal state, authoritative Stop/expiry cancellation, and bridge-session deletion.
 - Bluetooth/controller operational guidance, service-account permissions, explicit Reachy Mini Wireless-only hardware scope, security boundaries, and hardware-free regression tests.
 
 ### Changed
 
+- Agent profile `ask_hermes` now uses only the fixed bounded T0–T3 broker surface; Realtime still advertises a single delegation tool and ordinary social conversation remains direct.
+- PWA shell advanced to v30 for visible Kids I Spy camera-search state and Stop access during startup.
+- PWA shell advanced to v29 for exact Agent action review and approval.
+- PWA shell advanced to v27 for the Agent 0.1 timeline and Kids-mode card hiding.
 - PWA shell advanced to v21 for the reviewed Bluetooth controller UI.
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 143 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 288 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 

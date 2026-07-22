@@ -114,10 +114,11 @@ class KidsModeRequest(BaseModel):
     parent_pin: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
     nickname: str = Field(default="", max_length=32)
     age_band: str = Field(default="7-9", pattern=r"^(4-6|7-9|10-12)$")
-    activity: str = Field(default="buddy", pattern=r"^(buddy|story|quiz|riddles|calm)$")
+    activity: str = Field(default="buddy", pattern=r"^(buddy|story|quiz|riddles|calm|ispy)$")
     language: str = Field(default="en", pattern=r"^(en|nl)$")
     duration_minutes: int = Field(default=30, ge=15, le=60)
     motion_enabled: bool = True
+    camera_consent: bool = False
 
 
 class ParentPinRequest(BaseModel):
@@ -126,6 +127,20 @@ class ParentPinRequest(BaseModel):
 
 class AgentProfileRequest(BaseModel):
     profile: Literal["conversation", "agent"]
+
+
+class AgentApprovalRequest(BaseModel):
+    capability_id: str = Field(min_length=1, max_length=96, pattern=r"^[a-z][a-z0-9_]+$")
+    arguments: dict[str, object]
+
+
+class AgentPendingApprovalRequest(BaseModel):
+    draft_id: str = Field(pattern=r"^draft-[0-9a-f]{24}$")
+
+
+class AgentReminderDeliveryRequest(BaseModel):
+    item_id: str = Field(pattern=r"^(timer|reminder)-[0-9a-f]{16}$")
+    text: str = Field(min_length=1, max_length=2_000)
 
 
 class ReachyMiniHermes(ReachyMiniApp):
@@ -288,6 +303,152 @@ class ReachyMiniHermes(ReachyMiniApp):
             if self._runtime is None:
                 raise HTTPException(status_code=409, detail="Voice runtime has not started")
             return {"ok": True, "agent": self._runtime.cancel_agent_work("stopped")}
+
+        @self.settings_app.get("/api/agent/capabilities")
+        def agent_capabilities() -> dict[str, object]:
+            try:
+                client = HermesBridgeClient(load_config())
+                try:
+                    return {"capabilities": client.agent_capabilities()}
+                finally:
+                    client.close()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.get("/api/agent/activity")
+        def agent_activity(
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            request_id = ""
+            context = None
+            try:
+                request_id, context = self._runtime._begin_agent_request("Agent activity")
+                client = HermesBridgeClient(load_config())
+                try:
+                    activity = client.agent_activity(context, request_id=request_id)
+                finally:
+                    client.close()
+                if not self._runtime._finish_agent_request(
+                    request_id, context.session_generation, succeeded=True
+                ):
+                    raise HTTPException(status_code=423, detail="Agent activity became stale")
+                return {"activity": activity}
+            except RuntimeError as exc:
+                raise HTTPException(status_code=423, detail=str(exc)) from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                if request_id and context is not None:
+                    self._runtime._finish_agent_request(
+                        request_id, context.session_generation, succeeded=False
+                    )
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/agent/approve")
+        def approve_agent_action(
+            request: AgentApprovalRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            """Approve one exact action body; edits require a new approval."""
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            context = self._runtime.agent_broker_context(explicit_private_intent=True)
+            if context.capability_profile != "agent" or context.kids_mode_active:
+                raise HTTPException(status_code=423, detail="Agent approval is unavailable")
+            client = HermesBridgeClient(load_config())
+            try:
+                result = client.approve_agent_action(
+                    request.capability_id,
+                    request.arguments,
+                    context,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            finally:
+                client.close()
+            if not self._runtime.agent_session_is_current(context.session_generation):
+                raise HTTPException(status_code=423, detail="Agent approval became stale")
+            return {
+                "ok": True,
+                "capability_id": result.capability_id,
+                "data": result.data,
+                "verified": result.side_effect,
+            }
+
+        @self.settings_app.get("/api/agent/pending-approval")
+        def pending_agent_approval(
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            context = self._runtime.agent_broker_context(explicit_private_intent=True)
+            if context.capability_profile != "agent" or context.kids_mode_active:
+                raise HTTPException(status_code=423, detail="Agent approval is unavailable")
+            client = HermesBridgeClient(load_config())
+            try:
+                pending = client.pending_agent_approval(context)
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            finally:
+                client.close()
+            if not self._runtime.agent_session_is_current(context.session_generation):
+                raise HTTPException(status_code=423, detail="Agent approval became stale")
+            return {"pending_approval": pending}
+
+        @self.settings_app.post("/api/agent/approve-pending")
+        def approve_pending_agent_action(
+            request: AgentPendingApprovalRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            context = self._runtime.agent_broker_context(explicit_private_intent=True)
+            if context.capability_profile != "agent" or context.kids_mode_active:
+                raise HTTPException(status_code=423, detail="Agent approval is unavailable")
+            client = HermesBridgeClient(load_config())
+            try:
+                result = client.approve_pending_agent_action(request.draft_id, context)
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            finally:
+                client.close()
+            if not self._runtime.agent_session_is_current(context.session_generation):
+                raise HTTPException(status_code=423, detail="Agent approval became stale")
+            return {"ok": True, "data": result.get("data"), "verified": True}
+
+        @self.settings_app.post("/api/agent/reminder-delivery")
+        def deliver_agent_reminder(
+            request: AgentReminderDeliveryRequest,
+            authorization: str = Header(default=""),
+        ) -> dict[str, object]:
+            expected = f"Bearer {load_config().api_key}"
+            if not secrets.compare_digest(authorization, expected):
+                raise HTTPException(status_code=401, detail="Unauthorized")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            kids = self._runtime.status().get("kids_mode", {})
+            if isinstance(kids, dict) and (kids.get("active") or kids.get("locked")):
+                raise HTTPException(status_code=423, detail="Reminder delivery is blocked by Kids Mode")
+            try:
+                queued = self._runtime.queue_announcement(
+                    request.text,
+                    behavior="voice_only",
+                    repeat=1,
+                    pause_seconds=0.0,
+                )
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            return {"ok": True, "item_id": request.item_id, "delivery": queued}
 
         @self.settings_app.post("/api/test-connection")
         def test_connection(update: SettingsUpdate | None = None) -> dict[str, object]:
@@ -587,6 +748,11 @@ class ReachyMiniHermes(ReachyMiniApp):
         def power(request: PowerRequest) -> dict[str, object]:
             if self._runtime is None:
                 raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            if not self._runtime.control_ready:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Voice runtime is still starting; no power transition was attempted",
+                )
             try:
                 runtime = self._runtime.set_power_mode(
                     request.mode,

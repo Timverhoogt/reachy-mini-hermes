@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from reachy_mini_hermes.config import AppConfig
+from reachy_mini_hermes.ispy import validate_ispy_target
 from reachy_mini_hermes.kids_mode import (
     KidsProfile,
     build_kids_prompt,
@@ -54,6 +55,68 @@ def test_kids_profile_is_bounded_and_prompt_has_core_safeguards() -> None:
     assert "trusted grown-up" in prompt
     assert "Current activity:" in prompt
     assert kids_greeting(profile).startswith("Hi Sam.")
+
+
+def test_ispy_requires_fresh_narrow_camera_consent() -> None:
+    with pytest.raises(ValueError, match="camera consent"):
+        KidsProfile(activity="ispy")
+    profile = KidsProfile(activity="ispy", camera_consent=True, language="nl")
+    assert profile.public_dict()["camera_active"] is False
+    assert "camera_consent" not in profile.public_dict()
+    assert "camera turns off" in kids_greeting(profile)
+
+
+def test_ispy_target_filter_rejects_child_sensitive_and_unclear_objects() -> None:
+    candidate = {
+        "object_name": "wooden chair",
+        "colour": "blue",
+        "category": "furniture",
+        "location": "beside the table",
+        "frame_index": 1,
+        "bbox": [0.2, 0.2, 0.3, 0.4],
+        "confidence": 0.91,
+        "stable": True,
+        "visible_frame_count": 2,
+        "hints_en": ["You can sit on it"],
+        "hints_nl": ["Je kunt erop zitten"],
+    }
+    assert validate_ispy_target(candidate).clue("nl").endswith("blauw.")
+    assert validate_ispy_target({**candidate, "colour": " Gray "}).colour == "grey"
+    for unsafe in ("person", "medicine", "phone", "document"):
+        with pytest.raises(ValueError):
+            validate_ispy_target({**candidate, "object_name": unsafe})
+    with pytest.raises(ValueError):
+        validate_ispy_target({**candidate, "confidence": 0.5})
+    with pytest.raises(ValueError, match="too small"):
+        validate_ispy_target({**candidate, "bbox": [0.01, 0.01, 0.05, 0.05]})
+    with pytest.raises(ValueError, match="frame"):
+        validate_ispy_target({**candidate, "frame_index": 3})
+
+
+def test_ispy_camera_capture_requires_live_consented_generation() -> None:
+    class FrameMedia:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_frame_jpeg(self) -> bytes | None:
+            self.calls += 1
+            return None if self.calls == 1 else b"jpeg"
+
+    robot = SimpleNamespace(media=FrameMedia())
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    profile = KidsProfile(activity="ispy", camera_consent=True)
+    with runtime._kids_lock:
+        runtime._kids_active = True
+        runtime._kids_locked = True
+        runtime._kids_profile = profile
+        runtime._kids_generation = 7
+        runtime._kids_camera_active = True
+    assert runtime.status()["kids_mode"]["camera_active"] is True  # type: ignore[index]
+    assert runtime._capture_camera_jpeg(kids_generation=7) == b"jpeg"
+    with runtime._kids_lock:
+        runtime._kids_camera_active = False
+    with pytest.raises(RuntimeError, match="cancelled"):
+        runtime._capture_camera_jpeg(kids_generation=7)
 
 
 def test_parent_pin_uses_salted_scrypt_and_never_round_trips_plaintext() -> None:
@@ -364,8 +427,9 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
 
     assert 'data-tab="kids"' in html
     assert 'data-panel="kids"' in html
-    for activity in ("buddy", "story", "quiz", "riddles", "calm"):
+    for activity in ("buddy", "story", "quiz", "riddles", "calm", "ispy"):
         assert f'data-kids-activity="{activity}"' in html
+    assert 'id="kids-ispy-camera-consent"' in html
     assert 'id="kids-age-band"' in html
     assert 'id="kids-duration"' in html
     assert 'id="kids-motion-enabled"' in html
@@ -377,6 +441,8 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
     assert "No private tools" in html
     assert 'fetch("/api/kids/start"' in main
     assert 'fetch("/api/kids/stop"' in main
+    assert 'kidsCameraActive ? "Camera search"' in main
+    assert '$("kids-stop-button").disabled = !kidsActive;' in main
     assert '"/api/kids/parent/setup"' in main
     assert '"/api/kids/parent/unlock"' in main
     assert "reachy-hermes-kids-profile" in main
@@ -394,7 +460,7 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
 def test_kids_static_assets_advance_pwa_cache_together() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     worker = (STATIC / "service-worker.js").read_text(encoding="utf-8")
-    assert "reachy-hermes-shell-v26" in worker
+    assert "reachy-hermes-shell-v30" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=26" in html
-        assert f'"/static/{asset}?v=26"' in worker
+        assert f"/static/{asset}?v=30" in html
+        assert f'"/static/{asset}?v=30"' in worker
