@@ -87,6 +87,24 @@ def test_agent_routes_reject_kids_lock_and_stop_invalidates_generation(monkeypat
     assert stopped.json()["agent"]["session_generation"] == before + 1
 
 
+def test_fresh_runtime_uses_newer_agent_generation_after_restart(monkeypatch) -> None:
+    epochs = iter((1_000_000_000, 2_000_000_000))
+    monkeypatch.setattr("reachy_mini_hermes.runtime.time.time_ns", lambda: next(epochs))
+
+    first = HermesVoiceRuntime(SimpleNamespace(), threading.Event())
+    second = HermesVoiceRuntime(SimpleNamespace(), threading.Event())
+
+    first_agent = first.status()["agent"]
+    second_agent = second.status()["agent"]
+    assert isinstance(first_agent, dict)
+    assert isinstance(second_agent, dict)
+    first_generation = int(first_agent["session_generation"])
+    second_generation = int(second_agent["session_generation"])
+    assert first_generation == 1_000_000_000
+    assert second_generation == 2_000_000_000
+    assert second_generation > first_generation
+
+
 def test_kids_start_wins_over_racing_agent_enable() -> None:
     runtime = HermesVoiceRuntime(SimpleNamespace(media=SimpleNamespace()), threading.Event())
     runtime._audio_ready = True

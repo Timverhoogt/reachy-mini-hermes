@@ -312,7 +312,12 @@ class HermesVoiceRuntime:
         # Agent authority is never restored across process/session boundaries;
         # an unlocked adult UI must explicitly start each fresh Agent session.
         self._capability_profile = "conversation"
-        self._agent_session_generation = 0
+        # The companion bridge can outlive this app process.  Starting every
+        # process at zero made a healthy restart look older than the bridge's
+        # retained lease and permanently fail with ``stale_session``.  A
+        # wall-clock nanosecond epoch preserves the existing +1 invalidation
+        # semantics while ordering fresh app processes after their predecessors.
+        self._agent_session_generation = time.time_ns()
         self._agent_current_task = ""
         self._agent_active_request_id = ""
         self._agent_pending_approval = False
