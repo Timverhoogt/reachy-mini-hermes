@@ -1199,6 +1199,7 @@ class HermesVoiceRuntime:
         return replace(
             base,
             conversation_mode="pipeline",
+            home_assistant_assist_enabled=False,
             kids_mode_enabled=True,
             kids_session_id=self._kids_session_id,
             kids_age_band=profile.age_band,
@@ -2042,15 +2043,7 @@ class HermesVoiceRuntime:
                     self._face_tracking_weight = config.face_tracking_weight
                     if self._face_tracking_desired:
                         self._set_face_tracking(True, weight=self._face_tracking_weight)
-                    if config.home_assistant_assist_enabled:
-                        try:
-                            self._run_home_assistant_conversation(config, keyword)
-                        finally:
-                            self._stop_home_assistant_voice_if_active()
-                    elif config.conversation_mode == "realtime":
-                        self._run_realtime_conversation(config)
-                    else:
-                        self._run_conversation(config)
+                    self._run_selected_voice_conversation(config, keyword)
             except Exception as exc:
                 _LOGGER.exception("Reachy Hermes voice turn failed")
                 self._set_status("error", str(exc), last_error=str(exc))
@@ -2064,6 +2057,20 @@ class HermesVoiceRuntime:
                     self._motion.idle()
                 if self._effective_power_mode() == "standby":
                     self._fold_head_before_torque_release()
+
+    def _run_selected_voice_conversation(self, config: AppConfig, keyword: str) -> None:
+        """Route locked child sessions before every adult conversation provider."""
+        if config.kids_mode_enabled:
+            self._run_conversation(config)
+        elif config.home_assistant_assist_enabled:
+            try:
+                self._run_home_assistant_conversation(config, keyword)
+            finally:
+                self._stop_home_assistant_voice_if_active()
+        elif config.conversation_mode == "realtime":
+            self._run_realtime_conversation(config)
+        else:
+            self._run_conversation(config)
 
     def _handle_power_mode_call(
         self,

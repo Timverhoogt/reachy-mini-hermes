@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -64,6 +65,41 @@ def test_ispy_requires_fresh_narrow_camera_consent() -> None:
     assert profile.public_dict()["camera_active"] is False
     assert "camera_consent" not in profile.public_dict()
     assert "camera turns off" in kids_greeting(profile)
+
+
+def test_locked_kids_voice_always_bypasses_home_assistant_assist(monkeypatch: pytest.MonkeyPatch) -> None:
+    robot = SimpleNamespace(media=FakeMedia())
+    runtime = HermesVoiceRuntime(robot, threading.Event())
+    with runtime._kids_lock:
+        runtime._kids_active = True
+        runtime._kids_locked = True
+        runtime._kids_profile = KidsProfile(activity="ispy", camera_consent=True, language="nl")
+        runtime._kids_session_id = "kids-" + "a" * 32
+        runtime._kids_ends_at = 10_000.0
+
+    child_config = runtime._kids_voice_config(
+        AppConfig(home_assistant_enabled=True, home_assistant_assist_enabled=True, conversation_mode="realtime")
+    )
+    assert child_config.kids_mode_enabled is True
+    assert child_config.home_assistant_assist_enabled is False
+    assert child_config.conversation_mode == "pipeline"
+
+    routes: list[str] = []
+    monkeypatch.setattr(runtime, "_run_conversation", lambda _config: routes.append("kids"))
+    monkeypatch.setattr(
+        runtime,
+        "_run_home_assistant_conversation",
+        lambda _config, _keyword: routes.append("home_assistant"),
+    )
+    monkeypatch.setattr(runtime, "_run_realtime_conversation", lambda _config: routes.append("realtime"))
+
+    # Defence in depth: even a future config regression that re-enables Assist
+    # must not let a locked child utterance reach the adult provider.
+    runtime._run_selected_voice_conversation(
+        replace(child_config, home_assistant_assist_enabled=True),
+        "Hey Hermes",
+    )
+    assert routes == ["kids"]
 
 
 def test_ispy_target_filter_rejects_child_sensitive_and_unclear_objects() -> None:
