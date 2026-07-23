@@ -2804,6 +2804,7 @@ class HermesVoiceRuntime:
                     or self._effective_power_mode() in {"meeting", "sleep"}
                 ):
                     break
+                preserve_ispy_guess_motion = False
                 if (
                     client.config.kids_mode_enabled
                     and client.config.kids_activity == "ispy"
@@ -2813,6 +2814,7 @@ class HermesVoiceRuntime:
                     with self._kids_lock:
                         ispy_generation = self._kids_generation
                     self._perform_ispy_player_guess_motion(ispy_generation)
+                    preserve_ispy_guess_motion = True
                 spoken_text = (
                     response_text if client.config.kids_mode_enabled else self._speech_friendly(response_text)
                 )
@@ -2832,6 +2834,7 @@ class HermesVoiceRuntime:
                             client,
                             spoken_text,
                             barge_in=config.barge_in_enabled,
+                            animate_motion=not preserve_ispy_guess_motion,
                         )
                     except (HermesBridgeError, httpx.HTTPError):
                         _LOGGER.warning(
@@ -2865,6 +2868,7 @@ class HermesVoiceRuntime:
                             speech,
                             spoken_text,
                             barge_in=config.barge_in_enabled,
+                            animate_motion=not preserve_ispy_guess_motion,
                         )
                 else:
                     speech = client.synthesize(spoken_text)
@@ -2968,6 +2972,7 @@ class HermesVoiceRuntime:
         text: str,
         *,
         barge_in: bool = True,
+        animate_motion: bool = True,
     ) -> bool:
         """Stream child PCM while retaining immediate stop/privacy/wake control."""
 
@@ -2985,7 +2990,7 @@ class HermesVoiceRuntime:
 
         if cancelled():
             return False
-        if self._motion is not None:
+        if animate_motion and self._motion is not None:
             self._motion.speaking()
         if self._spotter is not None:
             self._spotter.reset()
@@ -3096,7 +3101,14 @@ class HermesVoiceRuntime:
             if producer.is_alive():
                 _LOGGER.warning("Kids Mode TTS producer did not exit promptly after cancellation")
 
-    def _play_response(self, speech: SpeechAudio, text: str, *, barge_in: bool = True) -> bool:
+    def _play_response(
+        self,
+        speech: SpeechAudio,
+        text: str,
+        *,
+        barge_in: bool = True,
+        animate_motion: bool = True,
+    ) -> bool:
         """Play a response and allow a local wake-phrase barge-in.
 
         Pipeline mode cannot safely use open-mic RMS detection because Reachy's
@@ -3117,7 +3129,7 @@ class HermesVoiceRuntime:
                 return False
             duration = self._audio_duration(path, fallback_text=text)
             self._set_status("speaking", "Hermes is speaking")
-            if self._motion is not None:
+            if animate_motion and self._motion is not None:
                 self._motion.speaking()
             if self._spotter is not None:
                 self._spotter.reset()

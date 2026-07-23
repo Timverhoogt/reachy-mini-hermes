@@ -474,6 +474,43 @@ def test_runtime_pushes_kids_pcm_chunks_directly_to_reachy_audio() -> None:
     assert samples[1] > 0.99
 
 
+def test_player_picker_stream_preserves_explicit_base_gesture() -> None:
+    class StreamingMedia:
+        @staticmethod
+        def push_audio_sample(_sample: np.ndarray) -> None:
+            pass
+
+    class Motion:
+        def __init__(self) -> None:
+            self.speaking_calls = 0
+
+        def speaking(self) -> None:
+            self.speaking_calls += 1
+
+    class StreamingClient:
+        last_tts_provider = "elevenlabs-flash-stream"
+        config = SimpleNamespace(kids_mode_enabled=False, kids_session_id="")
+
+        @staticmethod
+        def iter_kids_speech(_text: str, *, should_stop=None):
+            assert should_stop is not None
+            yield b"\x00\x00"
+
+    runtime = HermesVoiceRuntime(SimpleNamespace(media=StreamingMedia()), threading.Event())
+    runtime._output_sample_rate = 24000
+    motion = Motion()
+    runtime._motion = motion  # type: ignore[assignment]
+
+    runtime._play_kids_stream(
+        StreamingClient(),  # type: ignore[arg-type]
+        "Is it a lamp?",
+        barge_in=False,
+        animate_motion=False,
+    )
+
+    assert motion.speaking_calls == 0
+
+
 def test_kids_stream_stop_cancels_while_network_producer_is_active() -> None:
     import time
 
