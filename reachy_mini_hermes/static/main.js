@@ -595,6 +595,12 @@ async function refreshAgentActivity() {
     const body = await response.json();
     brokerAgentActivity = Array.isArray(body.activity) ? body.activity : [];
     renderAgentActivity();
+    const activeCapability = [...brokerAgentActivity]
+      .reverse()
+      .find((item) => item.result_class === "running" && item.capability_id);
+    if (activeCapability) {
+      $("agent-current-task").textContent = `Using ${String(activeCapability.capability_id).replaceAll("_", " ")}…`;
+    }
     const pendingResponse = await fetch("/api/agent/pending-approval", {
       cache: "no-store",
       headers: { "X-Reachy-Adult-UI": "unlocked" },
@@ -606,6 +612,7 @@ async function refreshAgentActivity() {
     sheet.hidden = !pendingAgentApproval;
     $("agent-approve-button").disabled = !pendingAgentApproval || agentRequestPending;
     if (pendingAgentApproval) {
+      $("agent-current-task").textContent = "Waiting for exact phone approval";
       $("agent-approval-capability").textContent = String(pendingAgentApproval.capability_id || "").replaceAll("_", " ");
       $("agent-approval-arguments").textContent = JSON.stringify(pendingAgentApproval.arguments || {}, null, 2);
       $("agent-pending-approval").textContent = `Waiting · expires in ${Number(pendingAgentApproval.expires_in_seconds || 0)}s`;

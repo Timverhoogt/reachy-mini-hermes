@@ -323,29 +323,31 @@ class ReachyMiniHermes(ReachyMiniApp):
                 raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
             if self._runtime is None:
                 raise HTTPException(status_code=409, detail="Voice runtime has not started")
-            request_id = ""
-            context = None
+            # Timeline reads must remain available while a voice request is active;
+            # do not claim the runtime's single owner-request slot just to poll it.
+            # The generation check below still prevents private activity crossing a
+            # Kids/profile/privacy transition while this request is in flight.
+            context = self._runtime.agent_broker_context(explicit_private_intent=True)
+            if context.capability_profile != "agent" or context.kids_mode_active:
+                raise HTTPException(status_code=423, detail="Agent activity is unavailable")
+            request_id = f"agent-activity-{secrets.token_hex(8)}"
             try:
-                request_id, context = self._runtime._begin_agent_request("Agent activity")
                 client = HermesBridgeClient(load_config())
                 try:
+                    # The bridge may have restarted since the profile was selected.
+                    # Re-publish the same authoritative generation before this
+                    # read-only poll; equal-generation/equal-state updates do not
+                    # cancel the active voice task.
+                    client.establish_agent_session(context)
                     activity = client.agent_activity(context, request_id=request_id)
                 finally:
                     client.close()
-                if not self._runtime._finish_agent_request(
-                    request_id, context.session_generation, succeeded=True
-                ):
+                if not self._runtime.agent_session_is_current(context.session_generation):
                     raise HTTPException(status_code=423, detail="Agent activity became stale")
                 return {"activity": activity}
-            except RuntimeError as exc:
-                raise HTTPException(status_code=423, detail=str(exc)) from exc
             except HTTPException:
                 raise
             except Exception as exc:
-                if request_id and context is not None:
-                    self._runtime._finish_agent_request(
-                        request_id, context.session_generation, succeeded=False
-                    )
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
 
         @self.settings_app.post("/api/agent/approve")

@@ -1648,7 +1648,14 @@ class Bridge:
                     "name": capability["id"],
                     "description": capability["description"],
                     "parameters": capability["arguments_schema"],
-                    "strict": True,
+                    # Several bounded capabilities intentionally have optional
+                    # fields. OpenAI strict function schemas require every
+                    # property to be listed as required and reject the whole
+                    # request otherwise. The broker still performs exact
+                    # additional-property, type, range, allowlist, and policy
+                    # validation before execution, so keep model decoding loose
+                    # rather than weakening or falsifying those schemas.
+                    "strict": False,
                 },
             }
             for capability in self.agent_broker.manifest()
@@ -1662,8 +1669,11 @@ class Bridge:
                     "Side effects "
                     "must be reported only after a tool result says side_effect=true and verified=true. Calendar, "
                     "message, and note writes are draft-first and require an exact phone approval; never invent an "
-                    "approval. Media also requires fresh phone approval. Be concise for speech and list exactly the "
-                    "capabilities whose results support the answer."
+                    "approval. Media also requires fresh phone approval. Write the text field as a short, natural "
+                    "spoken reply: do not read internal capability IDs, schemas, or provenance labels aloud. If an "
+                    "action is only staged, say clearly that it has not happened and is waiting in the phone app. "
+                    "If evidence is insufficient, say what could not be verified and suggest one useful next step. "
+                    "Keep provenance only in used_capabilities."
                 ),
             },
             {"role": "user", "content": text[:2_000]},
@@ -1718,6 +1728,15 @@ class Bridge:
                 body = await response.json(content_type=None)
                 response_status = response.status
             if response_status != 200:
+                error = body.get("error") if isinstance(body, dict) else None
+                error_code = str(error.get("code") or "")[:80] if isinstance(error, dict) else ""
+                error_type = str(error.get("type") or "")[:80] if isinstance(error, dict) else ""
+                _LOGGER.warning(
+                    "Agent Mode reasoning provider rejected the request (status=%s type=%s code=%s)",
+                    response_status,
+                    error_type or "unknown",
+                    error_code or "unknown",
+                )
                 raise BrokerUnavailableError("Agent Mode reasoning is unavailable")
             try:
                 message = body["choices"][0]["message"]

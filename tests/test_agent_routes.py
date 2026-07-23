@@ -261,6 +261,47 @@ def test_timer_delivery_is_authenticated_and_blocked_by_kids(monkeypatch) -> Non
     assert blocked.status_code == 423
 
 
+def test_agent_activity_poll_does_not_claim_or_finish_active_voice_request(monkeypatch) -> None:
+    _app, runtime, client, _saved = build_client(monkeypatch)
+    runtime.set_capability_profile("agent", adult_ui_unlocked=True)
+    active_request_id, active_context = runtime._begin_agent_request("private owner request")
+
+    class BridgeClient:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def establish_agent_session(self, context) -> None:
+            assert context.session_generation == active_context.session_generation
+
+        def agent_activity(self, context, *, request_id: str):
+            assert context.session_generation == active_context.session_generation
+            assert request_id.startswith("agent-activity-")
+            return [
+                {
+                    "event": "started",
+                    "capability_id": "get_home_status",
+                    "result_class": "running",
+                }
+            ]
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(main_module, "HermesBridgeClient", BridgeClient)
+    response = client.get(
+        "/api/agent/activity", headers={"X-Reachy-Adult-UI": "unlocked"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["activity"][0]["result_class"] == "running"
+    with runtime._agent_lock:
+        assert runtime._agent_active_request_id == active_request_id
+        assert runtime._agent_current_task == "Processing a bounded owner request"
+    assert runtime._finish_agent_request(
+        active_request_id, active_context.session_generation, succeeded=True
+    )
+
+
 def test_agent_activity_cannot_return_after_kids_lock_races_request(monkeypatch) -> None:
     _app, runtime, client, _saved = build_client(monkeypatch)
     runtime.set_capability_profile("agent", adult_ui_unlocked=True)
@@ -269,6 +310,9 @@ def test_agent_activity_cannot_return_after_kids_lock_races_request(monkeypatch)
 
     class BridgeClient:
         def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def establish_agent_session(self, _context) -> None:
             pass
 
         def agent_activity(self, _context, *, request_id: str):

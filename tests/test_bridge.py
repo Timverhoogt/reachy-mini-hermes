@@ -663,6 +663,21 @@ def test_agent_answer_is_structured_provenance_checked_and_dlp_redacted(monkeypa
     response_format = model_payloads[0]["response_format"]
     assert isinstance(response_format, dict)
     assert response_format["json_schema"]["strict"] is True
+    tools = model_payloads[0]["tools"]
+    assert isinstance(tools, list)
+    assert all(item["function"]["strict"] is False for item in tools)
+    assert all(
+        item["function"]["parameters"]["additionalProperties"] is False
+        for item in tools
+    )
+    messages = model_payloads[0]["messages"]
+    assert isinstance(messages, list)
+    assert isinstance(messages[0], dict)
+    system_prompt = messages[0]["content"]
+    assert isinstance(system_prompt, str)
+    assert "short, natural spoken reply" in system_prompt
+    assert "do not read internal capability IDs" in system_prompt
+    assert "waiting in the phone app" in system_prompt
 
 
 @pytest.mark.parametrize(

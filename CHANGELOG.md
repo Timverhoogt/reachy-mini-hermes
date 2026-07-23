@@ -27,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Agent single-request UX now keeps the sanitized broker timeline pollable during an active voice request, shows the running capability or exact approval wait in the trusted UI, and prompts for concise natural speech without reading internal capability IDs aloud.
+- PWA shell advanced to v38 for the Agent activity/progress UI.
 - PWA shell advanced to v37 for the documented Home Assistant Awake control.
 - Home Assistant camera snapshots are normalized to metadata-free baseline 4:2:0 JPEGs before ESPHome transport, preventing intermittent green/magenta rendering on older Android/WebView hardware decoders while leaving native and AI camera frames unchanged.
 - Kids Mode no longer requires setup, entry, lockout, or unlock of a parent PIN. Start is direct from the trusted local UI; the child-only dashboard remains active for the session, and Stop immediately restores management controls.
