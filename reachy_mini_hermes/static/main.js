@@ -65,8 +65,6 @@ $("announcement-send").disabled = true;
 $("announcement-stop").disabled = true;
 $("kids-start-button").disabled = true;
 $("kids-stop-button").disabled = true;
-$("kids-pin-setup-button").disabled = true;
-$("kids-parent-unlock-button").disabled = true;
 $("agent-conversation-button").disabled = true;
 $("agent-enable-button").disabled = true;
 $("agent-stop-button").disabled = true;
@@ -279,7 +277,6 @@ function updateStatus(payload) {
   const kidsActive = Boolean(kidsMode.active);
   const kidsCameraActive = Boolean(kidsMode.camera_active);
   const kidsLocked = Boolean(kidsMode.locked);
-  const kidsPinConfigured = Boolean(payload.config?.kids_parent_pin_configured);
   const agent = runtime.agent || {};
   const agentProfile = agent.profile || "conversation";
   agentProfileActive = agentProfile === "agent";
@@ -387,17 +384,8 @@ function updateStatus(payload) {
       ? "I Spy camera is active for this bounded five-frame desk search only. End now stops capture and folds Reachy."
       : `${kidsActivityLabels[kidsProfile.activity] || "Kids activity"} · age ${kidsProfile.age_band} · ${kidsMode.turns_completed || 0} completed turn${kidsMode.turns_completed === 1 ? "" : "s"} · ${kidsMode.tool_policy === "voice-state-motion-only" ? "gentle voice-state motion only" : "no tools"}`
     : "Camera, personal Hermes memory, smart-home control, messaging, purchases, and power controls are unavailable to the child session.";
-  $("kids-start-button").disabled = kidsActive || kidsLocked || !kidsPinConfigured || kidsRequestPending || ["meeting", "sleep"].includes(powerMode);
+  $("kids-start-button").disabled = kidsActive || kidsLocked || kidsRequestPending || ["meeting", "sleep"].includes(powerMode);
   $("kids-stop-button").disabled = !kidsActive;
-  $("kids-pin-setup-button").hidden = kidsPinConfigured || kidsLocked;
-  $("kids-pin-setup-button").disabled = kidsRequestPending;
-  $("kids-parent-unlock-button").hidden = !kidsLocked;
-  $("kids-parent-unlock-button").disabled = kidsRequestPending;
-  $("kids-pin-help").textContent = kidsLocked
-    ? "Child lock is active. Enter the parent PIN to end any session and restore management controls."
-    : kidsPinConfigured
-      ? "Parent PIN configured. Enter it to start Kids Mode; the PIN is never stored in this browser."
-      : "Create a PIN before the first session. Only a salted scrypt verifier is stored on Reachy.";
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.hidden = kidsLocked && button.dataset.tab !== "kids";
   });
@@ -585,8 +573,6 @@ async function refreshStatus() {
     $("kids-start-button").disabled = true;
     $("kids-stop-button").disabled = true;
     $("kids-status-badge").textContent = "Offline";
-    $("kids-pin-setup-button").disabled = true;
-    $("kids-parent-unlock-button").disabled = true;
   } finally {
     statusRefreshPending = false;
   }
@@ -718,58 +704,11 @@ function kidsProfileFromForm() {
   };
 }
 
-async function submitKidsPin(path, successText) {
-  const parentPin = $("kids-parent-pin").value;
-  const message = $("kids-message");
-  if (!/^[0-9]{6,8}$/.test(parentPin)) {
-    message.textContent = "Enter a 6–8 digit parent PIN.";
-    message.className = "message error";
-    $("kids-parent-pin").focus();
-    return;
-  }
-  kidsRequestPending = true;
-  message.textContent = "Checking parent PIN…";
-  message.className = "message";
-  try {
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parent_pin: parentPin }),
-    });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
-    message.textContent = successText;
-    message.className = "message ok";
-  } catch (error) {
-    message.textContent = String(error);
-    message.className = "message error";
-  } finally {
-    $("kids-parent-pin").value = "";
-    kidsRequestPending = false;
-    await refreshStatus();
-  }
-}
-
-$("kids-pin-setup-button").addEventListener("click", () => {
-  submitKidsPin("/api/kids/parent/setup", "Parent PIN configured. Enter it again when starting Kids Mode.");
-});
-
-$("kids-parent-unlock-button").addEventListener("click", () => {
-  submitKidsPin("/api/kids/parent/unlock", "Parent controls unlocked.");
-});
-
 $("kids-start-button").addEventListener("click", async () => {
   const profile = kidsProfileFromForm();
-  const parentPin = $("kids-parent-pin").value;
   const message = $("kids-message");
-  if (!/^[0-9]{6,8}$/.test(parentPin)) {
-    message.textContent = "Enter the 6–8 digit parent PIN first.";
-    message.className = "message error";
-    $("kids-parent-pin").focus();
-    return;
-  }
   if (profile.activity === "ispy" && !profile.camera_consent) {
-    message.textContent = "A caregiver must allow the narrow camera search for this I Spy start.";
+    message.textContent = "Allow the narrow camera search for this I Spy start.";
     message.className = "message error";
     $("kids-ispy-camera-consent").focus();
     return;
@@ -785,7 +724,7 @@ $("kids-start-button").addEventListener("click", async () => {
     const response = await fetch("/api/kids/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...profile, parent_pin: parentPin }),
+      body: JSON.stringify(profile),
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
@@ -795,7 +734,6 @@ $("kids-start-button").addEventListener("click", async () => {
     message.textContent = String(error);
     message.className = "message error";
   } finally {
-    $("kids-parent-pin").value = "";
     kidsRequestPending = false;
     await refreshStatus();
   }

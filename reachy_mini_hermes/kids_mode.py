@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
-import secrets
 from dataclasses import dataclass
 
 AGE_BANDS = frozenset({"4-6", "7-9", "10-12"})
 ACTIVITIES = frozenset({"buddy", "story", "quiz", "riddles", "calm", "ispy"})
 LANGUAGES = frozenset({"en", "nl"})
-_PIN_SCRYPT_N = 2**14
-_PIN_SCRYPT_R = 8
-_PIN_SCRYPT_P = 1
 
 _ACTIVITY_INSTRUCTIONS = {
     "buddy": (
@@ -77,7 +71,7 @@ class KidsProfile:
         if isinstance(self.duration_minutes, bool) or int(self.duration_minutes) not in {15, 30, 45, 60}:
             raise ValueError("Kids Mode duration must be 15, 30, 45, or 60 minutes")
         if self.activity == "ispy" and self.camera_consent is not True:
-            raise ValueError("Caregiver camera consent is required for each I Spy session")
+            raise ValueError("Camera opt-in is required for each I Spy session")
         if self.activity != "ispy" and self.camera_consent:
             raise ValueError("Camera consent is only valid for I Spy")
         object.__setattr__(self, "nickname", nickname)
@@ -92,50 +86,6 @@ class KidsProfile:
             "motion_enabled": self.motion_enabled,
             "camera_active": False,
         }
-
-
-def validate_parent_pin(pin: str) -> str:
-    """Validate the local parent guardrail without normalizing secret input."""
-    if not isinstance(pin, str) or not pin.isascii() or not pin.isdigit() or not 6 <= len(pin) <= 8:
-        raise ValueError("Parent PIN must contain 6 to 8 digits")
-    return pin
-
-
-def hash_parent_pin(pin: str) -> str:
-    """Return a salted scrypt verifier; the plaintext PIN is never persisted."""
-    clean = validate_parent_pin(pin)
-    salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(
-        clean.encode("utf-8"),
-        salt=salt,
-        n=_PIN_SCRYPT_N,
-        r=_PIN_SCRYPT_R,
-        p=_PIN_SCRYPT_P,
-        dklen=32,
-    )
-    return f"scrypt${_PIN_SCRYPT_N}${_PIN_SCRYPT_R}${_PIN_SCRYPT_P}${salt.hex()}${digest.hex()}"
-
-
-def verify_parent_pin(pin: str, verifier: str) -> bool:
-    """Verify a PIN against a stored scrypt value without exposing either value."""
-    try:
-        clean = validate_parent_pin(pin)
-        algorithm, raw_n, raw_r, raw_p, raw_salt, raw_digest = verifier.split("$", 5)
-        if algorithm != "scrypt":
-            return False
-        expected = bytes.fromhex(raw_digest)
-        actual = hashlib.scrypt(
-            clean.encode("utf-8"),
-            salt=bytes.fromhex(raw_salt),
-            n=int(raw_n),
-            r=int(raw_r),
-            p=int(raw_p),
-            dklen=len(expected),
-        )
-        return hmac.compare_digest(actual, expected)
-    except (TypeError, ValueError):
-        return False
-
 
 def kids_greeting(profile: KidsProfile) -> str:
     """Return deterministic TTS copy; no model or private tool is involved."""

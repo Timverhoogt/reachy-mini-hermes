@@ -1,16 +1,43 @@
 from __future__ import annotations
 
+import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import reachy_mini_hermes.main as main_module
-from reachy_mini_hermes.config import AppConfig
+from reachy_mini_hermes.config import AppConfig, load_config
 from reachy_mini_hermes.main import ReachyMiniHermes
 from reachy_mini_hermes.runtime import HermesVoiceRuntime
+
+
+def test_pin_routes_schema_and_legacy_config_are_removed(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"api_key": "test-key", "kids_parent_pin_hash": "legacy-scrypt-value"}),
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    assert config.api_key == "test-key"
+    assert not hasattr(config, "kids_parent_pin_hash")
+
+    app = ReachyMiniHermes(False)
+    schema = app.settings_app.openapi()
+    serialized = json.dumps(schema)
+    assert not any("/kids/parent" in path for path in schema["paths"])
+    assert "parent_pin" not in serialized
+    assert "kids_parent_pin" not in serialized
+    assert set(schema["components"]["schemas"]["KidsModeRequest"]["properties"]) == {
+        "nickname",
+        "age_band",
+        "activity",
+        "language",
+        "duration_minutes",
+        "motion_enabled",
+        "camera_consent",
+    }
 
 
 def test_locked_status_route_uses_child_allowlist_and_redacts_runtime_text(monkeypatch) -> None:
@@ -34,7 +61,6 @@ def test_locked_status_route_uses_child_allowlist_and_redacts_runtime_text(monke
         bridge_url="https://private-bridge.invalid",
         api_key="private-key",
         system_prompt="private management prompt",
-        kids_parent_pin_hash="scrypt$fixture",
     )
     monkeypatch.setattr(main_module, "load_config", lambda: config)
 
@@ -45,7 +71,6 @@ def test_locked_status_route_uses_child_allowlist_and_redacts_runtime_text(monke
     assert payload["config"] == {
         "configured": True,
         "api_key_configured": True,
-        "kids_parent_pin_configured": True,
     }
     assert set(payload["runtime"]) == {
         "state",
@@ -69,24 +94,8 @@ def test_locked_status_route_uses_child_allowlist_and_redacts_runtime_text(monke
         "private management prompt",
         "https://private-bridge.invalid",
         "private-key",
-        "scrypt$fixture",
     ):
         assert private_value not in serialized
-
-
-def test_parent_pin_failures_trigger_server_side_lockout() -> None:
-    app = ReachyMiniHermes(False)
-    for _ in range(5):
-        app._record_kids_pin_result(valid=False)
-
-    with pytest.raises(HTTPException) as raised:
-        app._require_kids_pin_attempt_allowed()
-
-    assert raised.value.status_code == 429
-    assert raised.value.headers is not None
-    assert int(raised.value.headers["Retry-After"]) >= 299
-    app._record_kids_pin_result(valid=True)
-    app._require_kids_pin_attempt_allowed()
 
 
 def test_locked_child_status_omits_agent_session_details(monkeypatch) -> None:

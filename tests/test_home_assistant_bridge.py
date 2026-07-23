@@ -140,10 +140,10 @@ def test_home_assistant_ui_exposes_nested_opt_ins_and_v35_assets() -> None:
         assert element_id in script
     assert "never wakes or releases torque implicitly" in html
     assert "toggleHomeAssistantOptions" in script
-    assert "reachy-hermes-shell-v35" in worker
+    assert "reachy-hermes-shell-v36" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=35" in html
-        assert f'"/static/{asset}?v=35"' in worker
+        assert f"/static/{asset}?v=36" in html
+        assert f'"/static/{asset}?v=36"' in worker
 
 
 def test_runtime_provider_maps_native_daemon_telemetry_without_enabling_controls() -> None:

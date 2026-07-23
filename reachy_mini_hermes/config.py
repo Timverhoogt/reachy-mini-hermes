@@ -69,7 +69,6 @@ class AppConfig:
     gamepad_enabled: bool = False
     agent_tools_enabled: bool = True
     power_tools_enabled: bool = True
-    kids_parent_pin_hash: str = ""
     kids_mode_enabled: bool = False
     kids_session_id: str = ""
     kids_age_band: str = ""
@@ -95,7 +94,6 @@ class AppConfig:
         self.realtime_voice = self.realtime_voice.strip() or "marin"
         self.realtime_reasoning_effort = self.realtime_reasoning_effort.strip().lower() or "low"
         self.camera_controls_handedness = self.camera_controls_handedness.strip().lower() or "right"
-        self.kids_parent_pin_hash = self.kids_parent_pin_hash.strip()
         self.kids_session_id = self.kids_session_id.strip()
         self.kids_age_band = self.kids_age_band.strip()
         self.kids_activity = self.kids_activity.strip()
@@ -150,23 +148,20 @@ class AppConfig:
         return bool(self.bridge_url and self.api_key)
 
     def child_status_dict(self) -> dict[str, object]:
-        """Return only non-sensitive readiness flags for the locked child UI."""
+        """Return only non-sensitive readiness flags during an active Kids session."""
         return {
             "configured": self.configured,
             "api_key_configured": bool(self.api_key),
-            "kids_parent_pin_configured": bool(self.kids_parent_pin_hash),
         }
 
     def redacted_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["api_key"] = "********" if self.api_key else ""
         payload["api_key_configured"] = bool(self.api_key)
-        payload.pop("kids_parent_pin_hash", None)
         payload.pop("kids_session_id", None)
         payload.pop("kids_mode_enabled", None)
         payload.pop("kids_age_band", None)
         payload.pop("kids_activity", None)
-        payload["kids_parent_pin_configured"] = bool(self.kids_parent_pin_hash)
         return payload
 
 

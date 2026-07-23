@@ -186,7 +186,7 @@ def test_gate_1r_4_kids_and_capabilities_acceptance(tmp_path: Path, monkeypatch:
     assert runtime._kids_locked is True
     assert runtime._kids_profile is not None
     assert runtime._kids_profile.nickname == "Charlie"
-    logs.append("[Kids Mode Active] Verified Charlie Kids Mode session is active and locked")
+    logs.append("[Kids Mode Active] Verified Charlie Kids Mode session is active with child controls")
 
     # Verify Kids Mode fails closed for all Agent capabilities
     broker_config = BrokerConfig(
@@ -234,19 +234,20 @@ def test_gate_1r_4_kids_and_capabilities_acceptance(tmp_path: Path, monkeypatch:
     # 2. Verify Kids Mode cancellation and removal of private capabilities
     logs.append("[Kids Mode Cancel] Cancelling Kids Mode session")
     runtime.stop_kids_mode(fold=False)
-    runtime.unlock_kids_controls()
 
     assert runtime._kids_active is False
     assert runtime._kids_locked is False
     assert runtime._kids_profile is None
-    logs.append("[Kids Mode Cancelled] Verified Kids Mode active & locked flags are False")
+    logs.append("[Kids Mode Cancelled] Verified Kids Mode and child-only controls are inactive")
 
     # Confirm private child transcripts are completely erased on cancellation
     with runtime._status_lock:
         runtime._status.transcript = "Charlie's secrets"
         runtime._status.response_preview = "Charlie's answer"
 
-    runtime.unlock_kids_controls()
+    assert runtime._status.transcript == "Charlie's secrets"
+    assert runtime._status.response_preview == "Charlie's answer"
+    runtime.stop_kids_mode(fold=False)
     assert runtime._status.transcript == ""
     assert runtime._status.response_preview == ""
     logs.append("[Kids Mode Redaction] Verified child transcripts are completely wiped and sanitized")

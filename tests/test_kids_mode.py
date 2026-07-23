@@ -17,9 +17,7 @@ from reachy_mini_hermes.ispy import validate_ispy_target
 from reachy_mini_hermes.kids_mode import (
     KidsProfile,
     build_kids_prompt,
-    hash_parent_pin,
     kids_greeting,
-    verify_parent_pin,
 )
 from reachy_mini_hermes.runtime import HermesVoiceRuntime
 
@@ -63,7 +61,7 @@ def test_kids_profile_is_bounded_and_prompt_has_core_safeguards() -> None:
 
 
 def test_ispy_requires_fresh_narrow_camera_consent() -> None:
-    with pytest.raises(ValueError, match="camera consent"):
+    with pytest.raises(ValueError, match="Camera opt-in"):
         KidsProfile(activity="ispy")
     profile = KidsProfile(activity="ispy", camera_consent=True, language="nl")
     assert profile.public_dict()["camera_active"] is False
@@ -259,37 +257,16 @@ def test_player_picker_gesture_failure_does_not_suppress_speech(monkeypatch: pyt
     assert runtime._try_ispy_player_guess_motion(4) is False
 
 
-def test_parent_pin_uses_salted_scrypt_and_never_round_trips_plaintext() -> None:
-    first = hash_parent_pin("482614")
-    second = hash_parent_pin("482614")
-    assert first.startswith("scrypt$")
-    assert first != second
-    assert "482614" not in first
-    assert verify_parent_pin("482614", first) is True
-    assert verify_parent_pin("482715", first) is False
-    with pytest.raises(ValueError, match="6 to 8 digits"):
-        hash_parent_pin("123")
-
-
-def test_pin_verifier_is_removed_from_redacted_status() -> None:
-    config = AppConfig(kids_parent_pin_hash=hash_parent_pin("482614"))
-    redacted = config.redacted_dict()
-    assert "kids_parent_pin_hash" not in redacted
-    assert redacted["kids_parent_pin_configured"] is True
-
-
 def test_locked_child_status_exposes_only_readiness_and_clears_private_runtime_text() -> None:
     config = AppConfig(
         bridge_url="http://private-bridge.example:8643",
         api_key="secret",
         system_prompt="private normal-mode prompt",
         instance_id="private-instance",
-        kids_parent_pin_hash=hash_parent_pin("482614"),
     )
     assert config.child_status_dict() == {
         "configured": True,
         "api_key_configured": True,
-        "kids_parent_pin_configured": True,
     }
 
     runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
@@ -398,11 +375,10 @@ def test_runtime_kids_mode_forces_moderated_pipeline_and_removes_private_tools()
     stopped = runtime.stop_kids_mode(fold=False)
     assert robot.cancel_calls == 1
     assert stopped["active"] is False
-    assert stopped["locked"] is True
+    assert stopped["locked"] is False
+    assert stopped["profile"] is None
     assert stopped["last_end_reason"] == "parent"
     assert stopped["last_fold_succeeded"] is None
-    unlocked = runtime.unlock_kids_controls()
-    assert unlocked["locked"] is False
 
 
 def test_runtime_generated_kids_session_id_passes_real_bridge_handler(
@@ -598,7 +574,7 @@ def test_kids_stream_rejects_work_from_replaced_session() -> None:
     assert runtime._play_kids_stream(StaleClient(), "Hello", barge_in=False) is False  # type: ignore[arg-type]
 
 
-def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() -> None:
+def test_kids_tab_has_activities_direct_controls_disclosures_and_end_button() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     main = (STATIC / "main.js").read_text(encoding="utf-8")
     style = (STATIC / "style.css").read_text(encoding="utf-8")
@@ -613,23 +589,21 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
     assert 'id="kids-duration"' in html
     assert 'id="kids-motion-enabled"' in html
     assert 'id="kids-stop-button"' in html
-    assert 'id="kids-parent-pin"' in html
-    assert 'id="kids-pin-setup-button"' in html
-    assert 'id="kids-parent-unlock-button"' in html
+    assert "parent PIN" not in html
+    assert "parent_pin" not in main
+    assert "/api/kids/parent/" not in backend
     assert "Adult supervision" in html
     assert "No private tools" in html
     assert 'fetch("/api/kids/start"' in main
     assert 'fetch("/api/kids/stop"' in main
     assert 'kidsCameraActive ? "Camera search"' in main
     assert '$("kids-stop-button").disabled = !kidsActive;' in main
-    assert '"/api/kids/parent/setup"' in main
-    assert '"/api/kids/parent/unlock"' in main
     assert "reachy-hermes-kids-profile" in main
     persisted_profile = main.split(
         'window.localStorage.setItem("reachy-hermes-kids-profile"',
         1,
     )[1].split(";", 1)[0]
-    assert "parent_pin" not in persisted_profile
+    assert "camera_consent" not in persisted_profile
     assert "enabled: !kidsActive" in main
     assert ".kids-activities" in style
     assert 'post("/api/kids/start")' in backend
@@ -639,7 +613,7 @@ def test_kids_tab_has_activities_parent_controls_disclosures_and_end_button() ->
 def test_kids_static_assets_advance_pwa_cache_together() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     worker = (STATIC / "service-worker.js").read_text(encoding="utf-8")
-    assert "reachy-hermes-shell-v35" in worker
+    assert "reachy-hermes-shell-v36" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=35" in html
-        assert f'"/static/{asset}?v=35"' in worker
+        assert f"/static/{asset}?v=36" in html
+        assert f'"/static/{asset}?v=36"' in worker

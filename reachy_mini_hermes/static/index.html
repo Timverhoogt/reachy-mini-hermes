@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=35" />
+  <link rel="stylesheet" href="/static/style.css?v=36" />
 </head>
 <body>
   <main>
@@ -155,14 +155,6 @@
           <label>Speaking language
             <select id="kids-language"><option value="en">English</option><option value="nl">Nederlands</option></select>
           </label>
-        </div>
-        <div class="kids-parent-auth">
-          <label>Parent PIN
-            <input id="kids-parent-pin" type="password" inputmode="numeric" pattern="[0-9]{6,8}" minlength="6" maxlength="8" autocomplete="off" placeholder="6–8 digits · never stored in this browser" />
-          </label>
-          <button type="button" id="kids-pin-setup-button" class="secondary">Set parent PIN</button>
-          <button type="button" id="kids-parent-unlock-button" class="secondary" hidden>Unlock parent controls</button>
-          <small id="kids-pin-help" class="muted">Set this from a trusted parent device before giving a child access. The first caller can claim an unset PIN; only a salted scrypt verifier is stored.</small>
         </div>
         <label class="toggle-row kids-motion-toggle"><span><strong>Gentle robot motion</strong><small>Allow occasional bounded head and antenna gestures; no camera and no wide dance</small></span><input id="kids-motion-enabled" type="checkbox" checked /></label>
         <label id="kids-ispy-consent-row" class="toggle-row" hidden><span><strong>Allow camera for this I Spy start only</strong><small>Five in-memory frames across one bounded ±120° desk search; no recording, storage, target selection involving people, or camera during guessing.</small></span><input id="kids-ispy-camera-consent" type="checkbox" /></label>
@@ -594,7 +586,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=35"></script>
-  <script src="/static/main.js?v=35"></script>
+  <script src="/static/camera.js?v=36"></script>
+  <script src="/static/main.js?v=36"></script>
 </body>
 </html>

@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Kids Mode no longer requires setup, entry, lockout, or unlock of a parent PIN. Start is direct from the trusted local UI; the child-only dashboard remains active for the session, and Stop immediately restores management controls.
+- PWA shell advanced to v36 for the PIN-free Kids Mode controls.
 - Kids I Spy now retains five bounded viewpoints across a 240° base arc, uses non-capturing 60° transit waypoints, revokes camera access before its neutral return, and keeps the head aligned with the base.
 - Manual base control now uses separate 5°/15°/30°/60° steps, clear-space confirmation for wide turns, coupled head yaw, and a ±120° application limit inside the SDK's ±160° range.
 - Camera joystick motion now follows a Pollen-inspired 20 Hz smoothed target stream: horizontal input rotates the head and base together, vertical input tilts the head, and a short watchdog stops abandoned browser gestures.

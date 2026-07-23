@@ -830,18 +830,6 @@ class HermesVoiceRuntime:
         with self._kids_lock:
             return self._kids_locked
 
-    def unlock_kids_controls(self) -> dict[str, object]:
-        """Release the child-facing UI lock after parent authentication."""
-        with self._kids_lock:
-            if self._kids_active:
-                raise RuntimeError("End the active Kids Mode session before unlocking parent controls")
-            self._kids_locked = False
-            self._kids_profile = None
-        with self._status_lock:
-            self._status.transcript = ""
-            self._status.response_preview = ""
-        return dict(self.status()["kids_mode"])  # type: ignore[arg-type]
-
     def start_kids_mode(self, profile: KidsProfile, *, greet: bool = True) -> dict[str, object]:
         """Start one time-bounded, camera-free, private-tool-free Realtime session."""
         if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
@@ -947,7 +935,7 @@ class HermesVoiceRuntime:
     ) -> ISpyTarget:
         """Run one consented, cancellable search; frames exist only on this stack."""
         if not profile.camera_consent:
-            raise RuntimeError("Caregiver camera consent is required for I Spy")
+            raise RuntimeError("Camera opt-in is required for I Spy")
         session_id = self._kids_session_id
         self.set_power_mode("awake", cancel_announcements=False)
         # Five retained viewpoints cover a 240° desk arc while every commanded segment remains <= 60°.
@@ -1159,6 +1147,8 @@ class HermesVoiceRuntime:
             self._kids_generation += 1
             self._kids_active = False
             self._kids_camera_active = False
+            self._kids_locked = False
+            self._kids_profile = None
             self._kids_ends_at = 0.0
             self._kids_session_id = ""
             self._kids_last_end_reason = reason[:40]

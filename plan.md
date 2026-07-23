@@ -79,8 +79,8 @@ Implemented:
 - five activities: Buddy chat, Story maker, Quiz quest, Riddle box, and Calm corner;
 - age bands 4–6, 7–9, and 10–12 in English or Dutch;
 - parent-selected 15/30/45/60-minute sessions with a monotonic authoritative deadline and five-minute warning;
-- 6–8 digit parent PIN stored only as a salted `scrypt` verifier, with a five-attempt/five-minute lockout;
-- public transcript, response-preview, nickname, and child-session-ID redaction while locked;
+- direct Start/Stop controls on the trusted local dashboard with no separate parent PIN;
+- public transcript, response-preview, nickname, and child-session-ID redaction while a Kids session is active;
 - camera, robot, agent/delegation, Home Assistant, messaging, files, purchases, and power tools blocked;
 - complete-answer moderation before any child speech starts;
 - fixed-policy Flash streaming, prompt cancellation, queue clearing, parent stop, expiry, safe fold, and torque release.
