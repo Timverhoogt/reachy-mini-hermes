@@ -241,11 +241,22 @@ def test_ispy_both_picker_roles_use_the_base_motor(monkeypatch: pytest.MonkeyPat
     player_guess_target = robot.targets[9]
     assert round(float(np.degrees(player_guess_target["body_yaw"]))) == -12
     assert not np.array_equal(player_guess_target["head"], np.eye(4))
+    assert player_guess_target["duration"] == 1.5
     assert robot.media.calls == 5  # player-picker motion never re-enables or reads the camera
 
     with pytest.raises(RuntimeError, match="cancelled"):
         runtime._perform_ispy_player_guess_motion(3)
     assert len(robot.targets) == 10
+
+
+def test_player_picker_gesture_failure_does_not_suppress_speech(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+
+    def fail(_generation: int) -> None:
+        raise TimeoutError("Task did not complete in time")
+
+    monkeypatch.setattr(runtime, "_perform_ispy_player_guess_motion", fail)
+    assert runtime._try_ispy_player_guess_motion(4) is False
 
 
 def test_parent_pin_uses_salted_scrypt_and_never_round_trips_plaintext() -> None:

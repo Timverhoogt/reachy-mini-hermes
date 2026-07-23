@@ -1050,11 +1050,20 @@ class HermesVoiceRuntime:
                 head=self._ispy_head_target(head_yaw, -4.0),
                 body_yaw=math.radians(body_yaw),
                 antennas=np.radians(np.asarray([5.0, -5.0])),
-                duration=0.8,
+                duration=1.5,
                 method="minjerk",
             )
         if not self._kids_callback_is_current(generation):
             raise RuntimeError("I Spy player-turn motion was cancelled")
+
+    def _try_ispy_player_guess_motion(self, generation: int) -> bool:
+        """Keep an optional embodied gesture from suppressing an approved guess."""
+        try:
+            self._perform_ispy_player_guess_motion(generation)
+            return True
+        except Exception:
+            _LOGGER.warning("I Spy player-picker gesture failed; continuing with speech", exc_info=True)
+            return False
 
     def _continue_ispy_reachy_turn(
         self,
@@ -2820,8 +2829,7 @@ class HermesVoiceRuntime:
                 ):
                     with self._kids_lock:
                         ispy_generation = self._kids_generation
-                    self._perform_ispy_player_guess_motion(ispy_generation)
-                    preserve_ispy_guess_motion = True
+                    preserve_ispy_guess_motion = self._try_ispy_player_guess_motion(ispy_generation)
                 spoken_text = (
                     response_text if client.config.kids_mode_enabled else self._speech_friendly(response_text)
                 )
