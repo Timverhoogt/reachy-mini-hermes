@@ -60,6 +60,7 @@ def make_runtime(**config_overrides: object) -> tuple[HermesVoiceRuntime, Motion
     actions = Actions()
     runtime._motion = motion  # type: ignore[assignment]
     runtime._actions = actions  # type: ignore[assignment]
+    runtime._audio_ready = True
     runtime._control_ready.set()
     runtime._power_mode = "awake"
     runtime._motors_enabled = True
@@ -270,7 +271,10 @@ def test_disabled_presence_discards_the_signal_and_never_queues() -> None:
         (lambda runtime: setattr(runtime, "_motors_enabled", False), "motors_not_enabled"),
         (lambda runtime: setattr(runtime, "_kids_active", True), "kids_mode"),
         (lambda runtime: runtime._announcement_active.set(), "announcement_active"),
+        (lambda runtime: runtime._voice_activity_lock.acquire(), "voice_active"),
         (lambda runtime: setattr(runtime._status, "state", "listening"), "voice_active"),
+        (lambda runtime: setattr(runtime, "_audio_ready", False), "runtime_not_ready"),
+        (lambda runtime: setattr(runtime._status, "last_error", "failed"), "runtime_error"),
         (lambda runtime: setattr(runtime, "_camera_control_session_id", "camera-test"), "camera_control_active"),
         (lambda runtime: setattr(runtime, "_face_tracking_active", True), "face_tracking_active"),
         (

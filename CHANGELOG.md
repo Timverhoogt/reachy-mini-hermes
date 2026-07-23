@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Presence motion is suppressed by Standby, Meeting/Sleep, privacy, Kids Mode, active voice/announcement/camera/face-tracking/robot owners, runtime transitions, and a bounded cooldown; the trusted Agent workspace shows only sanitized state and outcomes.
 - PWA shell advanced to v41 for the compact Proactive Presence controls and status.
 - PWA shell advanced to v42 for compact Initiative Policy controls, limits, and explainable status inside the Agent workspace.
+- PWA shell advanced to v43 after the Goal 2 safety audit: runtime/audio faults and active voice ownership now suppress initiative, policy fields resist status-poll overwrites while editing, and Presence/Initiative controls fail closed while offline.
 - PWA navigation and information architecture were redesigned to keep Home glanceable, give Agent Mode a dedicated workspace, move optional robot controls behind progressive disclosure, and provide a compact mobile bottom navigation.
 - PWA shell advanced to v40 for the streamlined control surface.
 - OpenAI tool declarations use broker-validated non-strict decoding for intentionally optional arguments; strict structured answer decoding and all broker schema/policy validation remain enforced.
@@ -60,7 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 434 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 437 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 

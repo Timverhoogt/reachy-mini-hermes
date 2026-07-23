@@ -82,7 +82,7 @@ def test_dashboard_exposes_bounded_agent_status_approval_and_stop_controls() -> 
     assert 'document.querySelector(".agent-card").hidden = kidsActive || kidsLocked' in javascript
 
 
-def test_v42_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> None:
+def test_v43_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> None:
     html = (STATIC / "index.html").read_text()
     css = (STATIC / "style.css").read_text()
     script = (STATIC / "main.js").read_text()
@@ -110,4 +110,6 @@ def test_v42_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> N
     assert 'presence_acknowledgement_enabled' in script
     assert 'initiative_policy_enabled' in script
     assert 'initiative_quiet_hours_start' in script
-    assert 'reachy-hermes-shell-v42' in worker
+    assert 'if (!initiativeEditActive)' in script
+    assert '$("initiative-badge").textContent = "Offline"' in script
+    assert 'reachy-hermes-shell-v43' in worker

@@ -637,9 +637,14 @@ class HermesVoiceRuntime:
                 }
         return payload
 
-    def _presence_suppression_reason(self, config: AppConfig) -> str:
+    def _presence_suppression_reason(
+        self,
+        config: AppConfig,
+        *,
+        owns_voice_activity: bool = False,
+    ) -> str:
         """Return why silent presence motion is currently unsafe, or an empty string."""
-        if self.stop_event.is_set() or not self._control_ready.is_set():
+        if self.stop_event.is_set() or not self._control_ready.is_set() or not self._audio_ready:
             return "runtime_not_ready"
         power_mode = self._effective_power_mode()
         if power_mode in {"meeting", "sleep"}:
@@ -655,7 +660,16 @@ class HermesVoiceRuntime:
                 return "kids_mode"
         if self._announcement_active.is_set():
             return "announcement_active"
+        if self._voice_activity_lock.locked() and not owns_voice_activity:
+            return "voice_active"
         with self._status_lock:
+            if self._status.last_error or self._status.state in {
+                "starting",
+                "stopping",
+                "configuration_error",
+                "power_transition_error",
+            }:
+                return "runtime_error"
             if self._status.state != "waiting_for_wake_word":
                 return "voice_active"
         with self._camera_control_lock:
@@ -722,7 +736,7 @@ class HermesVoiceRuntime:
             # power transition, Kids transition, or explicit action cannot race.
             with self._kids_lock:
                 with self._motor_transition_lock:
-                    reason = self._presence_suppression_reason(config)
+                    reason = self._presence_suppression_reason(config, owns_voice_activity=True)
                     actions = self._actions
                     if reason:
                         if initiative_decision is not None:

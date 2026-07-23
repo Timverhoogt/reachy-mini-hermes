@@ -33,6 +33,7 @@ let pendingAgentApproval = null;
 let agentRunRequestPending = false;
 let presenceRequestPending = false;
 let initiativeRequestPending = false;
+let initiativeEditActive = false;
 let currentAgentRun = null;
 let agentRunId = window.sessionStorage.getItem("reachy-hermes-agent-run-id") || "";
 
@@ -373,13 +374,15 @@ function updateStatus(payload) {
   const initiative = runtime.initiative || {};
   const initiativeEnabled = Boolean(payload.config?.initiative_policy_enabled);
   const initiativeMode = String(payload.config?.initiative_mode || "quiet");
-  $("initiative-policy-enabled").checked = initiativeEnabled;
-  $("initiative-mode").value = initiativeMode;
-  $("initiative-quiet-hours-enabled").checked = Boolean(payload.config?.initiative_quiet_hours_enabled);
-  $("initiative-quiet-hours-start").value = String(payload.config?.initiative_quiet_hours_start || "22:00");
-  $("initiative-quiet-hours-end").value = String(payload.config?.initiative_quiet_hours_end || "07:00");
-  $("initiative-hourly-budget").value = String(Number(payload.config?.initiative_hourly_budget || 2));
-  $("initiative-daily-budget").value = String(Number(payload.config?.initiative_daily_budget || 6));
+  if (!initiativeEditActive) {
+    $("initiative-policy-enabled").checked = initiativeEnabled;
+    $("initiative-mode").value = initiativeMode;
+    $("initiative-quiet-hours-enabled").checked = Boolean(payload.config?.initiative_quiet_hours_enabled);
+    $("initiative-quiet-hours-start").value = String(payload.config?.initiative_quiet_hours_start || "22:00");
+    $("initiative-quiet-hours-end").value = String(payload.config?.initiative_quiet_hours_end || "07:00");
+    $("initiative-hourly-budget").value = String(Number(payload.config?.initiative_hourly_budget || 2));
+    $("initiative-daily-budget").value = String(Number(payload.config?.initiative_daily_budget || 6));
+  }
   const initiativeBlocked = kidsActive || kidsLocked || initiativeRequestPending;
   $("initiative-policy-enabled").disabled = initiativeBlocked;
   ["initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
@@ -686,6 +689,13 @@ async function refreshStatus() {
     $("kids-start-button").disabled = true;
     $("kids-stop-button").disabled = true;
     $("kids-status-badge").textContent = "Offline";
+    $("presence-enabled").disabled = true;
+    $("presence-acknowledgement-enabled").disabled = true;
+    $("presence-badge").textContent = "Offline";
+    ["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
+      $(id).disabled = true;
+    });
+    $("initiative-badge").textContent = "Offline";
   } finally {
     statusRefreshPending = false;
   }
@@ -847,6 +857,14 @@ async function updateInitiativeSettings() {
 
 ["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
   $(id).addEventListener("change", updateInitiativeSettings);
+});
+document.querySelector(".initiative-card").addEventListener("focusin", () => {
+  initiativeEditActive = true;
+});
+document.querySelector(".initiative-card").addEventListener("focusout", () => {
+  window.setTimeout(() => {
+    initiativeEditActive = document.querySelector(".initiative-card").contains(document.activeElement);
+  }, 0);
 });
 
 $("settings-form").addEventListener("submit", async (event) => {
