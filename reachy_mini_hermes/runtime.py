@@ -1156,6 +1156,12 @@ class HermesVoiceRuntime:
         self._conversation_stop_requested.set()
         self._cancel_announcements(clear_queue=True)
         self._clear_streamed_audio()
+        cancel_move = getattr(self.robot, "cancel_move", None)
+        if was_active and callable(cancel_move):
+            try:
+                cancel_move()
+            except Exception:
+                _LOGGER.warning("Could not cancel the active Kids Mode movement", exc_info=True)
         if ispy_session_id:
             cancel_thread = threading.Thread(
                 target=self._cancel_ispy_bridge_session,

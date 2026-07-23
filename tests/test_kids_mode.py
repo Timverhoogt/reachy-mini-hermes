@@ -34,6 +34,10 @@ class FakeMedia:
 class FakeRobot:
     def __init__(self) -> None:
         self.media = FakeMedia()
+        self.cancel_calls = 0
+
+    def cancel_move(self) -> None:
+        self.cancel_calls += 1
 
 
 def test_kids_profile_is_bounded_and_prompt_has_core_safeguards() -> None:
@@ -318,7 +322,8 @@ def test_kids_profile_rejects_unbounded_values(kwargs: dict[str, Any], message: 
 
 
 def test_runtime_kids_mode_forces_moderated_pipeline_and_removes_private_tools() -> None:
-    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    robot = FakeRobot()
+    runtime = HermesVoiceRuntime(robot, threading.Event())
     runtime._audio_ready = True
     profile = KidsProfile(activity="quiz", duration_minutes=15, motion_enabled=True)
     config = AppConfig(
@@ -362,6 +367,7 @@ def test_runtime_kids_mode_forces_moderated_pipeline_and_removes_private_tools()
     assert runtime.status()["kids_mode"]["active"] is True  # type: ignore[index]
 
     stopped = runtime.stop_kids_mode(fold=False)
+    assert robot.cancel_calls == 1
     assert stopped["active"] is False
     assert stopped["locked"] is True
     assert stopped["last_end_reason"] == "parent"
