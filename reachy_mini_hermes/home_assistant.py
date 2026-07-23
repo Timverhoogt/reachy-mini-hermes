@@ -98,6 +98,7 @@ ENTITY_KEYS: dict[str, int] = {
     "camera_disabled": 109,
     "doa_tracking": 110,
     "continuous_conversation": 111,
+    "awake": 112,
     "doa_angle": 200,
     "speech_detected": 201,
     "control_loop_frequency": 202,
@@ -201,6 +202,7 @@ def entity_specs() -> tuple[EntitySpec, ...]:
         EntitySpec("text", "daemon_state", "Daemon State", "mdi:server"),
         EntitySpec("binary", "backend_ready", "Backend Ready", "mdi:check-network", device_class="connectivity"),
         EntitySpec("switch", "mute", "Mute", "mdi:microphone-off", writable=True),
+        EntitySpec("switch", "awake", "Awake", "mdi:power", writable=True),
         EntitySpec(
             "number",
             "speaker_volume",
@@ -1062,6 +1064,8 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
             return bool(getattr(self.runtime, "control_ready", False))
         if object_id == "mute":
             return str(status.get("power_mode") or "") in {"meeting", "sleep"}
+        if object_id == "awake":
+            return str(status.get("power_mode") or "") == "awake"
         if object_id == "speaker_volume":
             return self._volume()
         if object_id in self._CONFIG_SWITCHES:
@@ -1128,6 +1132,22 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
                     self.runtime.set_power_mode("meeting", duration_seconds=3600.0)
                     return True
                 return False
+            if object_id == "awake":
+                if not config.home_assistant_controls_enabled:
+                    return False
+                target = "awake" if bool(value) else "standby"
+                result = self.runtime.set_power_mode(target, duration_seconds=0.0)
+                if target == "awake":
+                    return (
+                        result.get("power_mode") == "awake"
+                        and result.get("motors_enabled") is True
+                        and result.get("head_safely_folded") is False
+                    )
+                return (
+                    result.get("power_mode") == "standby"
+                    and result.get("motors_enabled") is False
+                    and result.get("head_safely_folded") is True
+                )
             if object_id == "speaker_volume":
                 import httpx
 

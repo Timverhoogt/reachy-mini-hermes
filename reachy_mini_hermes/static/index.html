@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=36" />
+  <link rel="stylesheet" href="/static/style.css?v=37" />
 </head>
 <body>
   <main>
@@ -547,7 +547,7 @@
             <div class="settings-section">
               <p class="muted">Expose Reachy as the existing ESPHome device on your trusted LAN. The bridge is off by default and requires an app restart after changes.</p>
               <label class="toggle-row"><span><strong>ESPHome device bridge</strong><small>Publish compatible Reachy telemetry and entities to Home Assistant on TCP 6053</small></span><input id="home_assistant_enabled" name="home_assistant_enabled" type="checkbox" /></label>
-              <label class="toggle-row"><span><strong>Home Assistant robot controls</strong><small>Allow bounded commands only while Reachy is already Awake; never wakes or releases torque implicitly</small></span><input id="home_assistant_controls_enabled" name="home_assistant_controls_enabled" type="checkbox" /></label>
+              <label class="toggle-row"><span><strong>Home Assistant robot controls</strong><small>Allow the dedicated Awake switch to run guarded wake/standby transitions and permit bounded motion only while Reachy is Awake</small></span><input id="home_assistant_controls_enabled" name="home_assistant_controls_enabled" type="checkbox" /></label>
               <label class="toggle-row"><span><strong>Home Assistant camera</strong><small>Allow explicit ESPHome snapshots outside Meeting, Sleep, and Kids Mode</small></span><input id="home_assistant_camera_enabled" name="home_assistant_camera_enabled" type="checkbox" /></label>
               <label class="toggle-row"><span><strong>Home Assistant Assist satellite</strong><small>Let Home Assistant own wake-to-response audio instead of Hermes voice; experimental until supervised acceptance passes</small></span><input id="home_assistant_assist_enabled" name="home_assistant_assist_enabled" type="checkbox" /></label>
               <label>ESPHome API port<input id="home_assistant_port" name="home_assistant_port" type="number" min="1024" max="65535" step="1" value="6053" /><small>Keep 6053 unless another service already uses it.</small></label>
@@ -586,7 +586,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=36"></script>
-  <script src="/static/main.js?v=36"></script>
+  <script src="/static/camera.js?v=37"></script>
+  <script src="/static/main.js?v=37"></script>
 </body>
 </html>

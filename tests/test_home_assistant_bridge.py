@@ -107,6 +107,7 @@ def test_entity_contract_preserves_existing_keys_but_narrows_motion_limits() -> 
         "daemon_state",
         "backend_ready",
         "speaker_volume",
+        "awake",
         "camera_disabled",
         "head_x",
         "head_pitch",
@@ -123,7 +124,7 @@ def test_entity_contract_preserves_existing_keys_but_narrows_motion_limits() -> 
         assert object_id in specs
 
 
-def test_home_assistant_ui_exposes_nested_opt_ins_and_v35_assets() -> None:
+def test_home_assistant_ui_exposes_nested_opt_ins_and_v37_assets() -> None:
     root = Path(__file__).resolve().parents[1]
     static = root / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
@@ -140,12 +141,12 @@ def test_home_assistant_ui_exposes_nested_opt_ins_and_v35_assets() -> None:
     ):
         assert f'id="{element_id}"' in html
         assert element_id in script
-    assert "never wakes or releases torque implicitly" in html
+    assert "dedicated Awake switch to run guarded wake/standby transitions" in html
     assert "toggleHomeAssistantOptions" in script
-    assert "reachy-hermes-shell-v36" in worker
+    assert "reachy-hermes-shell-v37" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=36" in html
-        assert f'"/static/{asset}?v=36"' in worker
+        assert f"/static/{asset}?v=37" in html
+        assert f'"/static/{asset}?v=37"' in worker
 
 
 def test_runtime_provider_maps_native_daemon_telemetry_without_enabling_controls() -> None:
@@ -207,6 +208,46 @@ def test_runtime_provider_rejects_remote_motion_until_locally_enabled_and_awake(
     assert runtime.actions == [("body_yaw", 5.0)]
     assert provider.write("body_yaw", 40.0) is False
     assert runtime.actions == [("body_yaw", 5.0)]
+
+
+def test_runtime_provider_awake_switch_uses_guarded_verified_power_transitions() -> None:
+    class Runtime:
+        control_ready = True
+        robot = object()
+        mode = "standby"
+        calls: list[str] = []
+
+        def status(self) -> dict[str, object]:
+            return {
+                "power_mode": self.mode,
+                "state": "waiting_for_wake_word",
+                "last_error": "",
+                "motors_enabled": self.mode == "awake",
+                "head_safely_folded": self.mode != "awake",
+            }
+
+        def set_power_mode(self, mode: str, *, duration_seconds: float = 0.0) -> dict[str, object]:
+            del duration_seconds
+            self.calls.append(mode)
+            self.mode = mode
+            return self.status()
+
+    runtime = Runtime()
+    disabled = HermesHomeAssistantProvider(runtime, config_loader=AppConfig)
+    assert disabled.read("awake") is False
+    assert disabled.write("awake", True) is False
+    assert runtime.calls == []
+
+    enabled = HermesHomeAssistantProvider(
+        runtime,
+        config_loader=lambda: AppConfig(home_assistant_enabled=True, home_assistant_controls_enabled=True),
+    )
+    assert enabled.write("awake", True) is True
+    assert enabled.read("awake") is True
+    assert runtime.calls == ["awake"]
+    assert enabled.write("awake", False) is True
+    assert enabled.read("awake") is False
+    assert runtime.calls == ["awake", "standby"]
 
 
 def test_runtime_provider_camera_is_local_opt_in_and_keeps_privacy_failures_unavailable() -> None:
