@@ -233,3 +233,50 @@ def test_agent_broker_client_rejects_unverified_result_metadata(changed: dict[st
     client = make_client(handler)
     with pytest.raises(HermesBridgeError, match="invalid Agent Mode result"):
         client.execute_agent_capability("get_reachy_status", {}, context, request_id="agent-fixed-id")
+
+
+def test_agent_05_client_preview_current_and_action_contracts() -> None:
+    from reachy_mini_hermes.hermes_client import AgentBrokerContext
+
+    seen: list[tuple[str, dict[str, object]]] = []
+    run = {
+        "run_id": "run-" + "b" * 24,
+        "goal": "Check two sources",
+        "status": "preview",
+        "generation": 2,
+        "resumable": True,
+        "budgets": {"max_steps": 5},
+        "steps": [{"step_id": "step-1", "status": "queued"}],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append((request.url.path, body))
+        return httpx.Response(200, json={"run": run})
+
+    context = AgentBrokerContext(
+        capability_profile="agent",
+        adult_ui_unlocked=True,
+        kids_mode_active=False,
+        power_mode="standby",
+        privacy_enabled=True,
+        emergency_stop_active=False,
+        robot_available=True,
+        session_generation=2,
+        requested_session_generation=2,
+        explicit_private_intent=True,
+    )
+    client = make_client(handler)
+    assert client.preview_agent_run("Check two sources", context)["run_id"] == run["run_id"]
+    assert client.current_agent_run(context)["status"] == "preview"  # type: ignore[index]
+    assert client.agent_run_action(
+        "approve", str(run["run_id"]), context, step_id="step-1"
+    )["status"] == "preview"
+
+    assert [item[0] for item in seen] == [
+        "/v1/agent/run/preview",
+        "/v1/agent/run/current",
+        "/v1/agent/run/approve",
+    ]
+    assert seen[0][1]["goal"] == "Check two sources"
+    assert seen[2][1]["step_id"] == "step-1"

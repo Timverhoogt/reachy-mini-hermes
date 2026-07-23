@@ -157,6 +157,15 @@ class AgentPendingApprovalRequest(BaseModel):
     draft_id: str = Field(pattern=r"^draft-[0-9a-f]{24}$")
 
 
+class AgentRunPreviewRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=2_000)
+
+
+class AgentRunRequest(BaseModel):
+    run_id: str = Field(pattern=r"^run-[0-9a-f]{24}$")
+    step_id: str = Field(default="", pattern=r"^(?:|step-[1-5])$")
+
+
 class AgentReminderDeliveryRequest(BaseModel):
     item_id: str = Field(pattern=r"^(timer|reminder)-[0-9a-f]{16}$")
     text: str = Field(min_length=1, max_length=2_000)
@@ -349,6 +358,140 @@ class ReachyMiniHermes(ReachyMiniApp):
                 raise
             except Exception as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/agent/run/preview")
+        def preview_agent_run(
+            request: AgentRunPreviewRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            request_id = ""
+            context = None
+            try:
+                request_id, context = self._runtime._begin_agent_request("Agent 0.5 plan preview")
+                client = HermesBridgeClient(load_config())
+                try:
+                    client.establish_agent_session(context)
+                    run = client.preview_agent_run(request.goal, context, request_id=request_id)
+                finally:
+                    client.close()
+                if not self._runtime._finish_agent_request(
+                    request_id, context.session_generation, succeeded=True
+                ):
+                    raise HTTPException(status_code=423, detail="Agent run preview became stale")
+                self._runtime.record_agent_run_event("previewed", run)
+                return {"run": run}
+            except RuntimeError as exc:
+                raise HTTPException(status_code=423, detail=str(exc)) from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                if request_id and context is not None:
+                    self._runtime._finish_agent_request(
+                        request_id, context.session_generation, succeeded=False
+                    )
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        def agent_run_action(
+            action: str,
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str,
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            context = self._runtime.agent_broker_context(explicit_private_intent=True)
+            if context.capability_profile != "agent" or context.kids_mode_active:
+                raise HTTPException(status_code=423, detail="Agent run control is unavailable")
+            try:
+                client = HermesBridgeClient(load_config())
+                try:
+                    run = client.agent_run_action(
+                        action,
+                        request.run_id,
+                        context,
+                        step_id=request.step_id,
+                    )
+                finally:
+                    client.close()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            if not self._runtime.agent_session_is_current(context.session_generation):
+                raise HTTPException(status_code=423, detail="Agent run result became stale")
+            if action != "status":
+                self._runtime.record_agent_run_event(action, run)
+            return {"run": run}
+
+        @self.settings_app.post("/api/agent/run/current")
+        def agent_run_current(
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            context = self._runtime.agent_broker_context(explicit_private_intent=True)
+            if context.capability_profile != "agent" or context.kids_mode_active:
+                raise HTTPException(status_code=423, detail="Agent run control is unavailable")
+            try:
+                client = HermesBridgeClient(load_config())
+                try:
+                    run = client.current_agent_run(context)
+                finally:
+                    client.close()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            if not self._runtime.agent_session_is_current(context.session_generation):
+                raise HTTPException(status_code=423, detail="Agent run result became stale")
+            return {"run": run}
+
+        @self.settings_app.post("/api/agent/run/status")
+        def agent_run_status(
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            return agent_run_action("status", request, x_reachy_adult_ui)
+
+        @self.settings_app.post("/api/agent/run/start")
+        def agent_run_start(
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            return agent_run_action("start", request, x_reachy_adult_ui)
+
+        @self.settings_app.post("/api/agent/run/approve")
+        def agent_run_approve(
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if not request.step_id:
+                raise HTTPException(status_code=422, detail="step_id is required for approval")
+            return agent_run_action("approve", request, x_reachy_adult_ui)
+
+        @self.settings_app.post("/api/agent/run/pause")
+        def agent_run_pause(
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            return agent_run_action("pause", request, x_reachy_adult_ui)
+
+        @self.settings_app.post("/api/agent/run/resume")
+        def agent_run_resume(
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            return agent_run_action("resume", request, x_reachy_adult_ui)
+
+        @self.settings_app.post("/api/agent/run/cancel")
+        def agent_run_cancel(
+            request: AgentRunRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            return agent_run_action("cancel", request, x_reachy_adult_ui)
 
         @self.settings_app.post("/api/agent/approve")
         def approve_agent_action(

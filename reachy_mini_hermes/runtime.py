@@ -804,6 +804,29 @@ class HermesVoiceRuntime:
         with self._agent_lock:
             return generation == self._agent_session_generation
 
+    def record_agent_run_event(self, action: str, run: dict[str, object]) -> None:
+        """Record only run identity/status; never persist goals, arguments, or results."""
+        run_id = str(run.get("run_id") or "")[:32]
+        status = str(run.get("status") or "unknown")[:32]
+        with self._agent_lock:
+            self._agent_activity.append(
+                {
+                    "event": f"run_{action}"[:48],
+                    "generation": self._agent_session_generation,
+                    "run_id": run_id,
+                    "result_class": status,
+                }
+            )
+            del self._agent_activity[:-20]
+            if self._agent_audit is not None:
+                self._agent_audit.append(
+                    "agent_run",
+                    reason=action,
+                    session_generation=self._agent_session_generation,
+                    result_class=status,
+                    summary=f"{run_id}:{status}",
+                )
+
     def _record_agent_activity_unlocked(self, event: str) -> None:
         self._agent_activity.append({"event": event, "generation": self._agent_session_generation})
         del self._agent_activity[:-20]

@@ -362,3 +362,142 @@ def test_agent_audit_result_classes_match_request_outcomes(tmp_path) -> None:
     assert ("request_started", "running") in result_classes
     assert ("request_completed", "success") in result_classes
     assert ("request_failed", "failed") in result_classes
+
+
+def _agent_run_payload(status: str = "preview") -> dict[str, object]:
+    return {
+        "run_id": "run-" + "a" * 24,
+        "goal": "Check two safe sources",
+        "status": status,
+        "generation": 1,
+        "created_at": 1.0,
+        "started_at": None,
+        "completed_at": None,
+        "active_step_id": "",
+        "tool_calls_used": 0,
+        "side_effects_used": 0,
+        "resumable": True,
+        "budgets": {
+            "max_steps": 5,
+            "max_tool_calls": 5,
+            "max_side_effects": 2,
+            "max_seconds": 120,
+            "heartbeat_seconds": 15,
+        },
+        "steps": [
+            {
+                "step_id": "step-1",
+                "capability_id": "get_reachy_status",
+                "arguments": {},
+                "status": "queued",
+            }
+        ],
+    }
+
+
+def test_agent_run_preview_is_trusted_ui_only_and_releases_owner_slot(monkeypatch) -> None:
+    _app, runtime, client, _saved = build_client(monkeypatch)
+    runtime.set_capability_profile("agent", adult_ui_unlocked=True)
+    assert client.post("/api/agent/run/preview", json={"goal": "Check status"}).status_code == 403
+    seen: dict[str, object] = {}
+
+    class BridgeClient:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def establish_agent_session(self, context) -> None:
+            seen["generation"] = context.session_generation
+
+        def preview_agent_run(self, goal: str, context, *, request_id: str):
+            seen.update(goal=goal, request_id=request_id, context=context)
+            return _agent_run_payload()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(main_module, "HermesBridgeClient", BridgeClient)
+    response = client.post(
+        "/api/agent/run/preview",
+        headers={"X-Reachy-Adult-UI": "unlocked"},
+        json={"goal": "Check status"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["run"]["status"] == "preview"
+    assert seen["goal"] == "Check status"
+    assert str(seen["request_id"]).startswith("agent-")
+    with runtime._agent_lock:
+        assert runtime._agent_active_request_id == ""
+
+
+def test_agent_run_actions_use_private_context_and_reject_stale_result(monkeypatch) -> None:
+    _app, runtime, client, _saved = build_client(monkeypatch)
+    runtime.set_capability_profile("agent", adult_ui_unlocked=True)
+    calls: list[tuple[str, str, str, bool]] = []
+
+    class BridgeClient:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def agent_run_action(self, action: str, run_id: str, context, *, step_id: str = ""):
+            calls.append((action, run_id, step_id, context.explicit_private_intent))
+            return _agent_run_payload("running")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(main_module, "HermesBridgeClient", BridgeClient)
+    run_id = "run-" + "a" * 24
+    started = client.post(
+        "/api/agent/run/start",
+        headers={"X-Reachy-Adult-UI": "unlocked"},
+        json={"run_id": run_id},
+    )
+    approved = client.post(
+        "/api/agent/run/approve",
+        headers={"X-Reachy-Adult-UI": "unlocked"},
+        json={"run_id": run_id, "step_id": "step-1"},
+    )
+
+    assert started.status_code == 200
+    assert approved.status_code == 200
+    assert calls == [
+        ("start", run_id, "", True),
+        ("approve", run_id, "step-1", True),
+    ]
+
+    class RacingBridgeClient(BridgeClient):
+        def agent_run_action(self, action: str, run_id: str, context, *, step_id: str = ""):
+            runtime.cancel_agent_work("kids_mode")
+            return _agent_run_payload("running")
+
+    monkeypatch.setattr(main_module, "HermesBridgeClient", RacingBridgeClient)
+    stale = client.post(
+        "/api/agent/run/status",
+        headers={"X-Reachy-Adult-UI": "unlocked"},
+        json={"run_id": run_id},
+    )
+    assert stale.status_code == 423
+
+
+def test_agent_05_trusted_ui_exposes_preview_budget_progress_and_control() -> None:
+    root = main_module._STATIC_DIR
+    html = (root / "index.html").read_text(encoding="utf-8")
+    script = (root / "main.js").read_text(encoding="utf-8")
+    worker = (root / "service-worker.js").read_text(encoding="utf-8")
+    for element_id in (
+        "agent-run-goal",
+        "agent-run-preview-button",
+        "agent-run-start-button",
+        "agent-run-pause-button",
+        "agent-run-resume-button",
+        "agent-run-cancel-button",
+        "agent-run-steps",
+        "agent-run-budget",
+    ):
+        assert f'id="{element_id}"' in html
+        assert element_id in script
+    assert "/api/agent/run/status" in script
+    assert "/api/agent/run/current" in script
+    assert "Approve this exact step once?" in script
+    assert "reachy-hermes-shell-v39" in worker

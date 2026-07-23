@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=38">
+  <link rel="stylesheet" href="/static/style.css?v=39">
 </head>
 <body>
   <main>
@@ -74,6 +74,25 @@
           <button type="button" id="agent-enable-button">Start fresh Agent session</button>
           <button type="button" id="agent-stop-button" class="danger">Stop Agent</button>
         </div>
+        <section class="agent-run-sheet" aria-labelledby="agent-run-heading">
+          <div class="section-heading">
+            <div><p class="label">Agent 0.5</p><h3 id="agent-run-heading">Bounded multi-step run</h3></div>
+            <span id="agent-run-badge" class="badge">No plan</span>
+          </div>
+          <label for="agent-run-goal">Goal</label>
+          <textarea id="agent-run-goal" maxlength="2000" rows="3" placeholder="Check Reachy's status and list the currently available Agent capabilities."></textarea>
+          <p class="muted">Preview creates an exact 1–5 step plan. Nothing runs until Start. Maximum: 5 tool calls, 2 side effects, 120 seconds. Approval-gated steps pause separately.</p>
+          <div class="actions left-actions">
+            <button type="button" id="agent-run-preview-button">Preview plan</button>
+            <button type="button" id="agent-run-start-button" disabled>Start</button>
+            <button type="button" id="agent-run-pause-button" class="secondary" disabled>Pause</button>
+            <button type="button" id="agent-run-resume-button" class="secondary" disabled>Resume</button>
+            <button type="button" id="agent-run-cancel-button" class="danger" disabled>Cancel run</button>
+          </div>
+          <div id="agent-run-budget" class="muted compact-note">No run budget in use.</div>
+          <ol id="agent-run-steps" class="agent-activity"><li>Preview a plan to inspect every exact step.</li></ol>
+          <button type="button" id="agent-run-approve-button" hidden>Approve waiting step exactly</button>
+        </section>
         <div class="agent-status-grid">
           <div><span class="label">Enabled capabilities</span><p id="agent-capabilities" class="quote">None</p></div>
           <div><span class="label">Current task</span><p id="agent-current-task" class="quote">—</p></div>
@@ -586,7 +605,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=38"></script>
-  <script src="/static/main.js?v=38"></script>
+  <script src="/static/camera.js?v=39"></script>
+  <script src="/static/main.js?v=39"></script>
 </body>
 </html>

@@ -124,7 +124,7 @@ def test_entity_contract_preserves_existing_keys_but_narrows_motion_limits() -> 
         assert object_id in specs
 
 
-def test_home_assistant_ui_exposes_nested_opt_ins_and_v38_assets() -> None:
+def test_home_assistant_ui_exposes_nested_opt_ins_and_v39_assets() -> None:
     root = Path(__file__).resolve().parents[1]
     static = root / "reachy_mini_hermes" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
@@ -143,10 +143,10 @@ def test_home_assistant_ui_exposes_nested_opt_ins_and_v38_assets() -> None:
         assert element_id in script
     assert "dedicated Awake switch to run guarded wake/standby transitions" in html
     assert "toggleHomeAssistantOptions" in script
-    assert "reachy-hermes-shell-v38" in worker
+    assert "reachy-hermes-shell-v39" in worker
     for asset in ("style.css", "camera.js", "main.js"):
-        assert f"/static/{asset}?v=38" in html
-        assert f'"/static/{asset}?v=38"' in worker
+        assert f"/static/{asset}?v=39" in html
+        assert f'"/static/{asset}?v=39"' in worker
 
 
 def test_runtime_provider_maps_native_daemon_telemetry_without_enabling_controls() -> None:

@@ -30,6 +30,49 @@ let agentProfileActive = false;
 let runtimeAgentActivity = [];
 let brokerAgentActivity = [];
 let pendingAgentApproval = null;
+let agentRunRequestPending = false;
+let currentAgentRun = null;
+let agentRunId = window.sessionStorage.getItem("reachy-hermes-agent-run-id") || "";
+
+function renderAgentRun() {
+  const run = currentAgentRun;
+  const badge = $("agent-run-badge");
+  const steps = $("agent-run-steps");
+  steps.replaceChildren();
+  if (!run) {
+    badge.textContent = "No plan";
+    $("agent-run-budget").textContent = "No run budget in use.";
+    steps.appendChild(Object.assign(document.createElement("li"), {
+      textContent: "Preview a plan to inspect every exact step.",
+    }));
+  } else {
+    badge.textContent = String(run.status || "unknown").replaceAll("_", " ");
+    const budgets = run.budgets || {};
+    $("agent-run-budget").textContent = `${Number(run.tool_calls_used || 0)} / ${Number(budgets.max_tool_calls || 5)} tool calls · ${Number(run.side_effects_used || 0)} / ${Number(budgets.max_side_effects || 2)} side effects · ${Number(budgets.max_seconds || 120)}s ceiling · ${String(run.summary || "")}`;
+    (run.steps || []).forEach((step, index) => {
+      const row = document.createElement("li");
+      row.dataset.status = String(step.status || "queued");
+      const approval = step.requires_approval ? " · phone approval" : "";
+      const exactArguments = JSON.stringify(step.arguments || {});
+      const evidence = (step.evidence_sources || []).length
+        ? ` · evidence: ${step.evidence_sources.join(", ")}${step.verified ? " · verified" : ""}`
+        : "";
+      row.textContent = `${index + 1}. ${String(step.capability_id || "step").replaceAll("_", " ")} · ${String(step.status || "queued").replaceAll("_", " ")}${approval} · ${exactArguments}${evidence}`;
+      steps.appendChild(row);
+    });
+  }
+  const status = run?.status || "";
+  const activeStep = (run?.steps || []).find((step) => step.step_id === run.active_step_id);
+  $("agent-run-preview-button").disabled = !agentProfileActive || agentRunRequestPending || (run && !["completed", "partial", "failed", "cancelled"].includes(status));
+  $("agent-run-start-button").disabled = agentRunRequestPending || status !== "preview";
+  $("agent-run-pause-button").disabled = agentRunRequestPending || !["running", "waiting_approval"].includes(status);
+  $("agent-run-resume-button").disabled = agentRunRequestPending || status !== "paused" || run?.resumable !== true;
+  $("agent-run-cancel-button").disabled = agentRunRequestPending || !run || ["completed", "partial", "failed", "cancelled"].includes(status);
+  $("agent-run-approve-button").hidden = status !== "waiting_approval" || activeStep?.status !== "waiting_approval";
+  $("agent-run-approve-button").textContent = activeStep
+    ? `Approve step ${String(activeStep.step_id).replace("step-", "")} exactly`
+    : "Approve waiting step exactly";
+}
 
 function renderAgentActivity() {
   const activity = $("agent-activity");
@@ -69,6 +112,11 @@ $("agent-conversation-button").disabled = true;
 $("agent-enable-button").disabled = true;
 $("agent-stop-button").disabled = true;
 $("agent-approve-button").disabled = true;
+[
+  "agent-run-preview-button", "agent-run-start-button", "agent-run-pause-button",
+  "agent-run-resume-button", "agent-run-cancel-button", "agent-run-approve-button",
+].forEach((id) => { $(id).disabled = true; });
+renderAgentRun();
 [
   "bluetooth-scan-button", "bluetooth-pair-button", "bluetooth-connect-button",
   "bluetooth-disconnect-button", "bluetooth-remove-button", "gamepad-enabled",
@@ -293,6 +341,7 @@ function updateStatus(payload) {
   $("agent-conversation-button").disabled = agentBlocked || agentProfile === "conversation";
   $("agent-enable-button").disabled = agentBlocked || agentProfile === "agent";
   $("agent-stop-button").disabled = agentRequestPending;
+  renderAgentRun();
   const robotBusy = Boolean(runtime.robot_action_busy);
   const motorsEnabled = runtime.motors_enabled;
   const headSafelyFolded = Boolean(runtime.head_safely_folded);
@@ -578,14 +627,44 @@ async function refreshStatus() {
   }
 }
 
+async function refreshAgentRun() {
+  if (!agentProfileActive || agentRunRequestPending) return;
+  try {
+    const endpoint = agentRunId ? "/api/agent/run/status" : "/api/agent/run/current";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Reachy-Adult-UI": "unlocked" },
+      body: agentRunId ? JSON.stringify({ run_id: agentRunId }) : undefined,
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    currentAgentRun = body.run || null;
+    if (currentAgentRun?.run_id) {
+      agentRunId = String(currentAgentRun.run_id);
+      window.sessionStorage.setItem("reachy-hermes-agent-run-id", agentRunId);
+    }
+    renderAgentRun();
+  } catch (error) {
+    currentAgentRun = null;
+    agentRunId = "";
+    window.sessionStorage.removeItem("reachy-hermes-agent-run-id");
+    renderAgentRun();
+  }
+}
+
 async function refreshAgentActivity() {
   if (!agentProfileActive) {
     brokerAgentActivity = [];
     pendingAgentApproval = null;
+    currentAgentRun = null;
+    agentRunId = "";
+    window.sessionStorage.removeItem("reachy-hermes-agent-run-id");
     $("agent-approval-sheet").hidden = true;
     renderAgentActivity();
+    renderAgentRun();
     return;
   }
+  await refreshAgentRun();
   try {
     const response = await fetch("/api/agent/activity", {
       cache: "no-store",
@@ -1186,8 +1265,105 @@ $("robot-stop-button").addEventListener("click", async () => {
   }
 });
 
+async function previewAgentRun() {
+  if (agentRunRequestPending || !agentProfileActive) return;
+  const goal = $("agent-run-goal").value.trim();
+  if (!goal) {
+    $("agent-message").textContent = "Enter a concrete goal before previewing a plan.";
+    $("agent-message").className = "message error";
+    return;
+  }
+  agentRunRequestPending = true;
+  renderAgentRun();
+  const message = $("agent-message");
+  message.textContent = "Creating an exact bounded plan; nothing is running yet…";
+  message.className = "message";
+  try {
+    const response = await fetch("/api/agent/run/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Reachy-Adult-UI": "unlocked" },
+      body: JSON.stringify({ goal }),
+    });
+    const body = await response.json();
+    if (!response.ok || !body.run) throw new Error(body.detail || `HTTP ${response.status}`);
+    currentAgentRun = body.run;
+    agentRunId = String(body.run.run_id || "");
+    window.sessionStorage.setItem("reachy-hermes-agent-run-id", agentRunId);
+    message.textContent = "Plan ready. Review every step and exact argument, then press Start.";
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    agentRunRequestPending = false;
+    renderAgentRun();
+  }
+}
+
+async function sendAgentRunAction(action, stepId = "") {
+  if (agentRunRequestPending || !currentAgentRun || !agentRunId) return;
+  agentRunRequestPending = true;
+  renderAgentRun();
+  const message = $("agent-message");
+  const labels = {
+    start: "Starting the reviewed plan…",
+    pause: "Pausing after cancellation reaches the current bounded step…",
+    resume: "Resuming the unchanged generation-bound plan…",
+    cancel: "Cancelling the run and every queued step…",
+    approve: "Applying one exact phone approval…",
+  };
+  message.textContent = labels[action] || "Updating Agent run…";
+  message.className = "message";
+  try {
+    const response = await fetch(`/api/agent/run/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Reachy-Adult-UI": "unlocked" },
+      body: JSON.stringify({ run_id: agentRunId, ...(stepId ? { step_id: stepId } : {}) }),
+    });
+    const body = await response.json();
+    if (!response.ok || !body.run) throw new Error(body.detail || `HTTP ${response.status}`);
+    currentAgentRun = body.run;
+    message.textContent = action === "approve"
+      ? "Exact step approved; the bounded run will continue until its next boundary."
+      : `Agent run ${String(body.run.status || action).replaceAll("_", " ")}.`;
+    message.className = "message ok";
+  } catch (error) {
+    message.textContent = String(error);
+    message.className = "message error";
+  } finally {
+    agentRunRequestPending = false;
+    renderAgentRun();
+    window.setTimeout(refreshAgentRun, 350);
+  }
+}
+
+$("agent-run-preview-button").addEventListener("click", previewAgentRun);
+$("agent-run-start-button").addEventListener("click", () => sendAgentRunAction("start"));
+$("agent-run-pause-button").addEventListener("click", () => sendAgentRunAction("pause"));
+$("agent-run-resume-button").addEventListener("click", () => sendAgentRunAction("resume"));
+$("agent-run-cancel-button").addEventListener("click", () => {
+  if (window.confirm("Cancel this run? Queued steps will not execute and the run cannot resume.")) {
+    sendAgentRunAction("cancel");
+  }
+});
+$("agent-run-approve-button").addEventListener("click", () => {
+  const step = (currentAgentRun?.steps || []).find((item) => item.step_id === currentAgentRun.active_step_id);
+  if (!step) return;
+  const exact = `${String(step.capability_id).replaceAll("_", " ")}\n${JSON.stringify(step.arguments || {}, null, 2)}`;
+  if (window.confirm(`Approve this exact step once?\n\n${exact}`)) {
+    sendAgentRunAction("approve", step.step_id);
+  }
+});
+
 async function setAgentProfile(profile) {
-  if (agentRequestPending) return;
+  if (agentRequestPending || agentRunRequestPending) return;
+  const runStatus = currentAgentRun?.status || "";
+  if (
+    profile !== "agent"
+    && currentAgentRun
+    && !["completed", "partial", "failed", "cancelled"].includes(runStatus)
+    && !window.confirm("Leaving Agent Mode invalidates this run and every pending approval. Continue?")
+  ) return;
   agentRequestPending = true;
   const message = $("agent-message");
   message.textContent = profile === "agent" ? "Starting a fresh Agent session…" : "Returning to Conversation…";

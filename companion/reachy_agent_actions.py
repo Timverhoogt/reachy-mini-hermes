@@ -550,6 +550,7 @@ class AgentActionService:
                 "timer_id": item_id,
                 "due_at": now + seconds,
                 "label": str(arguments.get("label", "")),
+                "verified": True,
             }
             async with self._lock:
                 self._timers[key][item_id] = item
@@ -573,7 +574,7 @@ class AgentActionService:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             return (
-                {"timer_id": item["timer_id"], "cancelled": True},
+                {"timer_id": item["timer_id"], "cancelled": True, "verified": True},
                 [{"source": "agent_timer", "observed_at": now}],
                 now,
                 True,
@@ -587,6 +588,7 @@ class AgentActionService:
                 "reminder_id": item_id,
                 "due_at": now + seconds,
                 "text": str(arguments["text"]),
+                "verified": True,
             }
             async with self._lock:
                 self._reminders[key][item_id] = item
@@ -610,7 +612,7 @@ class AgentActionService:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             return (
-                {"reminder_id": item["reminder_id"], "cancelled": True},
+                {"reminder_id": item["reminder_id"], "cancelled": True, "verified": True},
                 [{"source": "agent_reminder", "observed_at": now}],
                 now,
                 True,
@@ -623,7 +625,7 @@ class AgentActionService:
             data, evidence, observed, _ = await self.execute(
                 undo.capability_id, undo.arguments, http, device_id=device_id, generation=generation
             )
-            return {"undone": undo.capability_id, "result": data}, evidence, observed, True
+            return {"undone": undo.capability_id, "result": data, "verified": True}, evidence, observed, True
         if capability_id == "append_scoped_note":
             return await asyncio.to_thread(self._append_note, arguments)
         if capability_id == "list_calendar_events":

@@ -442,6 +442,16 @@ def _validate_arguments(capability_id: str, arguments: Mapping[str, object]) -> 
             raise BrokerValidationError("entity_ids must be an array of at most 20 strings")
 
 
+def validate_capability_arguments(capability_id: str, arguments: Mapping[str, object]) -> None:
+    """Validate one broker call without executing it (used by Agent 0.5 previews)."""
+    _validate_arguments(capability_id, arguments)
+
+
+def capability_requires_private_intent(capability_id: str) -> bool:
+    """Return whether previewing/executing a capability needs explicit private intent."""
+    return capability_id in _PRIVATE_CAPABILITIES
+
+
 class ReachyAgentBroker:
     """Execute only the fixed owner surface and retain sanitized activity."""
 

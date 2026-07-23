@@ -34,18 +34,24 @@ try:
         BrokerUnavailableError,
         BrokerValidationError,
         ReachyAgentBroker,
+        capability_requires_private_intent,
         new_request_id,
         redact_payload,
+        validate_capability_arguments,
     )
+    from companion.reachy_agent_runs import AgentRunManager, AgentRunValidationError
 except ModuleNotFoundError:  # Direct script execution adds companion/ to sys.path.
     from reachy_agent_broker import (  # type: ignore[no-redef]
         BrokerRequest,
         BrokerUnavailableError,
         BrokerValidationError,
         ReachyAgentBroker,
+        capability_requires_private_intent,
         new_request_id,
         redact_payload,
+        validate_capability_arguments,
     )
+    from reachy_agent_runs import AgentRunManager, AgentRunValidationError  # type: ignore[no-redef]
 
 _LOGGER = logging.getLogger("hermes_reachy_bridge")
 _MAX_AUDIO_BYTES = 25 * 1024 * 1024
@@ -685,6 +691,7 @@ class Bridge:
         self._kids_sessions: dict[str, dict[str, Any]] = {}
         self._kids_speech_approvals: dict[str, dict[str, Any]] = {}
         self.agent_broker = ReachyAgentBroker()
+        self.agent_runs = AgentRunManager()
         self._broker_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
         self._broker_tasks_lock = asyncio.Lock()
         self._agent_ask_timeout_seconds = max(
@@ -728,6 +735,7 @@ class Bridge:
         self.http = ClientSession(timeout=ClientTimeout(total=180, connect=10))
 
     async def stop(self, app: web.Application) -> None:
+        await self.agent_runs.shutdown()
         async with self._broker_tasks_lock:
             tasks = list(self._broker_tasks.values())
             self._broker_tasks.clear()
@@ -1672,8 +1680,13 @@ class Bridge:
                     "approval. Media also requires fresh phone approval. Write the text field as a short, natural "
                     "spoken reply: do not read internal capability IDs, schemas, or provenance labels aloud. If an "
                     "action is only staged, say clearly that it has not happened and is waiting in the phone app. "
-                    "If evidence is insufficient, say what could not be verified and suggest one useful next step. "
-                    "Keep provenance only in used_capabilities."
+                    "For a request needing multiple capabilities, issue every complete known call together in "
+                    "the first tool batch; Agent 0.5 will stage that batch for phone review instead of executing "
+                    "it. The preview "
+                    "is the exact draft for calendar, message, and note writes, so use their final approval-gated "
+                    "capabilities rather than draft capabilities in a multi-step batch. Never split a multi-step "
+                    "request into adaptive hidden calls. If evidence is insufficient, say what could not be verified "
+                    "and suggest one useful next step. Keep provenance only in used_capabilities."
                 ),
             },
             {"role": "user", "content": text[:2_000]},
@@ -1689,7 +1702,7 @@ class Bridge:
         generation = context.get("session_generation")
         if type(generation) is not int:
             raise BrokerValidationError("invalid Agent Mode generation")
-        for _ in range(4):
+        for round_index in range(4):
             async with self.http.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers=headers,
@@ -1785,8 +1798,9 @@ class Bridge:
                 if not isinstance(redacted, str) or not redacted:
                     raise BrokerValidationError("Agent Mode answer failed DLP validation")
                 return redacted
-            if not isinstance(tool_calls, list) or len(tool_calls) > 4:
+            if not isinstance(tool_calls, list) or len(tool_calls) > 5:
                 raise BrokerValidationError("Agent Mode requested an invalid tool batch")
+            parsed_calls: list[tuple[str, str, dict[str, object]]] = []
             for call in tool_calls:
                 try:
                     call_id = str(call["id"])
@@ -1795,6 +1809,36 @@ class Bridge:
                     arguments = json.loads(function.get("arguments") or "{}")
                 except (KeyError, TypeError, json.JSONDecodeError) as exc:
                     raise BrokerValidationError("Agent Mode requested an invalid broker call") from exc
+                if not isinstance(arguments, dict):
+                    raise BrokerValidationError("Agent Mode requested invalid broker arguments")
+                parsed_calls.append((call_id, capability_id, arguments))
+            if round_index > 0:
+                raise BrokerValidationError(
+                    "Agent Mode refused an adaptive hidden step; request an Agent 0.5 plan preview"
+                )
+            if round_index == 0 and len(parsed_calls) > 1:
+                for _, capability_id, _ in parsed_calls:
+                    if capability_requires_private_intent(capability_id) and not _has_explicit_private_intent(
+                        text, capability_id
+                    ):
+                        raise BrokerValidationError("Agent run plan requires explicit private-data intent")
+                await self.agent_runs.create(
+                    device_id=device_id,
+                    context=context,
+                    goal=text,
+                    planned_calls=[
+                        {"capability_id": capability_id, "arguments": arguments}
+                        for _, capability_id, arguments in parsed_calls
+                    ],
+                    manifest=self.agent_broker.manifest(),
+                    validate_arguments=validate_capability_arguments,
+                )
+                await self.agent_broker.assert_current(device_id, generation)
+                return (
+                    f"I prepared a {len(parsed_calls)}-step plan. Nothing has run yet; "
+                    "review the exact steps and press Start in the phone app."
+                )
+            for call_id, capability_id, arguments in parsed_calls:
                 result = await self.agent_broker.execute(
                     {
                         "request_id": new_request_id(),
@@ -1883,6 +1927,225 @@ class Bridge:
             raise web.HTTPGatewayTimeout(text="Agent Mode response timed out") from exc
         except asyncio.CancelledError:
             return web.json_response({"ok": False, "error": "cancelled"}, status=499)
+
+    async def _plan_agent_run(self, goal: str) -> list[dict[str, object]]:
+        """Ask the model for one exact bounded tool batch without executing it."""
+        if self.http is None:
+            raise RuntimeError("Bridge HTTP client is not ready")
+        openai_key = _resolve_secret("OPENAI_API_KEY", self.profile)
+        if not openai_key:
+            raise BrokerUnavailableError("Agent Mode model access is not configured")
+        manifest = self.agent_broker.manifest()
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": capability["id"],
+                    "description": capability["description"],
+                    "parameters": capability["arguments_schema"],
+                    "strict": False,
+                },
+            }
+            for capability in manifest
+        ]
+        model = os.getenv("REACHY_AGENT_MODEL", "gpt-5-mini").strip() or "gpt-5-mini"
+        headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
+        async with self.http.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Create an exact bounded Agent 0.5 plan. Return only one batch of 1-5 supplied "
+                            "function calls in execution order; do not answer in prose and do not execute "
+                            "anything. Include only steps whose complete arguments are already known from the "
+                            "goal. Do not invent entity IDs, recipients, paths, URLs, timer IDs, reminder IDs, "
+                            "or private facts. Do not schedule recursive agent work, install tools, request "
+                            "camera/microphone access, or widen permissions. Prefer read-only evidence before "
+                            "actions. The preview itself is the exact draft for calendar, message, and note writes: "
+                            "use create_calendar_event, send_approved_message, or append_scoped_note directly and "
+                            "never include draft_calendar_event, draft_message, or draft_note in a run. Every "
+                            "approval-gated call will pause separately in the trusted phone UI. If the goal cannot "
+                            "be represented safely "
+                            "with these tools, make one get_agent_capabilities call so the preview remains "
+                            "non-consequential."
+                        ),
+                    },
+                    {"role": "user", "content": goal[:2_000]},
+                ],
+                "tools": tools,
+                "tool_choice": "required",
+                "parallel_tool_calls": True,
+                "max_completion_tokens": 1_200,
+            },
+        ) as response:
+            body = await response.json(content_type=None)
+            status = response.status
+        if status != 200:
+            error = body.get("error") if isinstance(body, dict) else None
+            error_code = str(error.get("code") or "")[:80] if isinstance(error, dict) else ""
+            error_type = str(error.get("type") or "")[:80] if isinstance(error, dict) else ""
+            _LOGGER.warning(
+                "Agent run planner provider rejected the request (status=%s type=%s code=%s)",
+                status,
+                error_type or "unknown",
+                error_code or "unknown",
+            )
+            raise BrokerUnavailableError("Agent run planning is unavailable")
+        try:
+            message = body["choices"][0]["message"]
+            tool_calls = message["tool_calls"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise BrokerValidationError("Agent run planner returned invalid data") from exc
+        if not isinstance(tool_calls, list) or not 1 <= len(tool_calls) <= 5:
+            raise BrokerValidationError("Agent run planner exceeded the step budget")
+        planned: list[dict[str, object]] = []
+        for call in tool_calls:
+            try:
+                function = call["function"]
+                capability_id = str(function["name"])
+                arguments = json.loads(function.get("arguments") or "{}")
+            except (KeyError, TypeError, json.JSONDecodeError) as exc:
+                raise BrokerValidationError("Agent run planner returned an invalid step") from exc
+            if not isinstance(arguments, dict):
+                raise BrokerValidationError("Agent run planner arguments must be an object")
+            if capability_requires_private_intent(capability_id) and not _has_explicit_private_intent(
+                goal, capability_id
+            ):
+                raise BrokerValidationError("Agent run plan requires explicit private-data intent")
+            planned.append({"capability_id": capability_id, "arguments": arguments})
+        return planned
+
+    async def broker_run_preview(self, request: web.Request) -> web.Response:
+        self.require_auth(request)
+        if self.http is None:
+            raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        device_id = _device_id(request)
+        request_id = ""
+        generation: int | None = None
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict) or set(payload) != {"request_id", "goal", "context"}:
+                raise BrokerValidationError("run preview request has an invalid shape")
+            request_id = str(payload["request_id"])
+            goal = str(payload["goal"]).strip()
+            context = payload["context"]
+            if (
+                not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", request_id)
+                or not goal
+                or len(goal) > 2_000
+                or not isinstance(context, dict)
+            ):
+                raise BrokerValidationError("invalid Agent run preview request")
+            parsed = await self.agent_broker.register_request(device_id, context, request_id)
+            generation = parsed.session_generation
+            try:
+                self.agent_broker.authorize_context(parsed)
+                planned = await asyncio.wait_for(
+                    self._plan_agent_run(goal), timeout=self._agent_ask_timeout_seconds
+                )
+                run = await self.agent_runs.create(
+                    device_id=device_id,
+                    context=parsed,
+                    goal=goal,
+                    planned_calls=planned,
+                    manifest=self.agent_broker.manifest(),
+                    validate_arguments=validate_capability_arguments,
+                )
+            finally:
+                await self.agent_broker.unregister_request(device_id, parsed.session_generation, request_id)
+            await self.agent_broker.assert_current(device_id, generation)
+            return web.json_response(
+                {"run": run}, headers={"Cache-Control": "no-store"}
+            )
+        except (BrokerValidationError, AgentRunValidationError) as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+        except BrokerUnavailableError as exc:
+            raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+        except TimeoutError as exc:
+            raise web.HTTPGatewayTimeout(text="Agent run planning timed out") from exc
+
+    async def _run_request(self, request: web.Request, action: str) -> web.Response:
+        self.require_auth(request)
+        if self.http is None:
+            raise web.HTTPServiceUnavailable(text="Bridge HTTP client is not ready")
+        device_id = _device_id(request)
+        try:
+            payload = await request.json()
+            allowed = {"context", "run_id"} | ({"step_id"} if action == "approve" else set())
+            if not isinstance(payload, dict) or set(payload) != allowed:
+                raise BrokerValidationError("Agent run request has an invalid shape")
+            context_payload = payload["context"]
+            if not isinstance(context_payload, dict):
+                raise BrokerValidationError("Agent run context must be an object")
+            parsed = await self.agent_broker.establish_session(device_id, context_payload)
+            self.agent_broker.authorize_context(parsed)
+            run_id = str(payload["run_id"])
+            if action == "status":
+                run = await self.agent_runs.status(device_id, parsed, run_id)
+            elif action == "start" or action == "resume":
+                run = await self.agent_runs.start(
+                    device_id, parsed, run_id, self.agent_broker, self.http
+                )
+            elif action == "approve":
+                run = await self.agent_runs.approve(
+                    device_id,
+                    parsed,
+                    run_id,
+                    str(payload["step_id"]),
+                    self.agent_broker,
+                    self.http,
+                )
+            elif action == "pause":
+                run = await self.agent_runs.pause(device_id, parsed, run_id, self.agent_broker)
+            elif action == "cancel":
+                run = await self.agent_runs.cancel(device_id, parsed, run_id, self.agent_broker)
+            else:
+                raise BrokerValidationError("unknown Agent run action")
+            return web.json_response(
+                {"run": run}, headers={"Cache-Control": "no-store"}
+            )
+        except (BrokerValidationError, AgentRunValidationError) as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+        except BrokerUnavailableError as exc:
+            raise web.HTTPServiceUnavailable(text=str(exc)) from exc
+
+    async def broker_run_status(self, request: web.Request) -> web.Response:
+        return await self._run_request(request, "status")
+
+    async def broker_run_current(self, request: web.Request) -> web.Response:
+        self.require_auth(request)
+        device_id = _device_id(request)
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict) or set(payload) != {"context"}:
+                raise BrokerValidationError("current Agent run request has an invalid shape")
+            parsed = await self.agent_broker.establish_session(device_id, payload["context"])
+            self.agent_broker.authorize_context(parsed)
+            run = await self.agent_runs.status(device_id, parsed)
+            return web.json_response(
+                {"run": run}, headers={"Cache-Control": "no-store"}
+            )
+        except (BrokerValidationError, AgentRunValidationError) as exc:
+            raise web.HTTPForbidden(text=str(exc)) from exc
+
+    async def broker_run_start(self, request: web.Request) -> web.Response:
+        return await self._run_request(request, "start")
+
+    async def broker_run_approve(self, request: web.Request) -> web.Response:
+        return await self._run_request(request, "approve")
+
+    async def broker_run_pause(self, request: web.Request) -> web.Response:
+        return await self._run_request(request, "pause")
+
+    async def broker_run_resume(self, request: web.Request) -> web.Response:
+        return await self._run_request(request, "resume")
+
+    async def broker_run_cancel(self, request: web.Request) -> web.Response:
+        return await self._run_request(request, "cancel")
 
     async def realtime(self, request: web.Request) -> web.StreamResponse:
         """Proxy a private Reachy audio session to OpenAI Realtime.
@@ -2458,6 +2721,14 @@ def create_app(*, api_key: str, hermes_url: str, profile: str | None = None) -> 
     app.router.add_post("/v1/agent/pending-approval", bridge.broker_pending_approval)
     app.router.add_post("/v1/agent/approve-pending", bridge.broker_approve_pending)
     app.router.add_post("/v1/agent/ask", bridge.broker_ask)
+    app.router.add_post("/v1/agent/run/preview", bridge.broker_run_preview)
+    app.router.add_post("/v1/agent/run/current", bridge.broker_run_current)
+    app.router.add_post("/v1/agent/run/status", bridge.broker_run_status)
+    app.router.add_post("/v1/agent/run/start", bridge.broker_run_start)
+    app.router.add_post("/v1/agent/run/approve", bridge.broker_run_approve)
+    app.router.add_post("/v1/agent/run/pause", bridge.broker_run_pause)
+    app.router.add_post("/v1/agent/run/resume", bridge.broker_run_resume)
+    app.router.add_post("/v1/agent/run/cancel", bridge.broker_run_cancel)
     app.router.add_post("/v1/agent/cancel/{request_id}", bridge.broker_cancel)
     app.router.add_post("/v1/chat/completions", bridge.chat)
     app.router.add_post("/v1/kids/chat", bridge.kids_chat)

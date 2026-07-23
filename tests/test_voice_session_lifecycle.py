@@ -155,6 +155,9 @@ def test_pipeline_wake_session_completes_first_turn_after_agent_generation_chang
             calls.append("close")
 
     monkeypatch.setattr("reachy_mini_hermes.runtime.HermesBridgeClient", Client)
+    # This test exercises local generation invalidation and the first voice turn,
+    # not the best-effort remote lease publisher's daemon thread.
+    runtime._publish_remote_agent_session = lambda: None  # type: ignore[method-assign]
     runtime._record_utterance = lambda config: EndpointResult(  # type: ignore[method-assign]
         np.ones(160, dtype=np.float32), True, "end_silence", 0.01
     )

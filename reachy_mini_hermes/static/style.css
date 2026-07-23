@@ -307,6 +307,15 @@ body.camera-app-fullscreen-active { overflow: hidden; }
 .message.error { color: #ff7582; }
 .conversation-card { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .agent-card .actions { margin: 18px 0; }
+.agent-run-sheet { margin: 18px 0; padding: 16px; border: 1px solid #36c7f466; border-radius: 14px; background: #07182288; }
+.agent-run-sheet textarea { margin-top: 7px; }
+.agent-run-sheet .section-heading { margin-bottom: 12px; }
+.agent-run-sheet .agent-activity { max-height: 320px; overflow: auto; }
+.agent-run-sheet .agent-activity li { margin: 7px 0; }
+.agent-run-sheet .agent-activity li[data-status="completed"] { color: #55dda8; }
+.agent-run-sheet .agent-activity li[data-status="failed"],
+.agent-run-sheet .agent-activity li[data-status="uncertain"] { color: #ff7582; }
+.agent-run-sheet .agent-activity li[data-status="waiting_approval"] { color: #f2b84b; }
 .agent-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; }
 .agent-status-grid > div { padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: #080a0f88; }
 .agent-approval-sheet { margin: 16px 0; padding: 16px; border: 1px solid #f2b84b88; border-radius: 14px; background: #251b0788; }

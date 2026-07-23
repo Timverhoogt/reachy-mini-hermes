@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import time
 import uuid
 from collections.abc import Callable, Iterator
@@ -404,6 +405,70 @@ class HermesBridgeClient:
         if not text:
             raise HermesBridgeError("Hermes returned an empty Agent Mode response")
         return text
+
+    def preview_agent_run(
+        self,
+        goal: str,
+        context: AgentBrokerContext,
+        *,
+        request_id: str | None = None,
+    ) -> dict[str, object]:
+        identifier = request_id or f"agent-run-preview-{uuid.uuid4().hex[:16]}"
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/run/preview",
+            headers=self._headers(),
+            json={"request_id": identifier, "goal": goal, "context": asdict(context)},
+        )
+        self._raise_for_error(response, "Agent run preview")
+        return self._parse_agent_run(response.json())
+
+    def current_agent_run(self, context: AgentBrokerContext) -> dict[str, object] | None:
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/run/current",
+            headers=self._headers(),
+            json={"context": asdict(context)},
+        )
+        self._raise_for_error(response, "Current Agent run")
+        payload = response.json()
+        if isinstance(payload, dict) and payload.get("run") is None:
+            return None
+        return self._parse_agent_run(payload)
+
+    def agent_run_action(
+        self,
+        action: str,
+        run_id: str,
+        context: AgentBrokerContext,
+        *,
+        step_id: str = "",
+    ) -> dict[str, object]:
+        if action not in {"status", "start", "approve", "pause", "resume", "cancel"}:
+            raise ValueError("unsupported Agent run action")
+        response = self._client.post(
+            f"{self.config.bridge_url}/v1/agent/run/{action}",
+            headers=self._headers(),
+            json={
+                "context": asdict(context),
+                "run_id": run_id,
+                **({"step_id": step_id} if action == "approve" else {}),
+            },
+        )
+        self._raise_for_error(response, f"Agent run {action}")
+        return self._parse_agent_run(response.json())
+
+    @staticmethod
+    def _parse_agent_run(payload: object) -> dict[str, object]:
+        run = payload.get("run") if isinstance(payload, dict) else None
+        if not isinstance(run, dict):
+            raise HermesBridgeError("Hermes returned an invalid Agent run")
+        required = {"run_id", "goal", "status", "generation", "budgets", "steps", "resumable"}
+        if not required <= set(run) or not isinstance(run.get("steps"), list):
+            raise HermesBridgeError("Hermes returned an incomplete Agent run")
+        if not re.fullmatch(r"run-[0-9a-f]{24}", str(run.get("run_id") or "")):
+            raise HermesBridgeError("Hermes returned an invalid Agent run identity")
+        if any(not isinstance(step, dict) for step in run["steps"]):
+            raise HermesBridgeError("Hermes returned invalid Agent run steps")
+        return dict(run)
 
     def cancel_agent_request(self, request_id: str) -> bool:
         response = self._client.post(

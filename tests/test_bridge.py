@@ -680,6 +680,162 @@ def test_agent_answer_is_structured_provenance_checked_and_dlp_redacted(monkeypa
     assert "waiting in the phone app" in system_prompt
 
 
+def test_agent_05_planner_returns_one_nonexecuted_bounded_tool_batch(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret", hermes_url="http://127.0.0.1:8642", profile=None
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    payloads: list[dict[str, object]] = []
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def json(self, **_kwargs):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {"function": {"name": "get_reachy_status", "arguments": "{}"}},
+                                {"function": {"name": "get_agent_capabilities", "arguments": "{}"}},
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    class Http:
+        def post(self, _url: str, *, json: dict[str, object], **_kwargs):
+            payloads.append(json)
+            return Response()
+
+    bridge.http = Http()
+    plan = asyncio.run(bridge._plan_agent_run("Check status and capabilities"))
+
+    assert plan == [
+        {"capability_id": "get_reachy_status", "arguments": {}},
+        {"capability_id": "get_agent_capabilities", "arguments": {}},
+    ]
+    assert len(payloads) == 1
+    payload = payloads[0]
+    assert payload["tool_choice"] == "required"
+    assert payload["parallel_tool_calls"] is True
+    assert payload["max_completion_tokens"] == 1_200
+    messages = payload["messages"]
+    assert isinstance(messages, list) and isinstance(messages[0], dict)
+    planner_prompt = messages[0]["content"]
+    assert isinstance(planner_prompt, str)
+    assert "do not execute anything" in planner_prompt
+    assert "1-5" in planner_prompt
+    assert "Do not invent entity IDs" in planner_prompt
+    assert "camera/microphone" in planner_prompt
+
+
+def test_agent_voice_multi_tool_batch_stages_preview_without_execution(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret", hermes_url="http://127.0.0.1:8642", profile=None
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def json(self, **_kwargs):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "function": {"name": "get_reachy_status", "arguments": "{}"},
+                                },
+                                {
+                                    "id": "call-2",
+                                    "function": {"name": "get_agent_capabilities", "arguments": "{}"},
+                                },
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    class Http:
+        def post(self, *_args, **_kwargs):
+            return Response()
+
+    bridge.http = Http()
+    context = _agent_context(23)
+
+    async def scenario() -> tuple[str, dict[str, object] | None]:
+        await bridge.agent_broker.establish_session("reachy-a", context)
+        parsed = await bridge.agent_broker.register_request(
+            "reachy-a", context, "voice-plan-preview"
+        )
+        try:
+            answer = await bridge._agent_answer(
+                "Check status and capabilities", context=context, device_id="reachy-a"
+            )
+            run = await bridge.agent_runs.status("reachy-a", parsed)
+            return answer, run
+        finally:
+            await bridge.agent_broker.unregister_request(
+                "reachy-a", 23, "voice-plan-preview"
+            )
+
+    answer, run = asyncio.run(scenario())
+    assert answer == (
+        "I prepared a 2-step plan. Nothing has run yet; "
+        "review the exact steps and press Start in the phone app."
+    )
+    assert run is not None and run["status"] == "preview"
+    assert run["tool_calls_used"] == 0
+    assert [step["status"] for step in run["steps"]] == ["queued", "queued"]
+
+
+def test_agent_05_planner_rejects_more_than_five_steps(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+    bridge = bridge_module.Bridge(
+        api_key="bridge-secret", hermes_url="http://127.0.0.1:8642", profile=None
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def json(self, **_kwargs):
+            call = {"function": {"name": "get_reachy_status", "arguments": "{}"}}
+            return {"choices": [{"message": {"tool_calls": [call] * 6}}]}
+
+    class Http:
+        def post(self, *_args, **_kwargs):
+            return Response()
+
+    bridge.http = Http()
+    with pytest.raises(bridge_module.BrokerValidationError, match="step budget"):
+        asyncio.run(bridge._plan_agent_run("Too much"))
+
+
 @pytest.mark.parametrize(
     "answer_payload",
     [

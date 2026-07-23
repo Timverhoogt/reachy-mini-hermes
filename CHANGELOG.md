@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Authenticated execute/ask/cancel/activity bridge routes, typed Reachy client contracts, evidence/freshness metadata, strict private-intent and session-generation checks, bounded redaction, and a sanitized PWA activity timeline.
 - Traversal/symlink-safe scoped reads, public-page SSRF/redirect/size protections, empty-by-default entity/root allowlists, and cancellation that prevents stale results from reaching speech.
 - Agent owner actions for verified reversible Home Assistant control and undo, authenticated timer/reminder delivery, approval-gated media, calendar reads/drafts/creates, single-recipient message drafts/sends, and symlink/hardlink-safe note drafts/appends.
+- Agent 0.5 generation-bound multi-step runs with exact 1–5 step previews, five-call/two-side-effect/120-second budgets, per-step evidence and status, phone heartbeat, approval pauses, safe read-only pause/resume, authoritative cancellation, restart-fail-closed in-memory checkpoints, and no automatic side-effect replay.
+- Trusted-phone Agent 0.5 controls for goal planning, exact argument review, Start, Pause, Resume, per-step approval, Cancel, live budget use, and final verified/failed/uncertain summaries. Voice multi-tool requests now stage the same preview instead of executing hidden chains.
 - Trusted-phone exact approval sheet with five-minute device/session-scoped drafts, one-shot execution, edit/replay rejection, and Kids/privacy/generation invalidation.
 - BlueZ-backed Bluetooth discovery, pairing, trust, connect, disconnect, and forget controls in the trusted Robot tab.
 - Opt-in Linux joystick monitoring restricted to Sony-vendor DualShock 4 and DualSense identities with the validated PlayStation mapping; other layouts fail closed.
@@ -28,7 +30,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Agent single-request UX now keeps the sanitized broker timeline pollable during an active voice request, shows the running capability or exact approval wait in the trusted UI, and prompts for concise natural speech without reading internal capability IDs aloud.
-- PWA shell advanced to v38 for the Agent activity/progress UI.
+- OpenAI tool declarations use broker-validated non-strict decoding for intentionally optional arguments; strict structured answer decoding and all broker schema/policy validation remain enforced.
+- PWA shell advanced to v39 for the Agent 0.5 run planner and progress UI.
 - PWA shell advanced to v37 for the documented Home Assistant Awake control.
 - Home Assistant camera snapshots are normalized to metadata-free baseline 4:2:0 JPEGs before ESPHome transport, preventing intermittent green/magenta rendering on older Android/WebView hardware decoders while leaving native and AI camera frames unchanged.
 - Kids Mode no longer requires setup, entry, lockout, or unlock of a parent PIN. Start is direct from the trusted local UI; the child-only dashboard remains active for the session, and Stop immediately restores management controls.
@@ -49,7 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 350 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 367 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 
