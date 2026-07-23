@@ -11,6 +11,12 @@ The Hermes implementation is rewritten around its existing serialized robot
 action controller, local opt-in gates, truthful unavailable states, same-peer
 media validation, and mutually exclusive Hermes/Home Assistant voice ownership.
 
+The on-device HaGRID gesture preprocessing/class map and the bundled
+`hand_detector.onnx` / `crops_classifier.onnx` models are adapted from the same
+Reachy Mini Home Assistant reference commit above under Apache License 2.0.
+Hermes adds checksum verification, repeated-frame confirmation, edge triggering,
+cooldowns, no-auto-wake behavior, and its own privacy/Kids/action-ownership gates.
+
 The camera joystick's 20 Hz target-stream cadence and drag-start geometry were
 adapted from the official Pollen Robotics Reachy Mini Control controller module:
 

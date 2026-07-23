@@ -17,6 +17,8 @@ dependencies = [
     "httpx>=0.28,<1",
     "mutagen>=1.47,<2",
     "numpy>=1.26",
+    "onnxruntime>=1.20,<2",
+    "opencv-python>=4.11,<6",
     "Pillow>=10,<13",
     "reachy-mini>=1.9.0",
     "sherpa-onnx>=1.13.4,<2",
@@ -58,7 +60,7 @@ where = ["."]
 include = ["reachy_mini_hermes*"]
 
 [tool.setuptools.package-data]
-reachy_mini_hermes = ["assets/*", "static/*"]
+reachy_mini_hermes = ["assets/*", "assets/gesture_models/*", "static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

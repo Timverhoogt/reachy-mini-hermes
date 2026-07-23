@@ -49,6 +49,7 @@ An extensible, all-in-one companion and control app for Reachy Mini: local wake 
 | Guarded wake, bounded movement, Stop and fold-before-torque-off | ✅ | ✅ | optional | ✅ Reference-tested; clear-space and fold checks remain mandatory. |
 | Local live camera viewer | ✅ | ✅ | optional | ✅ Explicit opt-in, trusted local UI, no Hermes/OpenAI route. |
 | Home Assistant ESPHome device bridge | ◐ | ◐ | optional | Off by default; preserves the existing Reachy device/entity identity on TCP 6053. Telemetry is read-only unless separate local controls/camera opt-ins are enabled. Assist voice requires supervised acceptance. |
+| On-device hand gestures and reactions | ◐ | ◐ | optional | Off by default; local-only HaGRID inference, repeated-frame confirmation, cooldowns, no automatic wake, and Kids/privacy/action-busy gates. Physical per-room acceptance is required. |
 | Camera-feed thumb joystick | ✅ | ✅ | optional | ◐ Implemented off by default with gesture-bound anti-replay, release-to-hold, explicit Center and Stop; supervised physical acceptance is still required. |
 | One-frame visual request | — | — | ✅ | ◐ Requires camera opt-in, an active Realtime session and provider acceptance. |
 | Announcements and adult voice conversation | — | — | ✅ | ◐ Requires configured private bridge and speech/model providers. |
@@ -94,7 +95,8 @@ Reachy Mini Hermes can expose the same stable `Reachy Mini <machine-id suffix>` 
 The bridge is deliberately layered:
 
 - **Device bridge:** opt-in; publishes real runtime, pose, diagnostics and compatibility entities. Unsupported IMU/vision values are unavailable rather than fabricated.
-- **Robot controls:** separate opt-in; commands are accepted only when Reachy is already Awake, motors are confirmed, Kids/privacy modes are clear, the action worker is idle, and the requested relative step is bounded. HA never wakes Reachy or releases torque implicitly.
+- **Robot controls:** separate opt-in; the dedicated Awake switch alone may run the guarded wake/Standby transition. Other motion commands require confirmed Awake motors, clear Kids/privacy state, an idle action worker and a bounded request.
+- **Gesture detection:** separate switch under the robot-controls opt-in. Frames stay local and in memory. Three repeated high-confidence signs are required; a held sign fires once and must clear before rearming. Palm triggers a welcoming hello, peace an excited response and rock one short dance. The loop never wakes Reachy automatically and stops processing in Standby, Kids, Meeting, Sleep, camera-control or action-busy states.
 - **Camera:** separate opt-in; snapshots still pass the same Meeting, Sleep, Kids and size checks as the local app.
 - **Assist satellite:** separate opt-in; local wake spotting stays on Reachy, then 16 kHz PCM is streamed to the connected Home Assistant Assist pipeline. HA owns STT, intent and TTS for that turn instead of Hermes. TTS/media URLs must resolve to the connected HA peer and are size/time bounded.
 

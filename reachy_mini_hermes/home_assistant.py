@@ -735,6 +735,7 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
     _CONFIG_SWITCHES: ClassVar[dict[str, str]] = {
         "idle": "motion_enabled",
         "face_tracking": "face_tracking_enabled",
+        "gesture_detection": "gesture_detection_enabled",
         "doa_tracking": "doa_enabled",
         "continuous_conversation": "continuous_conversation",
     }
@@ -1070,7 +1071,7 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
             return self._volume()
         if object_id in self._CONFIG_SWITCHES:
             return bool(getattr(config, self._CONFIG_SWITCHES[object_id]))
-        if object_id in {"sendspin_enabled", "gesture_detection"}:
+        if object_id == "sendspin_enabled":
             return None
         if object_id == "face_confidence_threshold":
             return None
@@ -1088,7 +1089,11 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
             stats = backend.get("control_loop_stats") if isinstance(backend, dict) else None
             frequency = stats.get("mean_control_loop_frequency") if isinstance(stats, dict) else None
             return float(frequency) if isinstance(frequency, (int, float)) else None
-        if object_id.startswith("imu_") or object_id.startswith("gesture_") or object_id == "face_detected":
+        if object_id == "gesture_detected":
+            return str(status.get("gesture_detected") or "none")
+        if object_id == "gesture_confidence":
+            return float(status.get("gesture_confidence") or 0.0) * 100.0
+        if object_id.startswith("imu_") or object_id == "face_detected":
             return None
         if object_id.startswith("sys_"):
             return self._system_value(object_id)
@@ -1155,6 +1160,8 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
                 response = httpx.post("http://127.0.0.1:8000/api/volume/set", params={"volume": volume}, timeout=2.0)
                 response.raise_for_status()
                 return True
+            if object_id == "gesture_detection" and not config.home_assistant_controls_enabled:
+                return False
             if object_id in self._CONFIG_SWITCHES:
                 self._update_config({self._CONFIG_SWITCHES[object_id]: bool(value)})
                 if object_id == "face_tracking":
@@ -1165,7 +1172,7 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
                     self._update_config({"home_assistant_camera_enabled": False})
                     return True
                 return bool(config.home_assistant_camera_enabled)
-            if object_id in {"sendspin_enabled", "gesture_detection", "face_confidence_threshold"}:
+            if object_id in {"sendspin_enabled", "face_confidence_threshold"}:
                 return False
             if object_id in self._POSE_AXES:
                 if not config.home_assistant_controls_enabled:

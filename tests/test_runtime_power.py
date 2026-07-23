@@ -6,6 +6,7 @@ import time
 import pytest
 
 from reachy_mini_hermes.config import AppConfig
+from reachy_mini_hermes.gesture_detection import GestureReactionGate
 from reachy_mini_hermes.hermes_client import SpeechAudio
 from reachy_mini_hermes.runtime import (
     HermesVoiceRuntime,
@@ -822,3 +823,53 @@ def test_pipeline_playback_does_not_start_in_privacy_mode() -> None:
 
     assert result is False
     assert robot.media.played == played_before
+
+
+def test_gesture_iteration_is_awake_private_confirmed_and_edge_triggered() -> None:
+    class Detector:
+        def detect_jpeg(self, jpeg: bytes) -> tuple[str, float]:
+            assert jpeg == b"gesture-jpeg"
+            return "palm", 0.90
+
+    class Actions:
+        busy = False
+        pending_count = 0
+
+    captures: list[bool] = []
+    queued: list[tuple[str, str, bool]] = []
+    runtime = HermesVoiceRuntime(
+        FakeRobot(),
+        threading.Event(),
+        config_loader=lambda: AppConfig(
+            home_assistant_enabled=True,
+            home_assistant_controls_enabled=True,
+            gesture_detection_enabled=True,
+        ),
+    )
+    runtime._actions = Actions()  # type: ignore[assignment]
+    runtime._capture_camera_jpeg = lambda: captures.append(True) or b"gesture-jpeg"  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="never wake"):
+        runtime.queue_manual_robot_action("emotion", "welcoming", wake_if_standby=False)
+    assert runtime._power_mode == "standby"
+    runtime.queue_manual_robot_action = (  # type: ignore[method-assign]
+        lambda action, value, *, wake_if_standby=True: queued.append((action, value, wake_if_standby)) or {"ok": True}
+    )
+    gate = GestureReactionGate(required_frames=3, clear_frames=2, cooldown_seconds=8.0, min_confidence=0.70)
+
+    assert runtime._process_gesture_once(Detector(), gate, now=1.0) is False
+    assert captures == []
+    runtime._power_mode = "awake"
+    runtime._motors_enabled = True
+    assert runtime._process_gesture_once(Detector(), gate, now=2.0) is True
+    assert runtime._process_gesture_once(Detector(), gate, now=2.4) is True
+    assert runtime._process_gesture_once(Detector(), gate, now=2.8) is True
+    assert runtime._process_gesture_once(Detector(), gate, now=3.2) is True
+    assert queued == [("emotion", "welcoming", False)]
+    status = runtime.status()
+    assert status["gesture_detected"] == "palm"
+    assert status["gesture_confidence"] == 0.90
+    assert status["gesture_reactions"] == 1
+
+    runtime._kids_active = True
+    assert runtime._process_gesture_once(Detector(), gate, now=4.0) is False
+    assert len(captures) == 4

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Opt-in local HaGRID ONNX gesture pipeline with pinned Apache-2.0 model checksums, 3 FPS in-memory inference, repeated-frame confirmation, edge triggering, cooldowns, truthful HA telemetry, and no-auto-wake/Kids/privacy/action-ownership gates. Palm produces a welcome, peace an excited response, and rock one short dance.
 - Home Assistant `Awake` switch gated by the explicit robot-controls opt-in; On uses the serialized verified wake transition, while Off folds safely and releases torque through Standby.
 - Agent 0.1 read-only Reachy Agent Broker with eight typed capabilities for live manifest/status, allowlisted Home Assistant state, current public information/pages, personal context, conversation history, and scoped notes.
 - Authenticated execute/ask/cancel/activity bridge routes, typed Reachy client contracts, evidence/freshness metadata, strict private-intent and session-generation checks, bounded redaction, and a sanitized PWA activity timeline.
@@ -46,7 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 339 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 350 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 

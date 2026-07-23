@@ -39,6 +39,7 @@ def test_embodiment_features_are_explicit_and_privacy_bounded_by_default() -> No
     config = AppConfig()
 
     assert config.face_tracking_enabled is False
+    assert config.gesture_detection_enabled is False
     assert config.camera_feed_enabled is False
     assert config.camera_controls_enabled is False
     assert config.camera_controls_handedness == "right"

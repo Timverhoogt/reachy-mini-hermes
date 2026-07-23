@@ -30,6 +30,7 @@ from .audio import (
     resample_linear,
 )
 from .config import AppConfig, load_config
+from .gesture_detection import GestureDetector, GestureReactionGate
 from .hermes_client import AgentBrokerContext, HermesBridgeClient, HermesBridgeError, SpeechAudio
 from .home_assistant import HermesHomeAssistantProvider, HomeAssistantBridge
 from .ispy import ISpyTarget
@@ -78,6 +79,13 @@ class RuntimeStatus:
     camera_last_error: str = ""
     face_tracking_active: bool = False
     doa_angle_degrees: float | None = None
+    gesture_detection_active: bool = False
+    gesture_detected: str = "none"
+    gesture_confidence: float = 0.0
+    gesture_frames_processed: int = 0
+    gesture_reactions: int = 0
+    gesture_last_action: str = ""
+    gesture_last_error: str = ""
     robot_actions: int = 0
     last_robot_action: str = ""
     robot_action_last_error: str = ""
@@ -288,6 +296,8 @@ class HermesVoiceRuntime:
         self._announcement_active = threading.Event()
         self._announcement_playing = threading.Event()
         self._announcement_worker: threading.Thread | None = None
+        self._gesture_worker: threading.Thread | None = None
+        self._gesture_stop_requested = threading.Event()
         self._audio_ready = False
         self._runtime_started = False
         self._control_ready = threading.Event()
@@ -1324,7 +1334,13 @@ class HermesVoiceRuntime:
             self._status.announcement_queue_depth = 0
         return cleared
 
-    def queue_manual_robot_action(self, action: str, value: str) -> dict[str, object]:
+    def queue_manual_robot_action(
+        self,
+        action: str,
+        value: str,
+        *,
+        wake_if_standby: bool = True,
+    ) -> dict[str, object]:
         """Queue one allow-listed UI action only after a serialized, confirmed wake."""
         name, arguments = manual_robot_action(action, value)
         with self._kids_lock:
@@ -1337,6 +1353,8 @@ class HermesVoiceRuntime:
                 if self._actions is None:
                     raise RuntimeError("Robot action controller is not ready")
                 if mode == "standby":
+                    if not wake_if_standby:
+                        raise RuntimeError("Gesture reactions never wake Reachy automatically")
                     self.set_power_mode("awake")
                 if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
                     raise RuntimeError("Manual robot control requires confirmed Awake motor torque")
@@ -1679,6 +1697,111 @@ class HermesVoiceRuntime:
                 time.sleep(0.05)
         raise RuntimeError("Reachy camera did not return a frame")
 
+    def _gesture_detection_allowed(self, config: AppConfig) -> bool:
+        if not config.gesture_detection_enabled or not config.home_assistant_controls_enabled:
+            return False
+        if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
+            return False
+        if self._privacy_requested.is_set():
+            return False
+        with self._kids_lock:
+            if self._kids_active or self._kids_locked:
+                return False
+        with self._camera_control_lock:
+            if self._camera_control_session_id:
+                return False
+        actions = self._actions
+        return actions is not None and not actions.busy and actions.pending_count == 0
+
+    def _clear_gesture_detection_state(self) -> None:
+        with self._status_lock:
+            self._status.gesture_detection_active = False
+            self._status.gesture_detected = "none"
+            self._status.gesture_confidence = 0.0
+
+    def _process_gesture_once(
+        self,
+        detector: GestureDetector,
+        gate: GestureReactionGate,
+        *,
+        now: float,
+    ) -> bool:
+        config = self.config_loader()
+        if not self._gesture_detection_allowed(config):
+            gate.reset()
+            self._clear_gesture_detection_state()
+            return False
+        try:
+            jpeg = self._capture_camera_jpeg()
+            gesture, confidence = detector.detect_jpeg(jpeg)
+            with self._status_lock:
+                self._status.gesture_detection_active = True
+                self._status.gesture_detected = "none" if gesture == "no_gesture" else gesture
+                self._status.gesture_confidence = round(float(confidence), 4)
+                self._status.gesture_frames_processed += 1
+                self._status.gesture_last_error = ""
+            reaction = gate.update(gesture, confidence, now=now)
+            if reaction is not None:
+                action, value = reaction
+                self.queue_manual_robot_action(action, value, wake_if_standby=False)
+                with self._status_lock:
+                    self._status.gesture_reactions += 1
+                    self._status.gesture_last_action = f"{gesture}:{action}:{value}"
+                _LOGGER.info("Gesture reaction queued: %s -> %s %s", gesture, action, value)
+            return True
+        except Exception as exc:
+            with self._status_lock:
+                self._status.gesture_detection_active = False
+                self._status.gesture_last_error = str(exc)
+            _LOGGER.warning("Gesture detection iteration failed: %s", exc)
+            return False
+
+    def _run_gesture_worker(self) -> None:
+        detector: GestureDetector | None = None
+        gate = GestureReactionGate(required_frames=3, clear_frames=2, cooldown_seconds=8.0, min_confidence=0.70)
+        next_model_attempt = 0.0
+        try:
+            while not self.stop_event.is_set() and not self._gesture_stop_requested.is_set():
+                started_at = time.monotonic()
+                config = self.config_loader()
+                if not config.gesture_detection_enabled:
+                    if detector is not None:
+                        detector.close()
+                        detector = None
+                    gate.reset()
+                    self._clear_gesture_detection_state()
+                    self._gesture_stop_requested.wait(0.25)
+                    continue
+                if not self._gesture_detection_allowed(config):
+                    gate.reset()
+                    self._clear_gesture_detection_state()
+                    self._gesture_stop_requested.wait(0.25)
+                    continue
+                if detector is None:
+                    if started_at < next_model_attempt:
+                        self._gesture_stop_requested.wait(min(0.25, next_model_attempt - started_at))
+                        continue
+                    try:
+                        detector = GestureDetector(self.assets / "gesture_models")
+                        with self._status_lock:
+                            self._status.gesture_last_error = ""
+                        _LOGGER.info("On-device gesture detector loaded")
+                    except Exception as exc:
+                        next_model_attempt = started_at + 10.0
+                        with self._status_lock:
+                            self._status.gesture_detection_active = False
+                            self._status.gesture_last_error = str(exc)
+                        _LOGGER.warning("Could not load gesture detector: %s", exc)
+                        self._gesture_stop_requested.wait(0.5)
+                        continue
+                self._process_gesture_once(detector, gate, now=started_at)
+                elapsed = time.monotonic() - started_at
+                self._gesture_stop_requested.wait(max(0.0, (1.0 / 3.0) - elapsed))
+        finally:
+            if detector is not None:
+                detector.close()
+            self._clear_gesture_detection_state()
+
     def _set_face_tracking(self, enabled: bool, *, weight: float | None = None) -> None:
         """Control daemon-local face tracking and mirror the real state in status."""
         if enabled == self._face_tracking_active and (weight is None or weight == self._face_tracking_weight):
@@ -1838,6 +1961,13 @@ class HermesVoiceRuntime:
         self._head_safely_folded = self._read_head_safely_folded()
         self._apply_power_mode()
         self._control_ready.set()
+        self._gesture_stop_requested.clear()
+        self._gesture_worker = threading.Thread(
+            target=self._run_gesture_worker,
+            name="reachy-hermes-gestures",
+            daemon=True,
+        )
+        self._gesture_worker.start()
         if config.home_assistant_enabled:
             try:
                 provider = HermesHomeAssistantProvider(self, config_loader=self.config_loader)
@@ -1875,6 +2005,12 @@ class HermesVoiceRuntime:
                 kids_warning_timer.cancel()
             self._audio_ready = False
             self._cancel_announcements(clear_queue=True)
+            self._gesture_stop_requested.set()
+            gesture_worker = self._gesture_worker
+            if gesture_worker is not None and gesture_worker.is_alive():
+                gesture_worker.join(timeout=5.0)
+                if gesture_worker.is_alive():
+                    _LOGGER.warning("Gesture worker did not exit before camera teardown")
             worker = self._announcement_worker
             if worker is not None and worker.is_alive():
                 worker.join(timeout=5.0)

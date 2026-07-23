@@ -59,6 +59,7 @@ class AppConfig:
     camera_controls_handedness: str = "right"
     face_tracking_enabled: bool = False
     face_tracking_weight: float = 0.65
+    gesture_detection_enabled: bool = False
     doa_enabled: bool = False
     robot_tools_enabled: bool = True
     home_assistant_enabled: bool = False

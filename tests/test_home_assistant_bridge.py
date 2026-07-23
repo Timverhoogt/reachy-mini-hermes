@@ -210,6 +210,37 @@ def test_runtime_provider_rejects_remote_motion_until_locally_enabled_and_awake(
     assert runtime.actions == [("body_yaw", 5.0)]
 
 
+def test_runtime_provider_exposes_gesture_switch_and_live_detection_state() -> None:
+    class Runtime:
+        control_ready = True
+        robot = object()
+
+        def status(self) -> dict[str, object]:
+            return {
+                "power_mode": "awake",
+                "state": "idle",
+                "last_error": "",
+                "gesture_detected": "peace",
+                "gesture_confidence": 0.91,
+            }
+
+    saved: list[AppConfig] = []
+    provider = HermesHomeAssistantProvider(Runtime(), config_loader=AppConfig, config_saver=saved.append)
+
+    assert provider.read("gesture_detection") is False
+    assert provider.read("gesture_detected") == "peace"
+    assert provider.read("gesture_confidence") == 91.0
+    assert provider.write("gesture_detection", True) is False
+
+    provider = HermesHomeAssistantProvider(
+        Runtime(),
+        config_loader=lambda: AppConfig(home_assistant_enabled=True, home_assistant_controls_enabled=True),
+        config_saver=saved.append,
+    )
+    assert provider.write("gesture_detection", True) is True
+    assert saved[-1].gesture_detection_enabled is True
+
+
 def test_runtime_provider_awake_switch_uses_guarded_verified_power_transitions() -> None:
     class Runtime:
         control_ready = True
