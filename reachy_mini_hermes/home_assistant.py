@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+import io
 import ipaddress
 import logging
 import math
@@ -35,11 +36,13 @@ from aioesphomeapi.model import (
     VoiceAssistantFeature,
 )
 from google.protobuf.message import Message
+from PIL import Image, UnidentifiedImageError
 from zeroconf import ServiceInfo, Zeroconf
 
 from .config import AppConfig, load_config, merge_config, save_config
 
 _LOGGER = logging.getLogger(__name__)
+_HOME_ASSISTANT_CAMERA_MAX_PIXELS = 1920 * 1080
 _PRIVATE_LAN_NETWORKS = tuple(
     ipaddress.ip_network(network) for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
@@ -53,6 +56,33 @@ try:
     _APP_VERSION = importlib.metadata.version("reachy_mini_hermes")
 except importlib.metadata.PackageNotFoundError:
     _APP_VERSION = "0.3.0"
+
+
+def _normalize_camera_jpeg_for_home_assistant(jpeg: bytes) -> bytes:
+    """Return a metadata-free baseline 4:2:0 JPEG for broad HA client compatibility."""
+    try:
+        with Image.open(io.BytesIO(jpeg)) as image:
+            if image.format != "JPEG":
+                raise RuntimeError("Reachy camera returned an invalid JPEG")
+            width, height = image.size
+            if width < 1 or height < 1 or width * height > _HOME_ASSISTANT_CAMERA_MAX_PIXELS:
+                raise RuntimeError("Reachy camera JPEG dimensions exceed the Home Assistant limit")
+            image.load()
+            output = io.BytesIO()
+            image.convert("RGB").save(
+                output,
+                format="JPEG",
+                quality=85,
+                subsampling="4:2:0",
+                progressive=False,
+                optimize=False,
+            )
+    except (Image.DecompressionBombError, OSError, UnidentifiedImageError, ValueError) as exc:
+        raise RuntimeError("Reachy camera returned an invalid JPEG") from exc
+    normalized = output.getvalue()
+    if len(normalized) > 1_000_000:
+        raise RuntimeError("Home Assistant camera JPEG exceeds the 1 MB limit")
+    return normalized
 
 
 ENTITY_KEYS: dict[str, int] = {
@@ -1172,7 +1202,7 @@ class HermesHomeAssistantProvider(HomeAssistantStateProvider):
                 raise RuntimeError("Home Assistant camera JPEG exceeds the 1 MB limit")
             if len(jpeg) < 4 or not jpeg.startswith(b"\xff\xd8") or not jpeg.endswith(b"\xff\xd9"):
                 raise RuntimeError("Reachy camera returned an invalid JPEG")
-            return jpeg
+            return _normalize_camera_jpeg_for_home_assistant(jpeg)
         except Exception as exc:
             self._last_error = str(exc)
             return None

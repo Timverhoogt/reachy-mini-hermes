@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import math
 import threading
 import time
@@ -11,6 +12,7 @@ import numpy as np
 import pytest
 from aioesphomeapi import APIClient
 from aioesphomeapi.model import CameraState, VoiceAssistantEventType
+from PIL import Image
 
 from reachy_mini_hermes import home_assistant as home_assistant_module
 from reachy_mini_hermes.config import AppConfig
@@ -227,11 +229,14 @@ def test_runtime_provider_camera_is_local_opt_in_and_keeps_privacy_failures_unav
     assert "privacy mode" in str(provider.read("error_message"))
 
 
-def test_runtime_provider_camera_returns_only_bounded_jpeg_when_opted_in() -> None:
+def test_runtime_provider_camera_normalizes_to_baseline_420_jpeg_when_opted_in() -> None:
+    source = io.BytesIO()
+    Image.new("RGB", (32, 24), (120, 80, 40)).save(source, format="JPEG", quality=95, subsampling=0)
+
     class Runtime:
         control_ready = True
         robot = object()
-        image: object = b"\xff\xd8camera\xff\xd9"
+        image: object = source.getvalue()
 
         def status(self) -> dict[str, object]:
             return {"power_mode": "awake", "state": "idle", "last_error": ""}
@@ -243,7 +248,15 @@ def test_runtime_provider_camera_returns_only_bounded_jpeg_when_opted_in() -> No
     config = AppConfig(home_assistant_enabled=True, home_assistant_camera_enabled=True)
     provider = HermesHomeAssistantProvider(runtime, config_loader=lambda: config)
 
-    assert provider.camera_image() == b"\xff\xd8camera\xff\xd9"
+    normalized = provider.camera_image()
+    assert normalized is not None
+    assert normalized != runtime.image
+    decoded = Image.open(io.BytesIO(normalized))
+    decoded.load()
+    assert decoded.format == "JPEG"
+    assert decoded.mode == "RGB"
+    assert decoded.size == (32, 24)
+    assert [(layer[1], layer[2]) for layer in decoded.layer] == [(2, 2), (1, 1), (1, 1)]
     runtime.image = b"not-jpeg"
     assert provider.camera_image() is None
     assert "invalid JPEG" in str(provider.read("error_message"))

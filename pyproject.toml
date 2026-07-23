@@ -17,6 +17,7 @@ dependencies = [
     "httpx>=0.28,<1",
     "mutagen>=1.47,<2",
     "numpy>=1.26",
+    "Pillow>=10,<13",
     "reachy-mini>=1.9.0",
     "sherpa-onnx>=1.13.4,<2",
     "websockets>=15,<17",

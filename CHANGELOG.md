@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Home Assistant camera snapshots are normalized to metadata-free baseline 4:2:0 JPEGs before ESPHome transport, preventing intermittent green/magenta rendering on older Android/WebView hardware decoders while leaving native and AI camera frames unchanged.
 - Kids Mode no longer requires setup, entry, lockout, or unlock of a parent PIN. Start is direct from the trusted local UI; the child-only dashboard remains active for the session, and Stop immediately restores management controls.
 - PWA shell advanced to v36 for the PIN-free Kids Mode controls.
 - Kids I Spy now retains five bounded viewpoints across a 240° base arc, uses non-capturing 60° transit waypoints, revokes camera access before its neutral return, and keeps the head aligned with the base.
