@@ -1333,6 +1333,7 @@ class Bridge:
             raw_target = json.loads(result["choices"][0]["message"]["content"])["target"]
             target = _validate_bridge_ispy_target(raw_target, frame_count=len(encoded_frames))
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            _LOGGER.warning("I Spy target rejected (%s): %s", type(exc).__name__, exc)
             raise web.HTTPBadGateway(text="I Spy vision returned unsafe or invalid data") from exc
         moderation_text = " ".join((
             str(target["object_name"]),
