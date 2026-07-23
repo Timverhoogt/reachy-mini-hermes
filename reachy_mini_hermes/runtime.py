@@ -897,7 +897,8 @@ class HermesVoiceRuntime:
         if profile.activity == "ispy":
             try:
                 ispy_target = self._prepare_ispy_round(generation, profile)
-            except Exception:
+            except Exception as exc:
+                _LOGGER.warning("I Spy start failed (%s): %s", type(exc).__name__, exc)
                 self.stop_kids_mode(reason="ispy_start_failed", fold=True)
                 raise
         if greet:
