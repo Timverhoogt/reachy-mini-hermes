@@ -108,6 +108,29 @@ curl -fsS -H "Authorization: Bearer ***" \
 
 Confirm that the manifest contains no T4, shell, arbitrary-file, or maintenance capability. Test one configured read, one reversible Home Assistant action plus undo, one timer callback, and one draft whose exact phone approval executes once and rejects replay/edits. Keep Home Assistant/provider credentials on the Hermes host. `REACHY_AGENT_REMINDER_CALLBACK_URL` must target Reachy's private settings endpoint and its callback token must match Reachy's bridge bearer. Stop Agent and starting Kids Mode must invalidate in-flight work and pending approvals before speech; `/v1/agent/activity` remains metadata-only.
 
+### Agent 0.6 Proactive Presence signal
+
+Goal 1 accepts only an identity-free, authenticated local signal. Store the full authorization header in Home Assistant `secrets.yaml`; do not put the Reachy bearer in dashboards, browser-visible templates, or automation logs.
+
+```yaml
+# secrets.yaml
+reachy_hermes_authorization: "Bearer REPLACE_WITH_REACHY_BRIDGE_KEY"
+
+# configuration.yaml
+rest_command:
+  reachy_presence:
+    url: "http://REACHY_HOST:8042/api/presence/signal"
+    method: POST
+    headers:
+      Authorization: !secret reachy_hermes_authorization
+      Content-Type: "application/json"
+    payload: >-
+      {"source":"home_assistant","occupied":{{ occupied | bool | tojson }},
+       "attentive":false,"confidence":{{ confidence | float(1.0) }}}
+```
+
+Call `rest_command.reachy_presence` only from an allowlisted occupancy automation. The endpoint rejects arbitrary metadata, names, raw sensor data, unknown sources, invalid directions, and unauthenticated requests. Enabling Presence does not enable motors or change Reachy's power mode. In Standby it records sanitized state and reports `not_awake` without movement. Perform Awake acknowledgement acceptance only with clear space and an owner supervising Reachy.
+
 ## Health checks
 
 ### Reachy app

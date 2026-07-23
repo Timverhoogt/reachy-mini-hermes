@@ -36,6 +36,7 @@ from .home_assistant import HermesHomeAssistantProvider, HomeAssistantBridge
 from .ispy import ISpyTarget
 from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
+from .presence import PresenceObservation, PresenceState
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
 from .robot_tools import (
     CameraJoystickStream,
@@ -298,6 +299,8 @@ class HermesVoiceRuntime:
         self._announcement_worker: threading.Thread | None = None
         self._gesture_worker: threading.Thread | None = None
         self._gesture_stop_requested = threading.Event()
+        self._presence = PresenceState()
+        self._presence_action_active = threading.Event()
         self._audio_ready = False
         self._runtime_started = False
         self._control_ready = threading.Event()
@@ -476,6 +479,7 @@ class HermesVoiceRuntime:
             if mode == "meeting":
                 remaining = max(0, int(self._meeting_until - time.monotonic()))
         if mode in {"meeting", "sleep"}:
+            self._presence.clear(f"power_{mode}")
             self._face_tracking_desired = False
             self._set_face_tracking(False)
             if self._actions is not None:
@@ -588,6 +592,8 @@ class HermesVoiceRuntime:
                 "connected": False,
                 "error": self._home_assistant_error,
             }
+        config = self.config_loader()
+        payload["presence"] = self._presence.public_status(enabled=config.proactive_presence_enabled)
         with self._agent_lock:
             payload["agent"] = self._agent_status_unlocked()
         with self._kids_lock:
@@ -620,6 +626,100 @@ class HermesVoiceRuntime:
                     "kids_mode": kids_payload,
                 }
         return payload
+
+    def _presence_suppression_reason(self, config: AppConfig) -> str:
+        """Return why silent presence motion is currently unsafe, or an empty string."""
+        if self.stop_event.is_set() or not self._control_ready.is_set():
+            return "runtime_not_ready"
+        if self._privacy_requested.is_set():
+            return "privacy"
+        if self._effective_power_mode() != "awake":
+            return "not_awake"
+        if self._motors_enabled is not True:
+            return "motors_not_enabled"
+        with self._kids_lock:
+            if self._kids_active or self._kids_locked:
+                return "kids_mode"
+        if self._announcement_active.is_set():
+            return "announcement_active"
+        with self._status_lock:
+            if self._status.state != "waiting_for_wake_word":
+                return "voice_active"
+        with self._camera_control_lock:
+            if self._camera_control_session_id:
+                return "camera_control_active"
+        if self._face_tracking_active:
+            return "face_tracking_active"
+        actions = self._actions
+        if actions is not None and (actions.busy or actions.pending_count):
+            return "robot_action_active"
+        if self._motion is None or not config.motion_enabled:
+            return "motion_disabled"
+        return ""
+
+    def observe_presence(
+        self,
+        observation: PresenceObservation,
+        *,
+        allow_acknowledgement: bool = True,
+    ) -> dict[str, object]:
+        """Record one bounded signal and optionally perform one safe, silent acknowledgement."""
+        config = self.config_loader()
+        if not config.proactive_presence_enabled:
+            self._presence.clear("disabled")
+            return self._presence.public_status(enabled=False)
+        self._presence.observe(observation)
+        if not observation.occupied:
+            return self._presence.public_status(enabled=True)
+        if not allow_acknowledgement:
+            self._presence.record_suppression(f"observed_{observation.source}")
+            return self._presence.public_status(enabled=True)
+        if not config.presence_acknowledgement_enabled:
+            self._presence.record_suppression("acknowledgement_disabled")
+            return self._presence.public_status(enabled=True)
+        if not self._presence.acknowledgement_due(config.presence_acknowledgement_cooldown_seconds):
+            self._presence.record_suppression("cooldown")
+            return self._presence.public_status(enabled=True)
+
+        reason = self._presence_suppression_reason(config)
+        if reason:
+            self._presence.record_suppression(reason)
+            return self._presence.public_status(enabled=True)
+        if not self._voice_activity_lock.acquire(blocking=False):
+            self._presence.record_suppression("voice_active")
+            return self._presence.public_status(enabled=True)
+        try:
+            # Recheck after acquiring the voice owner slot so a concurrent wake,
+            # power transition, Kids transition, or explicit action cannot race.
+            with self._kids_lock:
+                with self._motor_transition_lock:
+                    reason = self._presence_suppression_reason(config)
+                    actions = self._actions
+                    if reason:
+                        self._presence.record_suppression(reason)
+                    elif actions is None:
+                        self._presence.record_suppression("runtime_not_ready")
+                    else:
+                        self._presence_action_active.set()
+                        arguments: dict[str, object] = {}
+                        if observation.direction_degrees is not None:
+                            arguments["direction_degrees"] = observation.direction_degrees
+                        queued = actions.enqueue(
+                            "acknowledge_presence",
+                            arguments,
+                            hold_pose=True,
+                            reject_if_busy=True,
+                        )
+                        if queued.get("accepted"):
+                            self._presence.reserve_acknowledgement()
+                        else:
+                            self._presence_action_active.clear()
+                            self._presence.record_suppression(
+                                str(queued.get("code") or "motion_failed")
+                            )
+        finally:
+            self._voice_activity_lock.release()
+        return self._presence.public_status(enabled=True)
 
     @property
     def control_ready(self) -> bool:
@@ -888,6 +988,7 @@ class HermesVoiceRuntime:
             self._kids_active = True
             self._kids_camera_active = False
             self._kids_locked = True
+            self._presence.clear("kids_mode")
             self._kids_profile = profile
             self._kids_started_at = time.monotonic()
             self._kids_ends_at = self._kids_started_at + profile.duration_minutes * 60.0
@@ -1766,6 +1867,15 @@ class HermesVoiceRuntime:
             reaction = gate.update(gesture, confidence, now=now)
             if reaction is not None:
                 action, value = reaction
+                self.observe_presence(
+                    PresenceObservation(
+                        source="gesture",
+                        occupied=True,
+                        attentive=True,
+                        confidence=float(confidence),
+                    ),
+                    allow_acknowledgement=False,
+                )
                 self.queue_manual_robot_action(action, value, wake_if_standby=False)
                 with self._status_lock:
                     self._status.gesture_reactions += 1
@@ -1894,6 +2004,9 @@ class HermesVoiceRuntime:
         mode = self._effective_power_mode()
         if self._privacy_requested.is_set() or mode in {"meeting", "sleep"}:
             raise RuntimeError("Robot action was blocked by privacy mode")
+        with self._kids_lock:
+            if self._kids_active or self._kids_locked:
+                raise RuntimeError("Robot action was blocked by Kids Mode")
         if self._motors_enabled is not True:
             raise RuntimeError("Robot action was blocked because motor torque is not confirmed")
         self._head_safely_folded = False
@@ -1906,6 +2019,8 @@ class HermesVoiceRuntime:
             return
         if self._motion is not None:
             self._motion.resume()
+            if self._presence_action_active.is_set():
+                return
             state = str(self.status().get("state") or "")
             if state == "speaking":
                 self._motion.speaking()
@@ -1919,6 +2034,24 @@ class HermesVoiceRuntime:
             self._set_face_tracking(True, weight=self._face_tracking_weight)
 
     def _on_robot_action_result(self, name: str, result: dict[str, object]) -> None:
+        if name == "acknowledge_presence":
+            self._presence_action_active.clear()
+            succeeded = result.get("ok") is True
+            reason = (
+                "acknowledgement_cancelled"
+                if result.get("error") == "Robot action was cancelled"
+                else "motion_failed"
+            )
+            self._presence.complete_acknowledgement(succeeded=succeeded, reason=reason)
+            if (
+                not succeeded
+                and self._motion is not None
+                and self._effective_power_mode() == "awake"
+                and self._motors_enabled is True
+                and not self._privacy_requested.is_set()
+            ):
+                self._motion.resume()
+            return
         with self._status_lock:
             self._status.last_robot_action = name
             if result.get("ok"):
@@ -2204,6 +2337,10 @@ class HermesVoiceRuntime:
                         continue
                     self.cancel_agent_work("session_changed")
                     self._orient_to_voice(config)
+                    self.observe_presence(
+                        PresenceObservation(source="voice", occupied=True, attentive=True),
+                        allow_acknowledgement=False,
+                    )
                     self._face_tracking_desired = config.face_tracking_enabled
                     self._face_tracking_weight = config.face_tracking_weight
                     if self._face_tracking_desired:

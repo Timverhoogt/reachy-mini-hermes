@@ -191,6 +191,76 @@ def test_precision_center_all_resets_head_and_base(monkeypatch) -> None:
     assert robot.body_samples[-1] == 0.0
 
 
+def test_presence_acknowledgement_is_a_small_head_only_action(monkeypatch) -> None:
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        "reachy_mini_hermes.robot_tools.interpolate_head_pose",
+        lambda start, target, ratio: target,
+    )
+    robot = FakeRobot()
+    actions = ReachyRobotActions(robot, threading.Event(), library_factory=FakeLibrary)
+
+    result = actions.execute("acknowledge_presence", {"direction_degrees": 60.0})
+
+    assert result == {
+        "ok": True,
+        "action": "acknowledge_presence",
+        "target": {"pitch": -3.0, "yaw": 18.0},
+    }
+    assert cast(dict[str, float], robot.head_samples[-1])["pitch"] == -3.0
+    assert cast(dict[str, float], robot.head_samples[-1])["yaw"] == 18.0
+    assert robot.body_samples == []
+    assert robot.antenna_samples == []
+    assert robot.targets == []
+
+    for invalid in (True, "left", 61.0, float("nan")):
+        rejected = actions.execute("acknowledge_presence", {"direction_degrees": invalid})
+        assert rejected["ok"] is False
+
+
+def test_presence_acknowledgement_queue_is_cancellable(monkeypatch) -> None:
+    robot = FakeRobot()
+    results: list[dict[str, object]] = []
+    actions = ReachyRobotActions(
+        robot,
+        threading.Event(),
+        library_factory=FakeLibrary,
+        on_result=lambda _name, result: results.append(result),
+    )
+
+    def wait_for_cancel(**_kwargs: object) -> bool:
+        return not actions._cancel_requested.wait(1.0)
+
+    monkeypatch.setattr(actions, "_run_precision_interpolation", wait_for_cancel)
+    monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
+    actions.start()
+    try:
+        queued = actions.enqueue(
+            "acknowledge_presence",
+            {},
+            hold_pose=True,
+            reject_if_busy=True,
+        )
+        assert queued["accepted"] is True
+        deadline = time.monotonic() + 1.0
+        while not actions.busy and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert actions.busy is True
+
+        actions.cancel(stop_media=False)
+
+        assert actions.wait_idle(timeout=1.0) is True
+        assert results == [
+            {
+                "ok": False,
+                "error": "Robot action was cancelled",
+                "action": "acknowledge_presence",
+            }
+        ]
+    finally:
+        actions.close()
+
+
 def test_camera_joystick_stream_rotates_head_and_base_together_at_interactive_rate(monkeypatch) -> None:
     monkeypatch.setattr("reachy_mini_hermes.robot_tools.create_head_pose", lambda **kwargs: kwargs)
     robot = FakeRobot()

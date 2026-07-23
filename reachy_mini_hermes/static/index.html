@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=40">
+  <link rel="stylesheet" href="/static/style.css?v=41">
 </head>
 <body>
   <main>
@@ -97,6 +97,31 @@
           <button type="button" id="agent-stop-button" class="danger">Stop all Agent work</button>
         </div>
         <p id="agent-message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card presence-card" aria-labelledby="presence-heading">
+        <div class="section-heading">
+          <div><p class="label">Agent 0.6 · Goal 1</p><h2 id="presence-heading">Proactive Presence</h2></div>
+          <span id="presence-badge" class="badge">Off</span>
+        </div>
+        <p class="muted">Reachy can accept trusted local presence signals and acknowledge them with one subtle movement when already Awake.</p>
+        <div class="presence-controls">
+          <label class="checkbox-row">
+            <input type="checkbox" id="presence-enabled" />
+            <span><strong>Notice trusted presence</strong><small>Identity-free, ephemeral state from Home Assistant, local voice, or validated gestures.</small></span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="presence-acknowledgement-enabled" />
+            <span><strong>Silent acknowledgement</strong><small>Small cancellable head pose only. Never wakes Reachy or enables motors.</small></span>
+          </label>
+        </div>
+        <div class="presence-status-grid">
+          <div><span class="label">State</span><strong id="presence-level">Away</strong></div>
+          <div><span class="label">Latest source</span><strong id="presence-source">None</strong></div>
+          <div><span class="label">Last outcome</span><strong id="presence-outcome">Disabled</strong></div>
+        </div>
+        <p class="presence-boundary"><span aria-hidden="true">●</span> Silent acknowledgement only · no proactive speech</p>
+        <p id="presence-message" class="message" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card agent-run-sheet" aria-labelledby="agent-run-heading">
@@ -621,7 +646,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=40"></script>
-  <script src="/static/main.js?v=40"></script>
+  <script src="/static/camera.js?v=41"></script>
+  <script src="/static/main.js?v=41"></script>
 </body>
 </html>

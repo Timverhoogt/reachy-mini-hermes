@@ -61,6 +61,9 @@ class AppConfig:
     face_tracking_weight: float = 0.65
     gesture_detection_enabled: bool = False
     doa_enabled: bool = False
+    proactive_presence_enabled: bool = False
+    presence_acknowledgement_enabled: bool = True
+    presence_acknowledgement_cooldown_seconds: float = 120.0
     robot_tools_enabled: bool = True
     home_assistant_enabled: bool = False
     home_assistant_controls_enabled: bool = False
@@ -118,6 +121,8 @@ class AppConfig:
             raise ValueError("vad_min_rms must be between 0.001 and 0.5")
         if not 0.0 <= float(self.face_tracking_weight) <= 1.0:
             raise ValueError("face_tracking_weight must be between 0 and 1")
+        if not 30.0 <= float(self.presence_acknowledgement_cooldown_seconds) <= 3600.0:
+            raise ValueError("presence acknowledgement cooldown must be between 30 and 3600 seconds")
         if self.stt_provider not in {"configured", "local", "elevenlabs"}:
             raise ValueError("Unsupported STT provider")
         if self.tts_provider not in {"configured", "elevenlabs"}:

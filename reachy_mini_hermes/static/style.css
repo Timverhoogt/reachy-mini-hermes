@@ -59,6 +59,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible, summary:focus-v
 .toggle-row span { display: grid; gap: 3px; }
 .toggle-row small { color: var(--muted); font-weight: 400; }
 .toggle-row input { width: 24px; min-height: 24px; accent-color: var(--accent2); }
+.checkbox-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 11px; }
+.checkbox-row input { width: 22px; min-height: 22px; margin: 2px 0 0; accent-color: var(--accent2); }
+.checkbox-row span, .checkbox-row strong, .checkbox-row small { display: block; min-width: 0; }
+.checkbox-row small { margin-top: 3px; color: var(--muted); font-weight: 500; line-height: 1.35; }
 details { border-top: 1px solid var(--line); padding-top: 15px; }
 summary { cursor: pointer; color: #d5d9e4; font-weight: 750; }
 .disclosure > summary, .disclosure-card > summary { list-style: none; }
@@ -327,7 +331,15 @@ body.camera-app-fullscreen-active { overflow: hidden; }
 .agent-hero .muted { max-width: 680px; margin: 4px 0 0; }
 .agent-mode-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
 .agent-mode-bar .danger { margin-left: auto; }
-.agent-run-sheet { border-color: #36c7f43d; background: linear-gradient(145deg, rgba(9, 24, 34, .96), rgba(16, 19, 28, .96)); }
+.presence-card { border-color: #45d49d42; background: linear-gradient(145deg, rgba(15, 31, 28, .94), rgba(15, 17, 24, .96)); }
+.presence-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.presence-controls .checkbox-row { margin: 0; min-height: 78px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #080a0f99; }
+.presence-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.presence-status-grid > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: #080a0f88; }
+.presence-status-grid strong { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: .86rem; }
+.presence-boundary { margin: 12px 0 0; color: #9edfc7; font-size: .78rem; font-weight: 750; }
+.presence-boundary span { margin-right: 6px; color: var(--ok); font-size: .58rem; vertical-align: 1px; }
+.agent-run-sheet { border-color: #7b61ff55; background: linear-gradient(145deg, rgba(25, 20, 40, .96), rgba(14, 16, 24, .96)); }
 .agent-run-sheet textarea { min-height: 112px; margin-top: 18px; border-color: #ffffff16; background: #070b11; font-size: 1rem; }
 .agent-guardrail-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; }
 .agent-guardrail-row span { padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: #ffffff07; font-size: .72rem; font-weight: 750; }
@@ -483,6 +495,8 @@ body.camera-app-fullscreen-active { overflow: hidden; }
   .agent-run-control-group button { min-width: 0; padding-inline: 8px; }
   .agent-status-grid { grid-template-columns: 1fr; }
   .agent-status-grid > div:last-child { grid-column: auto; }
+  .presence-controls, .presence-status-grid { grid-template-columns: 1fr; }
+  .presence-controls .checkbox-row { min-height: 0; }
   .agent-step-list li { padding-right: 11px; font-size: .85rem; }
   .install-card .badge { display: none; }
   .vision-footer span:last-child { display: none; }

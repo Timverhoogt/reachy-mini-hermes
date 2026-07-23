@@ -30,6 +30,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Agent single-request UX now keeps the sanitized broker timeline pollable during an active voice request, shows the running capability or exact approval wait in the trusted UI, and prompts for concise natural speech without reading internal capability IDs aloud.
+- Agent 0.6 Goal 1 introduces disabled-by-default Proactive Presence: authenticated, identity-free local presence signals; ephemeral state; existing voice/gesture attention observations; and a cancellable silent head acknowledgement that never wakes Reachy or enables motors.
+- Presence motion is suppressed by Standby, Meeting/Sleep, privacy, Kids Mode, active voice/announcement/camera/face-tracking/robot owners, runtime transitions, and a bounded cooldown; the trusted Agent workspace shows only sanitized state and outcomes.
+- PWA shell advanced to v41 for the compact Proactive Presence controls and status.
 - PWA navigation and information architecture were redesigned to keep Home glanceable, give Agent Mode a dedicated workspace, move optional robot controls behind progressive disclosure, and provide a compact mobile bottom navigation.
 - PWA shell advanced to v40 for the streamlined control surface.
 - OpenAI tool declarations use broker-validated non-strict decoding for intentionally optional arguments; strict structured answer decoding and all broker schema/policy validation remain enforced.
@@ -54,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Verified
 
-- Ruff, Python compilation, JavaScript syntax, and all 368 automated tests pass.
+- Ruff, Python compilation, JavaScript syntax, and all 398 automated tests pass.
 
 ## [0.2.0] - 2026-07-18
 

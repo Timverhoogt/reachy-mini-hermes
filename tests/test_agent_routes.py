@@ -69,6 +69,60 @@ def test_agent_profile_requires_explicit_unlocked_adult_ui(monkeypatch) -> None:
     assert saved[-1].capability_profile == "agent"
 
 
+def test_presence_signal_requires_bearer_auth_and_rejects_unbounded_payloads(monkeypatch) -> None:
+    _app, runtime, client, _saved = build_client(monkeypatch)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig(api_key="presence-test-key"))
+    observed: list[object] = []
+    runtime.observe_presence = lambda value: observed.append(value) or {  # type: ignore[method-assign]
+        "enabled": True,
+        "level": "present",
+        "speech_enabled": False,
+    }
+    payload = {
+        "source": "home_assistant",
+        "occupied": True,
+        "attentive": False,
+        "direction_degrees": 15,
+        "confidence": 0.9,
+    }
+
+    assert client.post("/api/presence/signal", json=payload).status_code == 401
+    response = client.post(
+        "/api/presence/signal",
+        headers={"Authorization": "Bearer presence-test-key"},
+        json=payload,
+    )
+    assert response.status_code == 200
+    assert response.json()["presence"]["speech_enabled"] is False
+    assert len(observed) == 1
+
+    for invalid in (
+        {**payload, "source": "camera"},
+        {**payload, "occupied": "yes"},
+        {**payload, "direction_degrees": 90},
+        {**payload, "person_name": "private identity"},
+    ):
+        rejected = client.post(
+            "/api/presence/signal",
+            headers={"Authorization": "Bearer presence-test-key"},
+            json=invalid,
+        )
+        assert rejected.status_code == 422
+
+
+def test_presence_signal_fails_closed_without_configured_bearer_key(monkeypatch) -> None:
+    _app, _runtime, client, _saved = build_client(monkeypatch)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+
+    response = client.post(
+        "/api/presence/signal",
+        headers={"Authorization": "Bearer anything"},
+        json={"source": "trusted_sensor", "occupied": True},
+    )
+
+    assert response.status_code == 503
+
+
 def test_agent_routes_reject_kids_lock_and_stop_invalidates_generation(monkeypatch) -> None:
     _app, runtime, client, _saved = build_client(monkeypatch)
     agent = runtime.status()["agent"]
@@ -500,4 +554,4 @@ def test_agent_05_trusted_ui_exposes_preview_budget_progress_and_control() -> No
     assert "/api/agent/run/status" in script
     assert "/api/agent/run/current" in script
     assert "Approve this exact step once?" in script
-    assert "reachy-hermes-shell-v40" in worker
+    assert "reachy-hermes-shell-v41" in worker

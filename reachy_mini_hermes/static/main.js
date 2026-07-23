@@ -31,6 +31,7 @@ let runtimeAgentActivity = [];
 let brokerAgentActivity = [];
 let pendingAgentApproval = null;
 let agentRunRequestPending = false;
+let presenceRequestPending = false;
 let currentAgentRun = null;
 let agentRunId = window.sessionStorage.getItem("reachy-hermes-agent-run-id") || "";
 
@@ -352,6 +353,22 @@ function updateStatus(payload) {
   $("agent-pending-approval").textContent = pendingAgentApproval
     ? `Waiting · expires in ${Number(pendingAgentApproval.expires_in_seconds || 0)}s`
     : agent.pending_approval ? "Waiting for adult approval" : "None";
+  const presence = runtime.presence || {};
+  const presenceEnabled = Boolean(payload.config?.proactive_presence_enabled);
+  const acknowledgementEnabled = Boolean(payload.config?.presence_acknowledgement_enabled);
+  $("presence-enabled").checked = presenceEnabled;
+  $("presence-acknowledgement-enabled").checked = acknowledgementEnabled;
+  $("presence-enabled").disabled = kidsActive || kidsLocked || presenceRequestPending;
+  $("presence-acknowledgement-enabled").disabled = !presenceEnabled || kidsActive || kidsLocked || presenceRequestPending;
+  const presenceLevel = presenceEnabled ? String(presence.level || "away") : "off";
+  $("presence-badge").textContent = presenceLevel;
+  $("presence-badge").dataset.status = presenceLevel === "attentive" ? "completed" : "idle";
+  $("presence-level").textContent = presenceLevel.replaceAll("_", " ");
+  $("presence-source").textContent = presence.source
+    ? String(presence.source).replaceAll("_", " ")
+    : "None";
+  const outcome = presenceEnabled ? String(presence.last_outcome || "none") : "disabled";
+  $("presence-outcome").textContent = outcome.replaceAll("_", " ");
   runtimeAgentActivity = agent.recent_activity || [];
   renderAgentActivity();
   document.querySelector(".agent-card").hidden = kidsActive || kidsLocked;
@@ -730,6 +747,40 @@ function payloadFromForm() {
   });
   return payload;
 }
+
+async function updatePresenceSettings() {
+  if (presenceRequestPending) return;
+  presenceRequestPending = true;
+  $("presence-enabled").disabled = true;
+  $("presence-acknowledgement-enabled").disabled = true;
+  $("presence-message").textContent = "Saving Presence settings…";
+  $("presence-message").className = "message";
+  try {
+    const response = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        proactive_presence_enabled: $("presence-enabled").checked,
+        presence_acknowledgement_enabled: $("presence-acknowledgement-enabled").checked,
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    $("presence-message").textContent = $("presence-enabled").checked
+      ? "Presence is ready for trusted local signals."
+      : "Proactive Presence is off.";
+    $("presence-message").className = "message ok";
+  } catch (error) {
+    $("presence-message").textContent = String(error);
+    $("presence-message").className = "message error";
+  } finally {
+    presenceRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+$("presence-enabled").addEventListener("change", updatePresenceSettings);
+$("presence-acknowledgement-enabled").addEventListener("change", updatePresenceSettings);
 
 $("settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();

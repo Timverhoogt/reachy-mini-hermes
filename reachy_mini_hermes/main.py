@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from reachy_mini import ReachyMini, ReachyMiniApp
 
 from .agent_audit import AgentAuditLog
@@ -20,6 +20,7 @@ from .bluetooth import BluetoothGamepadService
 from .config import AppConfig, default_config_path, load_config, merge_config, save_config
 from .hermes_client import HermesBridgeClient
 from .kids_mode import KidsProfile
+from .presence import PresenceObservation
 from .robot_tools import robot_control_options
 from .runtime import HermesVoiceRuntime
 
@@ -60,6 +61,9 @@ class SettingsUpdate(BaseModel):
     face_tracking_enabled: bool | None = None
     face_tracking_weight: float | None = Field(default=None, ge=0, le=1)
     doa_enabled: bool | None = None
+    proactive_presence_enabled: bool | None = None
+    presence_acknowledgement_enabled: bool | None = None
+    presence_acknowledgement_cooldown_seconds: float | None = Field(default=None, ge=30, le=3600)
     robot_tools_enabled: bool | None = None
     home_assistant_enabled: bool | None = None
     home_assistant_controls_enabled: bool | None = None
@@ -69,6 +73,27 @@ class SettingsUpdate(BaseModel):
     realtime_model: str | None = None
     realtime_voice: str | None = None
     realtime_reasoning_effort: str | None = None
+
+
+class PresenceSignalRequest(BaseModel):
+    """One identity-free signal from an explicitly trusted local integration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["home_assistant", "trusted_sensor"]
+    occupied: StrictBool
+    attentive: StrictBool = False
+    direction_degrees: float | None = Field(default=None, ge=-60, le=60)
+    confidence: float = Field(default=1.0, ge=0, le=1)
+
+    @field_validator("direction_degrees", "confidence", mode="before")
+    @classmethod
+    def require_json_number(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("presence values must be JSON numbers")
+        return value
 
 
 class RobotActionRequest(BaseModel):
@@ -262,6 +287,32 @@ class ReachyMiniHermes(ReachyMiniApp):
                 "config_error": config_error,
                 "runtime": runtime_payload,
             }
+
+        @self.settings_app.post("/api/presence/signal")
+        def presence_signal(
+            signal: PresenceSignalRequest,
+            authorization: str = Header(default=""),
+        ) -> dict[str, object]:
+            config = load_config()
+            if not config.api_key:
+                raise HTTPException(status_code=503, detail="Presence signal authentication is not configured")
+            if not secrets.compare_digest(authorization, f"Bearer {config.api_key}"):
+                raise HTTPException(status_code=401, detail="Unauthorized")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                presence = self._runtime.observe_presence(
+                    PresenceObservation(
+                        source=signal.source,
+                        occupied=bool(signal.occupied),
+                        attentive=bool(signal.attentive),
+                        direction_degrees=signal.direction_degrees,
+                        confidence=signal.confidence,
+                    )
+                )
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            return {"ok": True, "presence": presence}
 
         @self.settings_app.post("/api/settings")
         def update_settings(update: SettingsUpdate) -> dict[str, object]:

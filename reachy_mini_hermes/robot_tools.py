@@ -21,7 +21,11 @@ ROBOT_TOOL_NAMES = frozenset(
         "dance_reachy",
     }
 )
-_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {"nudge_reachy", "camera_joystick"}
+_QUEUED_ROBOT_ACTION_NAMES = ROBOT_TOOL_NAMES | {
+    "nudge_reachy",
+    "camera_joystick",
+    "acknowledge_presence",
+}
 _PRECISION_AXES = frozenset(
     {"x", "y", "z", "roll", "pitch", "yaw", "body_yaw", "center_head", "center_base", "center_all"}
 )
@@ -446,6 +450,45 @@ class ReachyRobotActions:
 
     def execute(self, name: str, arguments: dict[str, object]) -> dict[str, object]:
         """Execute one action synchronously; the worker calls this off the audio loop."""
+        if name == "acknowledge_presence":
+            raw_direction = arguments.get("direction_degrees")
+            if raw_direction is not None and (
+                isinstance(raw_direction, bool) or not isinstance(raw_direction, (int, float))
+            ):
+                return {"ok": False, "error": "Presence direction must be finite and bounded"}
+            direction = 0.0 if raw_direction is None else float(raw_direction)
+            if not math.isfinite(direction) or not -60.0 <= direction <= 60.0:
+                return {"ok": False, "error": "Presence direction must be finite and bounded"}
+            components = _head_pose_components(self.robot.get_current_head_pose())
+            components["pitch"] = -3.0
+            if raw_direction is not None:
+                components["yaw"] = _clamp(direction, (-18.0, 18.0))
+            target_head = create_head_pose(
+                x=components["x"],
+                y=components["y"],
+                z=components["z"],
+                roll=components["roll"],
+                pitch=components["pitch"],
+                yaw=components["yaw"],
+                mm=True,
+                degrees=True,
+            )
+            if not self._run_precision_interpolation(
+                target_head=target_head,
+                target_body=None,
+                start_body=0.0,
+                duration=0.45,
+            ):
+                return _cancelled_action_result(name)
+            return {
+                "ok": True,
+                "action": name,
+                "target": {
+                    "pitch": -3.0,
+                    "yaw": round(components["yaw"], 2),
+                },
+            }
+
         if name == "move_reachy_head":
             direction = str(arguments.get("direction") or "").lower()
             pose = _LOOK_POSES.get(direction)
