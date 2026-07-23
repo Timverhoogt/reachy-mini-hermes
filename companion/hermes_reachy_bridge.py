@@ -25,6 +25,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from aiohttp import ClientSession, ClientTimeout, FormData, web
 
@@ -698,6 +699,14 @@ class Bridge:
             10.0,
             min(float(os.getenv("REACHY_AGENT_ASK_TIMEOUT_SECONDS", "80")), 80.0),
         )
+        self._presence_entity_id = os.getenv("REACHY_PRESENCE_ENTITY_ID", "").strip()
+        self._presence_url = os.getenv("REACHY_PRESENCE_URL", "").strip()
+        self._presence_poll_seconds = max(
+            2.0,
+            min(float(os.getenv("REACHY_PRESENCE_POLL_SECONDS", "3")), 60.0),
+        )
+        self._presence_last_occupied: bool | None = None
+        self._presence_task: asyncio.Task[None] | None = None
 
     def _issue_kids_speech_approval(self, session_id: str, text: str) -> str:
         """Create a short-lived, single-use capability for one exact moderated reply."""
@@ -733,8 +742,18 @@ class Bridge:
 
     async def start(self, app: web.Application) -> None:
         self.http = ClientSession(timeout=ClientTimeout(total=180, connect=10))
+        if self._presence_entity_id and self._presence_url:
+            self._presence_task = asyncio.create_task(
+                self._presence_loop(),
+                name="reachy-presence-forwarder",
+            )
 
     async def stop(self, app: web.Application) -> None:
+        presence_task = self._presence_task
+        self._presence_task = None
+        if presence_task is not None:
+            presence_task.cancel()
+            await asyncio.gather(presence_task, return_exceptions=True)
         await self.agent_runs.shutdown()
         async with self._broker_tasks_lock:
             tasks = list(self._broker_tasks.values())
@@ -745,6 +764,60 @@ class Bridge:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self.http is not None:
             await self.http.close()
+
+    async def _forward_presence_once(self) -> bool:
+        """Forward one changed, normalized HA occupancy state to Reachy."""
+        if self.http is None:
+            return False
+        hass_url = _resolve_secret("HASS_URL", self.profile).rstrip("/")
+        hass_token = _resolve_secret("HASS_TOKEN", self.profile)
+        if not hass_url or not hass_token or not self._presence_entity_id or not self._presence_url:
+            return False
+        entity_path = quote(self._presence_entity_id, safe="._-")
+        async with self.http.get(
+            f"{hass_url}/api/states/{entity_path}",
+            headers={"Authorization": f"Bearer {hass_token}"},
+            allow_redirects=False,
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"Home Assistant presence read returned HTTP {response.status}")
+            payload = await response.json()
+        state = str(payload.get("state") or "").lower()
+        if state not in {"on", "off"}:
+            raise RuntimeError("Home Assistant presence state is unavailable")
+        occupied = state == "on"
+        if occupied == self._presence_last_occupied:
+            return True
+        async with self.http.post(
+            self._presence_url,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "source": "home_assistant",
+                "occupied": occupied,
+                "attentive": False,
+                "confidence": 1.0,
+            },
+            allow_redirects=False,
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"Reachy presence update returned HTTP {response.status}")
+            await response.read()
+        self._presence_last_occupied = occupied
+        _LOGGER.info(
+            "Forwarded normalized Home Assistant occupancy to Reachy: %s",
+            "occupied" if occupied else "clear",
+        )
+        return True
+
+    async def _presence_loop(self) -> None:
+        while True:
+            try:
+                await self._forward_presence_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                _LOGGER.warning("Presence forwarder unavailable: %s", exc)
+            await asyncio.sleep(self._presence_poll_seconds)
 
     def require_auth(self, request: web.Request) -> None:
         supplied = request.headers.get("Authorization", "")

@@ -889,6 +889,128 @@ def test_agent_answer_rejects_success_claims_and_unverified_provenance(
     asyncio.run(scenario())
 
 
+def test_presence_forwarder_sends_only_changed_normalized_occupancy(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+
+    class Response:
+        def __init__(self, status: int, payload: dict[str, object] | None = None) -> None:
+            self.status = status
+            self.payload = payload or {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def json(self) -> dict[str, object]:
+            return self.payload
+
+        async def read(self) -> bytes:
+            return b"{}"
+
+    class Http:
+        def __init__(self) -> None:
+            self.state = "on"
+            self.posts: list[tuple[str, dict[str, str], dict[str, object], bool]] = []
+
+        def get(self, url: str, *, headers: dict[str, str], allow_redirects: bool):
+            assert url == "http://ha.local:8123/api/states/binary_sensor.aqara_fp300_zolder_presence"
+            assert headers == {"Authorization": "Bearer hass-secret"}
+            assert allow_redirects is False
+            return Response(200, {"state": self.state, "attributes": {"friendly_name": "private"}})
+
+        def post(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str],
+            json: dict[str, object],
+            allow_redirects: bool,
+        ):
+            self.posts.append((url, headers, json, allow_redirects))
+            return Response(200)
+
+    monkeypatch.setattr(
+        bridge_module,
+        "_resolve_secret",
+        lambda name, _profile: {"HASS_URL": "http://ha.local:8123", "HASS_TOKEN": "hass-secret"}.get(
+            name, ""
+        ),
+    )
+    instance = bridge_module.Bridge(api_key="reachy-secret", hermes_url="http://hermes")
+    instance._presence_entity_id = "binary_sensor.aqara_fp300_zolder_presence"
+    instance._presence_url = "https://reachy.local/api/presence/signal"
+    http = Http()
+    instance.http = http
+
+    async def scenario() -> None:
+        assert await instance._forward_presence_once() is True
+        assert await instance._forward_presence_once() is True
+        http.state = "off"
+        assert await instance._forward_presence_once() is True
+
+    asyncio.run(scenario())
+
+    assert http.posts == [
+        (
+            "https://reachy.local/api/presence/signal",
+            {"Authorization": "Bearer reachy-secret"},
+            {
+                "source": "home_assistant",
+                "occupied": True,
+                "attentive": False,
+                "confidence": 1.0,
+            },
+            False,
+        ),
+        (
+            "https://reachy.local/api/presence/signal",
+            {"Authorization": "Bearer reachy-secret"},
+            {
+                "source": "home_assistant",
+                "occupied": False,
+                "attentive": False,
+                "confidence": 1.0,
+            },
+            False,
+        ),
+    ]
+
+
+def test_presence_forwarder_rejects_unavailable_home_assistant_state(monkeypatch) -> None:
+    bridge_module = load_bridge_module()
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def json(self) -> dict[str, object]:
+            return {"state": "unavailable"}
+
+    class Http:
+        def get(self, *_args: object, **_kwargs: object):
+            return Response()
+
+    monkeypatch.setattr(
+        bridge_module,
+        "_resolve_secret",
+        lambda name, _profile: {"HASS_URL": "http://ha.local", "HASS_TOKEN": "token"}.get(name, ""),
+    )
+    instance = bridge_module.Bridge(api_key="reachy-secret", hermes_url="http://hermes")
+    instance._presence_entity_id = "binary_sensor.aqara_fp300_zolder_presence"
+    instance._presence_url = "https://reachy.local/api/presence/signal"
+    instance.http = Http()
+
+    with pytest.raises(RuntimeError, match="unavailable"):
+        asyncio.run(instance._forward_presence_once())
+
+
 def _agent_context(generation: int) -> dict[str, object]:
     return {
         "capability_profile": "agent",

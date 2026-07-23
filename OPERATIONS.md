@@ -110,26 +110,19 @@ Confirm that the manifest contains no T4, shell, arbitrary-file, or maintenance 
 
 ### Agent 0.6 Proactive Presence signal
 
-Goal 1 accepts only an identity-free, authenticated local signal. Store the full authorization header in Home Assistant `secrets.yaml`; do not put the Reachy bearer in dashboards, browser-visible templates, or automation logs.
+Goal 1 accepts only an identity-free, authenticated local signal. Keep Home Assistant and Reachy credentials on the Hermes host. Configure the companion bridge's private environment file:
 
-```yaml
-# secrets.yaml
-reachy_hermes_authorization: "Bearer REPLACE_WITH_REACHY_BRIDGE_KEY"
-
-# configuration.yaml
-rest_command:
-  reachy_presence:
-    url: "http://REACHY_HOST:8042/api/presence/signal"
-    method: POST
-    headers:
-      Authorization: !secret reachy_hermes_authorization
-      Content-Type: "application/json"
-    payload: >-
-      {"source":"home_assistant","occupied":{{ occupied | bool | tojson }},
-       "attentive":false,"confidence":{{ confidence | float(1.0) }}}
+```dotenv
+HASS_URL=http://HOME_ASSISTANT_HOST:8123
+HASS_TOKEN=REDACTED_LONG_LIVED_TOKEN
+REACHY_PRESENCE_ENTITY_ID=binary_sensor.example_office_presence
+REACHY_PRESENCE_URL=https://REACHY_PRIVATE_HOST/api/presence/signal
+REACHY_PRESENCE_POLL_SECONDS=3
 ```
 
-Call `rest_command.reachy_presence` only from an allowlisted occupancy automation. The endpoint rejects arbitrary metadata, names, raw sensor data, unknown sources, invalid directions, and unauthenticated requests. Enabling Presence does not enable motors or change Reachy's power mode. In Standby it records sanitized state and reports `not_awake` without movement. Perform Awake acknowledgement acceptance only with clear space and an owner supervising Reachy.
+The bridge accepts only `on` and `off` from that exact entity, sends only changed occupancy state, disables redirects, and forwards a normalized `home_assistant` observation without entity attributes or names. `unavailable`, `unknown`, authentication failures, and HTTP errors fail closed and are retried without inventing an occupancy change. The Reachy endpoint still rejects arbitrary metadata, raw sensor data, invalid values, and unauthenticated requests.
+
+Enabling Presence does not enable motors or change Reachy's power mode. In Standby it records sanitized state without movement. Perform Awake acknowledgement acceptance only with clear space and an owner supervising Reachy.
 
 ## Health checks
 
