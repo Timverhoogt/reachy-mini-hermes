@@ -123,6 +123,33 @@ def test_presence_signal_fails_closed_without_configured_bearer_key(monkeypatch)
     assert response.status_code == 503
 
 
+def test_initiative_settings_are_bounded_and_persisted(monkeypatch) -> None:
+    _app, _runtime, client, saved = build_client(monkeypatch)
+
+    response = client.post(
+        "/api/settings",
+        json={
+            "initiative_policy_enabled": True,
+            "initiative_mode": "balanced",
+            "initiative_quiet_hours_enabled": True,
+            "initiative_quiet_hours_start": "22:00",
+            "initiative_quiet_hours_end": "07:00",
+            "initiative_hourly_budget": 2,
+            "initiative_daily_budget": 6,
+        },
+    )
+
+    assert response.status_code == 200
+    assert saved[-1].initiative_policy_enabled is True
+    assert saved[-1].initiative_mode == "balanced"
+    assert saved[-1].initiative_quiet_hours_start == "22:00"
+    assert saved[-1].initiative_hourly_budget == 2
+
+    assert client.post("/api/settings", json={"initiative_mode": "chatty"}).status_code == 422
+    invalid_time = client.post("/api/settings", json={"initiative_quiet_hours_start": "99:99"})
+    assert invalid_time.status_code == 400
+
+
 def test_agent_routes_reject_kids_lock_and_stop_invalidates_generation(monkeypatch) -> None:
     _app, runtime, client, _saved = build_client(monkeypatch)
     agent = runtime.status()["agent"]
@@ -554,4 +581,4 @@ def test_agent_05_trusted_ui_exposes_preview_budget_progress_and_control() -> No
     assert "/api/agent/run/status" in script
     assert "/api/agent/run/current" in script
     assert "Approve this exact step once?" in script
-    assert "reachy-hermes-shell-v41" in worker
+    assert "reachy-hermes-shell-v42" in worker

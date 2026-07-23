@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=41">
+  <link rel="stylesheet" href="/static/style.css?v=42">
 </head>
 <body>
   <main>
@@ -122,6 +122,47 @@
         </div>
         <p class="presence-boundary"><span aria-hidden="true">●</span> Silent acknowledgement only · no proactive speech</p>
         <p id="presence-message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card initiative-card" aria-labelledby="initiative-heading">
+        <div class="section-heading">
+          <div><p class="label">Agent 0.6 · Goal 2</p><h2 id="initiative-heading">Initiative Policy</h2></div>
+          <span id="initiative-badge" class="badge">Off</span>
+        </div>
+        <p class="muted">A deterministic gate decides whether Reachy should remain silent, acknowledge physically, or prepare an offer candidate.</p>
+        <div class="initiative-primary-controls">
+          <label class="checkbox-row">
+            <input type="checkbox" id="initiative-policy-enabled" />
+            <span><strong>Use initiative policy</strong><small>Applies budgets, timing, confidence, cooldowns, and every runtime safety boundary.</small></span>
+          </label>
+          <label>Engagement mode
+            <select id="initiative-mode">
+              <option value="quiet">Quiet</option>
+              <option value="balanced">Balanced</option>
+              <option value="engaged">Engaged</option>
+            </select>
+          </label>
+        </div>
+        <div class="initiative-status-grid">
+          <div><span class="label">Latest decision</span><strong id="initiative-outcome">Remain silent</strong></div>
+          <div><span class="label">Reason</span><strong id="initiative-reason">Disabled</strong></div>
+          <div><span class="label">Budget</span><strong id="initiative-budget">0 / 0 today</strong></div>
+        </div>
+        <details class="initiative-limits">
+          <summary><span><strong>Timing and limits</strong><small>Quiet hours and maximum initiative frequency</small></span></summary>
+          <div class="initiative-limit-grid">
+            <label class="checkbox-row initiative-quiet-toggle">
+              <input type="checkbox" id="initiative-quiet-hours-enabled" />
+              <span><strong>Quiet hours</strong><small>Always remain silent during this local-time window.</small></span>
+            </label>
+            <label>From <input type="time" id="initiative-quiet-hours-start" /></label>
+            <label>Until <input type="time" id="initiative-quiet-hours-end" /></label>
+            <label>Per hour <input type="number" id="initiative-hourly-budget" min="1" max="10" /></label>
+            <label>Per day <input type="number" id="initiative-daily-budget" min="1" max="30" /></label>
+          </div>
+        </details>
+        <p class="presence-boundary"><span aria-hidden="true">●</span> Eligibility decisions only · proactive speech remains disabled</p>
+        <p id="initiative-message" class="message" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card agent-run-sheet" aria-labelledby="agent-run-heading">
@@ -646,7 +687,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=41"></script>
-  <script src="/static/main.js?v=41"></script>
+  <script src="/static/camera.js?v=42"></script>
+  <script src="/static/main.js?v=42"></script>
 </body>
 </html>

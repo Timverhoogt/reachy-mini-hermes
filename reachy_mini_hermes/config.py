@@ -64,6 +64,16 @@ class AppConfig:
     proactive_presence_enabled: bool = False
     presence_acknowledgement_enabled: bool = True
     presence_acknowledgement_cooldown_seconds: float = 120.0
+    initiative_policy_enabled: bool = False
+    initiative_mode: str = "quiet"
+    initiative_quiet_hours_enabled: bool = True
+    initiative_quiet_hours_start: str = "22:00"
+    initiative_quiet_hours_end: str = "07:00"
+    initiative_hourly_budget: int = 2
+    initiative_daily_budget: int = 6
+    initiative_topic_cooldown_seconds: float = 1800.0
+    initiative_duplicate_window_seconds: float = 300.0
+    initiative_dismissal_backoff_seconds: float = 3600.0
     robot_tools_enabled: bool = True
     home_assistant_enabled: bool = False
     home_assistant_controls_enabled: bool = False
@@ -123,6 +133,31 @@ class AppConfig:
             raise ValueError("face_tracking_weight must be between 0 and 1")
         if not 30.0 <= float(self.presence_acknowledgement_cooldown_seconds) <= 3600.0:
             raise ValueError("presence acknowledgement cooldown must be between 30 and 3600 seconds")
+        if self.initiative_mode not in {"quiet", "balanced", "engaged"}:
+            raise ValueError("Unsupported initiative mode")
+        for value in (self.initiative_quiet_hours_start, self.initiative_quiet_hours_end):
+            try:
+                hour_text, minute_text = value.split(":", 1)
+                valid_time = (
+                    len(hour_text) == 2
+                    and len(minute_text) == 2
+                    and 0 <= int(hour_text) <= 23
+                    and 0 <= int(minute_text) <= 59
+                )
+            except (AttributeError, TypeError, ValueError):
+                valid_time = False
+            if not valid_time:
+                raise ValueError("Initiative quiet hours must use valid HH:MM values")
+        if not 1 <= int(self.initiative_hourly_budget) <= 10:
+            raise ValueError("Initiative hourly budget must be between 1 and 10")
+        if not 1 <= int(self.initiative_daily_budget) <= 30:
+            raise ValueError("Initiative daily budget must be between 1 and 30")
+        if not 60.0 <= float(self.initiative_topic_cooldown_seconds) <= 86400.0:
+            raise ValueError("Initiative topic cooldown must be between 60 and 86400 seconds")
+        if not 30.0 <= float(self.initiative_duplicate_window_seconds) <= 3600.0:
+            raise ValueError("Initiative duplicate window must be between 30 and 3600 seconds")
+        if not 60.0 <= float(self.initiative_dismissal_backoff_seconds) <= 86400.0:
+            raise ValueError("Initiative dismissal backoff must be between 60 and 86400 seconds")
         if self.stt_provider not in {"configured", "local", "elevenlabs"}:
             raise ValueError("Unsupported STT provider")
         if self.tts_provider not in {"configured", "elevenlabs"}:

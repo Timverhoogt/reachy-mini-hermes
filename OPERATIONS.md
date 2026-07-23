@@ -124,6 +124,14 @@ The bridge accepts only `on` and `off` from that exact entity, sends only change
 
 Enabling Presence does not enable motors or change Reachy's power mode. In Standby it records sanitized state without movement. Perform Awake acknowledgement acceptance only with clear space and an owner supervising Reachy.
 
+### Agent 0.6 Initiative Policy
+
+Goal 2 is disabled by default and remains a silent eligibility gate. The trusted Agent workspace exposes Quiet, Balanced, and Engaged modes; optional local quiet hours; and hourly/day budgets. Decisions are limited to `remain_silent`, `physical_acknowledgement`, and `offer_candidate`. Goal 2 does not generate text, invoke TTS, start Agent runs, or execute an offer.
+
+Runtime ownership and safety suppression run before policy timing or confidence checks. Kids Mode/lock, privacy, Meeting/Sleep, Standby, disabled motors, active voice or announcement playback, camera control, face tracking, explicit robot actions, and runtime transitions therefore always win. Topic cooldowns, duplicate windows, and dismissal backoff are process-local and contain only bounded machine labels—never transcripts or personal context.
+
+For initial acceptance, enable the policy in **Balanced** mode while Reachy remains folded in Standby, submit one trusted presence signal, and verify the latest decision is `remain_silent` with reason `not_awake`, initiative counters remain zero, and no robot action or speech occurs. Awake physical acceptance still requires an owner and clear space.
+
 ## Health checks
 
 ### Reachy app

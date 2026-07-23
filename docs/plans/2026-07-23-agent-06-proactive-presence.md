@@ -63,6 +63,8 @@
 
 **Outcome:** Reachy can deterministically decide whether a contextual moment is eligible for proactive speech while still remaining silent in most cases.
 
+**Implemented foundation:** disabled by default; deterministic and process-local; phone-visible Quiet/Balanced/Engaged controls, quiet hours, budgets, cooldowns, duplicate suppression, dismissal backoff, and sanitized decision reasons. Goal 2 emits eligibility outcomes only and cannot generate speech.
+
 - Quiet/Balanced/Engaged modes.
 - Quiet hours, per-hour/day budgets, topic cooldowns, dismissal backoff, and duplicate suppression.
 - Hard suppression during active conversation, media/announcement ownership, Kids, privacy, Meeting/Sleep, camera control, and robot actions.

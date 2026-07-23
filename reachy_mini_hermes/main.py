@@ -64,6 +64,16 @@ class SettingsUpdate(BaseModel):
     proactive_presence_enabled: bool | None = None
     presence_acknowledgement_enabled: bool | None = None
     presence_acknowledgement_cooldown_seconds: float | None = Field(default=None, ge=30, le=3600)
+    initiative_policy_enabled: bool | None = None
+    initiative_mode: Literal["quiet", "balanced", "engaged"] | None = None
+    initiative_quiet_hours_enabled: bool | None = None
+    initiative_quiet_hours_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    initiative_quiet_hours_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    initiative_hourly_budget: int | None = Field(default=None, ge=1, le=10)
+    initiative_daily_budget: int | None = Field(default=None, ge=1, le=30)
+    initiative_topic_cooldown_seconds: float | None = Field(default=None, ge=60, le=86400)
+    initiative_duplicate_window_seconds: float | None = Field(default=None, ge=30, le=3600)
+    initiative_dismissal_backoff_seconds: float | None = Field(default=None, ge=60, le=86400)
     robot_tools_enabled: bool | None = None
     home_assistant_enabled: bool | None = None
     home_assistant_controls_enabled: bool | None = None

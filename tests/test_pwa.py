@@ -82,7 +82,7 @@ def test_dashboard_exposes_bounded_agent_status_approval_and_stop_controls() -> 
     assert 'document.querySelector(".agent-card").hidden = kidsActive || kidsLocked' in javascript
 
 
-def test_v41_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> None:
+def test_v42_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> None:
     html = (STATIC / "index.html").read_text()
     css = (STATIC / "style.css").read_text()
     script = (STATIC / "main.js").read_text()
@@ -94,12 +94,20 @@ def test_v41_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> N
     assert 'id="presence-enabled"' in html
     assert 'id="presence-acknowledgement-enabled"' in html
     assert "Silent acknowledgement only · no proactive speech" in html
+    assert 'id="initiative-policy-enabled"' in html
+    assert 'id="initiative-mode"' in html
+    assert 'id="initiative-quiet-hours-start"' in html
+    assert 'id="initiative-hourly-budget"' in html
+    assert "Eligibility decisions only · proactive speech remains disabled" in html
     assert '<details class="control-group precision-group disclosure">' in html
     assert '<details class="card bluetooth-card disclosure-card">' in html
     assert '<details id="install-card" class="card install-card disclosure-card">' in html
     assert 'grid-template-columns: repeat(6, 1fr)' in css
     assert '.presence-status-grid' in css
+    assert '.initiative-status-grid' in css
     assert '.agent-step-list' in css
     assert 'proactive_presence_enabled' in script
     assert 'presence_acknowledgement_enabled' in script
-    assert 'reachy-hermes-shell-v41' in worker
+    assert 'initiative_policy_enabled' in script
+    assert 'initiative_quiet_hours_start' in script
+    assert 'reachy-hermes-shell-v42' in worker

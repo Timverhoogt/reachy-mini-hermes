@@ -32,6 +32,7 @@ let brokerAgentActivity = [];
 let pendingAgentApproval = null;
 let agentRunRequestPending = false;
 let presenceRequestPending = false;
+let initiativeRequestPending = false;
 let currentAgentRun = null;
 let agentRunId = window.sessionStorage.getItem("reachy-hermes-agent-run-id") || "";
 
@@ -369,6 +370,34 @@ function updateStatus(payload) {
     : "None";
   const outcome = presenceEnabled ? String(presence.last_outcome || "none") : "disabled";
   $("presence-outcome").textContent = outcome.replaceAll("_", " ");
+  const initiative = runtime.initiative || {};
+  const initiativeEnabled = Boolean(payload.config?.initiative_policy_enabled);
+  const initiativeMode = String(payload.config?.initiative_mode || "quiet");
+  $("initiative-policy-enabled").checked = initiativeEnabled;
+  $("initiative-mode").value = initiativeMode;
+  $("initiative-quiet-hours-enabled").checked = Boolean(payload.config?.initiative_quiet_hours_enabled);
+  $("initiative-quiet-hours-start").value = String(payload.config?.initiative_quiet_hours_start || "22:00");
+  $("initiative-quiet-hours-end").value = String(payload.config?.initiative_quiet_hours_end || "07:00");
+  $("initiative-hourly-budget").value = String(Number(payload.config?.initiative_hourly_budget || 2));
+  $("initiative-daily-budget").value = String(Number(payload.config?.initiative_daily_budget || 6));
+  const initiativeBlocked = kidsActive || kidsLocked || initiativeRequestPending;
+  $("initiative-policy-enabled").disabled = initiativeBlocked;
+  ["initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
+    $(id).disabled = !initiativeEnabled || initiativeBlocked;
+  });
+  $("initiative-badge").textContent = initiativeEnabled ? initiativeMode : "off";
+  $("initiative-badge").dataset.status = initiativeEnabled ? "completed" : "idle";
+  $("initiative-outcome").textContent = String(initiative.latest_outcome || "remain_silent").replaceAll("_", " ");
+  const initiativeReason = initiativeEnabled
+    ? String(initiative.latest_reason || "none").replaceAll("_", " ")
+    : "disabled";
+  const initiativeTopic = initiativeEnabled && initiative.latest_topic
+    ? String(initiative.latest_topic).replaceAll("_", " ")
+    : "";
+  $("initiative-reason").textContent = initiativeTopic
+    ? `${initiativeReason} · ${initiativeTopic}`
+    : initiativeReason;
+  $("initiative-budget").textContent = `${Number(initiative.initiatives_today || 0)} / ${Number(initiative.daily_budget || payload.config?.initiative_daily_budget || 0)} today · ${Number(initiative.initiatives_this_hour || 0)} / ${Number(initiative.hourly_budget || payload.config?.initiative_hourly_budget || 0)} this hour`;
   runtimeAgentActivity = agent.recent_activity || [];
   renderAgentActivity();
   document.querySelector(".agent-card").hidden = kidsActive || kidsLocked;
@@ -781,6 +810,44 @@ async function updatePresenceSettings() {
 
 $("presence-enabled").addEventListener("change", updatePresenceSettings);
 $("presence-acknowledgement-enabled").addEventListener("change", updatePresenceSettings);
+
+async function updateInitiativeSettings() {
+  if (initiativeRequestPending) return;
+  initiativeRequestPending = true;
+  $("initiative-message").textContent = "Saving initiative policy…";
+  $("initiative-message").className = "message";
+  try {
+    const response = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        initiative_policy_enabled: $("initiative-policy-enabled").checked,
+        initiative_mode: $("initiative-mode").value,
+        initiative_quiet_hours_enabled: $("initiative-quiet-hours-enabled").checked,
+        initiative_quiet_hours_start: $("initiative-quiet-hours-start").value,
+        initiative_quiet_hours_end: $("initiative-quiet-hours-end").value,
+        initiative_hourly_budget: Number($("initiative-hourly-budget").value),
+        initiative_daily_budget: Number($("initiative-daily-budget").value),
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    $("initiative-message").textContent = $("initiative-policy-enabled").checked
+      ? "Initiative eligibility is active. Proactive speech remains disabled."
+      : "Initiative policy is off.";
+    $("initiative-message").className = "message ok";
+  } catch (error) {
+    $("initiative-message").textContent = String(error);
+    $("initiative-message").className = "message error";
+  } finally {
+    initiativeRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
+  $(id).addEventListener("change", updateInitiativeSettings);
+});
 
 $("settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();

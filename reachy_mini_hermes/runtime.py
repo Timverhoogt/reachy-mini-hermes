@@ -15,6 +15,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import cast
 
 import httpx
 import numpy as np
@@ -33,6 +34,13 @@ from .config import AppConfig, load_config
 from .gesture_detection import GestureDetector, GestureReactionGate
 from .hermes_client import AgentBrokerContext, HermesBridgeClient, HermesBridgeError, SpeechAudio
 from .home_assistant import HermesHomeAssistantProvider, HomeAssistantBridge
+from .initiative import (
+    InitiativeCandidate,
+    InitiativeDecision,
+    InitiativeMode,
+    InitiativePolicy,
+    InitiativeSettings,
+)
 from .ispy import ISpyTarget
 from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
@@ -301,6 +309,7 @@ class HermesVoiceRuntime:
         self._gesture_stop_requested = threading.Event()
         self._presence = PresenceState()
         self._presence_action_active = threading.Event()
+        self._initiative = InitiativePolicy()
         self._audio_ready = False
         self._runtime_started = False
         self._control_ready = threading.Event()
@@ -594,6 +603,7 @@ class HermesVoiceRuntime:
             }
         config = self.config_loader()
         payload["presence"] = self._presence.public_status(enabled=config.proactive_presence_enabled)
+        payload["initiative"] = self._initiative.public_status(self._initiative_settings(config))
         with self._agent_lock:
             payload["agent"] = self._agent_status_unlocked()
         with self._kids_lock:
@@ -631,9 +641,12 @@ class HermesVoiceRuntime:
         """Return why silent presence motion is currently unsafe, or an empty string."""
         if self.stop_event.is_set() or not self._control_ready.is_set():
             return "runtime_not_ready"
+        power_mode = self._effective_power_mode()
+        if power_mode in {"meeting", "sleep"}:
+            return power_mode
         if self._privacy_requested.is_set():
             return "privacy"
-        if self._effective_power_mode() != "awake":
+        if power_mode != "awake":
             return "not_awake"
         if self._motors_enabled is not True:
             return "motors_not_enabled"
@@ -670,22 +683,38 @@ class HermesVoiceRuntime:
             return self._presence.public_status(enabled=False)
         self._presence.observe(observation)
         if not observation.occupied:
+            if config.initiative_policy_enabled:
+                self._evaluate_presence_initiative(observation, config, "away")
             return self._presence.public_status(enabled=True)
         if not allow_acknowledgement:
             self._presence.record_suppression(f"observed_{observation.source}")
+            if config.initiative_policy_enabled:
+                self._evaluate_presence_initiative(observation, config, "observation_only")
             return self._presence.public_status(enabled=True)
         if not config.presence_acknowledgement_enabled:
             self._presence.record_suppression("acknowledgement_disabled")
+            if config.initiative_policy_enabled:
+                self._evaluate_presence_initiative(observation, config, "acknowledgement_disabled")
             return self._presence.public_status(enabled=True)
         if not self._presence.acknowledgement_due(config.presence_acknowledgement_cooldown_seconds):
             self._presence.record_suppression("cooldown")
+            if config.initiative_policy_enabled:
+                self._evaluate_presence_initiative(observation, config, "cooldown")
             return self._presence.public_status(enabled=True)
 
         reason = self._presence_suppression_reason(config)
+        initiative_decision: InitiativeDecision | None = None
+        if config.initiative_policy_enabled:
+            initiative_decision = self._evaluate_presence_initiative(observation, config, reason)
+            if initiative_decision.outcome == "remain_silent":
+                self._presence.record_suppression(initiative_decision.reason)
+                return self._presence.public_status(enabled=True)
         if reason:
             self._presence.record_suppression(reason)
             return self._presence.public_status(enabled=True)
         if not self._voice_activity_lock.acquire(blocking=False):
+            if initiative_decision is not None:
+                self._initiative.cancel(initiative_decision, "voice_active")
             self._presence.record_suppression("voice_active")
             return self._presence.public_status(enabled=True)
         try:
@@ -696,8 +725,12 @@ class HermesVoiceRuntime:
                     reason = self._presence_suppression_reason(config)
                     actions = self._actions
                     if reason:
+                        if initiative_decision is not None:
+                            self._initiative.cancel(initiative_decision, reason)
                         self._presence.record_suppression(reason)
                     elif actions is None:
+                        if initiative_decision is not None:
+                            self._initiative.cancel(initiative_decision, "runtime_not_ready")
                         self._presence.record_suppression("runtime_not_ready")
                     else:
                         self._presence_action_active.set()
@@ -712,14 +745,67 @@ class HermesVoiceRuntime:
                         )
                         if queued.get("accepted"):
                             self._presence.reserve_acknowledgement()
+                            if initiative_decision is not None:
+                                self._initiative.commit(initiative_decision)
                         else:
                             self._presence_action_active.clear()
-                            self._presence.record_suppression(
-                                str(queued.get("code") or "motion_failed")
-                            )
+                            queue_reason = str(queued.get("code") or "motion_failed")
+                            if initiative_decision is not None:
+                                self._initiative.cancel(initiative_decision, queue_reason)
+                            self._presence.record_suppression(queue_reason)
         finally:
             self._voice_activity_lock.release()
         return self._presence.public_status(enabled=True)
+
+    @staticmethod
+    def _initiative_settings(config: AppConfig) -> InitiativeSettings:
+        return InitiativeSettings(
+            enabled=config.initiative_policy_enabled,
+            mode=cast(InitiativeMode, config.initiative_mode),
+            quiet_hours_enabled=config.initiative_quiet_hours_enabled,
+            quiet_hours_start=config.initiative_quiet_hours_start,
+            quiet_hours_end=config.initiative_quiet_hours_end,
+            hourly_budget=config.initiative_hourly_budget,
+            daily_budget=config.initiative_daily_budget,
+            topic_cooldown_seconds=config.initiative_topic_cooldown_seconds,
+            duplicate_window_seconds=config.initiative_duplicate_window_seconds,
+            dismissal_backoff_seconds=config.initiative_dismissal_backoff_seconds,
+        )
+
+    def _evaluate_presence_initiative(
+        self,
+        observation: PresenceObservation,
+        config: AppConfig,
+        suppression_reason: str,
+    ) -> InitiativeDecision:
+        return self._initiative.evaluate(
+            InitiativeCandidate(
+                topic="office_presence",
+                requested_outcome="physical_acknowledgement",
+                confidence=observation.confidence,
+                attentive=observation.attentive,
+                fingerprint=f"presence:{observation.source}:{'attentive' if observation.attentive else 'present'}",
+            ),
+            self._initiative_settings(config),
+            suppression_reason=suppression_reason,
+        )
+
+    def evaluate_initiative_candidate(
+        self,
+        candidate: InitiativeCandidate,
+        *,
+        commit: bool = False,
+    ) -> InitiativeDecision:
+        """Evaluate a sanitized future offer without generating or speaking content."""
+        config = self.config_loader()
+        decision = self._initiative.evaluate(
+            candidate,
+            self._initiative_settings(config),
+            suppression_reason=self._presence_suppression_reason(config),
+        )
+        if commit and decision.outcome != "remain_silent":
+            self._initiative.commit(decision)
+        return decision
 
     @property
     def control_ready(self) -> bool:

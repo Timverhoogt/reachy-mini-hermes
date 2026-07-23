@@ -46,6 +46,44 @@ def test_embodiment_features_are_explicit_and_privacy_bounded_by_default() -> No
     assert config.face_tracking_weight == 0.65
     assert config.doa_enabled is False
     assert config.robot_tools_enabled is True
+    assert config.initiative_policy_enabled is False
+    assert config.initiative_mode == "quiet"
+    assert config.initiative_quiet_hours_enabled is True
+    assert config.initiative_quiet_hours_start == "22:00"
+    assert config.initiative_quiet_hours_end == "07:00"
+    assert config.initiative_hourly_budget == 2
+    assert config.initiative_daily_budget == 6
+
+
+@pytest.mark.parametrize("mode", ["off", "chatty", "maintenance"])
+def test_initiative_mode_is_bounded(mode: str) -> None:
+    with pytest.raises(ValueError, match="initiative mode"):
+        AppConfig(initiative_mode=mode)
+
+
+@pytest.mark.parametrize("value", ["7:00", "24:00", "12:60", "noon"])
+def test_initiative_quiet_hours_require_valid_24_hour_time(value: str) -> None:
+    with pytest.raises(ValueError, match="quiet hours"):
+        AppConfig(initiative_quiet_hours_start=value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("initiative_hourly_budget", 0),
+        ("initiative_hourly_budget", 11),
+        ("initiative_daily_budget", 0),
+        ("initiative_daily_budget", 31),
+        ("initiative_topic_cooldown_seconds", 59),
+        ("initiative_duplicate_window_seconds", 29),
+        ("initiative_dismissal_backoff_seconds", 59),
+    ],
+)
+def test_initiative_limits_are_bounded(field: str, value: int) -> None:
+    config = AppConfig()
+    setattr(config, field, value)
+    with pytest.raises(ValueError, match="Initiative"):
+        config.validate()
 
 
 @pytest.mark.parametrize("weight", [-0.01, 1.01])
