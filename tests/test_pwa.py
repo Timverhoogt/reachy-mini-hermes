@@ -80,3 +80,19 @@ def test_dashboard_exposes_bounded_agent_status_approval_and_stop_controls() -> 
     assert 'fetch("/api/agent/pending-approval"' in javascript
     assert 'fetch("/api/agent/approve-pending"' in javascript
     assert 'document.querySelector(".agent-card").hidden = kidsActive || kidsLocked' in javascript
+
+
+def test_v40_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> None:
+    html = (STATIC / "index.html").read_text()
+    css = (STATIC / "style.css").read_text()
+    worker = (STATIC / "service-worker.js").read_text()
+
+    assert 'id="tab-agent"' in html
+    assert 'id="panel-agent"' in html
+    assert html.index('id="panel-agent"') < html.index('id="panel-kids"')
+    assert '<details class="control-group precision-group disclosure">' in html
+    assert '<details class="card bluetooth-card disclosure-card">' in html
+    assert '<details id="install-card" class="card install-card disclosure-card">' in html
+    assert 'grid-template-columns: repeat(6, 1fr)' in css
+    assert '.agent-step-list' in css
+    assert 'reachy-hermes-shell-v40' in worker

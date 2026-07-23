@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=39">
+  <link rel="stylesheet" href="/static/style.css?v=40">
 </head>
 <body>
   <main>
@@ -35,7 +35,8 @@
     </section>
 
     <nav class="tabs" role="tablist" aria-label="Reachy Hermes controls">
-      <button type="button" class="tab-button active" id="tab-dashboard" role="tab" aria-selected="true" aria-controls="panel-dashboard" data-tab="dashboard">Dashboard</button>
+      <button type="button" class="tab-button active" id="tab-dashboard" role="tab" aria-selected="true" aria-controls="panel-dashboard" data-tab="dashboard">Home</button>
+      <button type="button" class="tab-button" id="tab-agent" role="tab" aria-selected="false" aria-controls="panel-agent" data-tab="agent">Agent</button>
       <button type="button" class="tab-button" id="tab-kids" role="tab" aria-selected="false" aria-controls="panel-kids" data-tab="kids">Kids</button>
       <button type="button" class="tab-button" id="tab-announce" role="tab" aria-selected="false" aria-controls="panel-announce" data-tab="announce">Announce</button>
       <button type="button" class="tab-button" id="tab-robot" role="tab" aria-selected="false" aria-controls="panel-robot" data-tab="robot">Robot</button>
@@ -63,58 +64,11 @@
         <div><p class="label">Last response</p><p id="last-response" class="quote">—</p></div>
       </section>
 
-      <section class="card agent-card">
-        <div class="section-heading">
-          <div><p class="label">Adult capability profile</p><h2>Agent Mode</h2></div>
-          <span id="agent-profile-badge" class="badge">Conversation</span>
-        </div>
-        <p class="muted">Agent Mode can investigate, run reversible allowlisted home actions, manage timers and reminders, use explicit one-shot camera help, and prepare calendar, message, media, or note actions for exact phone approval. Maintenance remains unavailable.</p>
-        <div class="actions left-actions">
-          <button type="button" id="agent-conversation-button" class="secondary">Conversation</button>
-          <button type="button" id="agent-enable-button">Start fresh Agent session</button>
-          <button type="button" id="agent-stop-button" class="danger">Stop Agent</button>
-        </div>
-        <section class="agent-run-sheet" aria-labelledby="agent-run-heading">
-          <div class="section-heading">
-            <div><p class="label">Agent 0.5</p><h3 id="agent-run-heading">Bounded multi-step run</h3></div>
-            <span id="agent-run-badge" class="badge">No plan</span>
-          </div>
-          <label for="agent-run-goal">Goal</label>
-          <textarea id="agent-run-goal" maxlength="2000" rows="3" placeholder="Check Reachy's status and list the currently available Agent capabilities."></textarea>
-          <p class="muted">Preview creates an exact 1–5 step plan. Nothing runs until Start. Maximum: 5 tool calls, 2 side effects, 120 seconds. Approval-gated steps pause separately.</p>
-          <div class="actions left-actions">
-            <button type="button" id="agent-run-preview-button">Preview plan</button>
-            <button type="button" id="agent-run-start-button" disabled>Start</button>
-            <button type="button" id="agent-run-pause-button" class="secondary" disabled>Pause</button>
-            <button type="button" id="agent-run-resume-button" class="secondary" disabled>Resume</button>
-            <button type="button" id="agent-run-cancel-button" class="danger" disabled>Cancel run</button>
-          </div>
-          <div id="agent-run-budget" class="muted compact-note">No run budget in use.</div>
-          <ol id="agent-run-steps" class="agent-activity"><li>Preview a plan to inspect every exact step.</li></ol>
-          <button type="button" id="agent-run-approve-button" hidden>Approve waiting step exactly</button>
-        </section>
-        <div class="agent-status-grid">
-          <div><span class="label">Enabled capabilities</span><p id="agent-capabilities" class="quote">None</p></div>
-          <div><span class="label">Current task</span><p id="agent-current-task" class="quote">—</p></div>
-          <div><span class="label">Pending approval</span><p id="agent-pending-approval" class="quote">None</p></div>
-        </div>
-        <section id="agent-approval-sheet" class="agent-approval-sheet" hidden>
-          <p class="label">Exact action awaiting approval</p>
-          <strong id="agent-approval-capability">—</strong>
-          <pre id="agent-approval-arguments"></pre>
-          <p class="muted">Review every target and value. Editing requires a new draft; approval is one-shot and expires.</p>
-          <button type="button" id="agent-approve-button">Approve this exact action</button>
-        </section>
-        <p class="label">Recent sanitized activity</p>
-        <ol id="agent-activity" class="agent-activity"><li>No activity yet</li></ol>
-        <p id="agent-message" class="message" role="status" aria-live="polite"></p>
-      </section>
-
-      <section id="install-card" class="card install-card">
-        <div class="section-heading">
-          <div><p class="label">Android home screen</p><h2>Install Reachy Hermes</h2></div>
+      <details id="install-card" class="card install-card disclosure-card">
+        <summary class="section-heading">
+          <div><p class="label">Phone shortcut</p><h2>Install Reachy Hermes</h2><p class="muted compact-note">Open controls from your home screen</p></div>
           <span id="install-status" class="badge">Web app</span>
-        </div>
+        </summary>
         <p id="install-description" class="muted">Open Reachy controls in a standalone window from your phone's home screen.</p>
         <div class="actions left-actions">
           <button type="button" id="install-button" hidden>Install app</button>
@@ -124,7 +78,69 @@
           <summary>Manual Android installation</summary>
           <p class="muted">In Chrome, open the ⋮ menu and choose <strong>Add to Home screen</strong>. Full app installation requires a trusted HTTPS address; this direct LAN page can still be saved as a shortcut.</p>
         </details>
+      </details>
+    </div>
+
+    <div id="panel-agent" class="tab-panel" role="tabpanel" aria-labelledby="tab-agent" data-panel="agent" hidden>
+      <section class="card agent-card">
+        <div class="agent-hero">
+          <div>
+            <p class="label">Owner-controlled workspace</p>
+            <h2>Agent Mode</h2>
+            <p class="muted">Create a bounded plan, review every exact step, then start. Consequential actions pause for phone approval.</p>
+          </div>
+          <span id="agent-profile-badge" class="badge">Conversation</span>
+        </div>
+        <div class="agent-mode-bar" aria-label="Agent session controls">
+          <button type="button" id="agent-enable-button">New Agent session</button>
+          <button type="button" id="agent-conversation-button" class="secondary">Conversation only</button>
+          <button type="button" id="agent-stop-button" class="danger">Stop all Agent work</button>
+        </div>
+        <p id="agent-message" class="message" role="status" aria-live="polite"></p>
       </section>
+
+      <section class="card agent-run-sheet" aria-labelledby="agent-run-heading">
+        <div class="section-heading">
+          <div><p class="label">Plan and run</p><h2 id="agent-run-heading">What should Reachy accomplish?</h2></div>
+          <span id="agent-run-badge" class="badge">No plan</span>
+        </div>
+        <label for="agent-run-goal" class="sr-only">Agent goal</label>
+        <textarea id="agent-run-goal" maxlength="2000" rows="3" placeholder="For example: check Reachy's status, then list the available Agent capabilities."></textarea>
+        <div class="agent-guardrail-row" aria-label="Run limits">
+          <span>Up to 5 steps</span><span>2 side effects</span><span>120 seconds</span><span>Approval pauses</span>
+        </div>
+        <div class="agent-run-toolbar">
+          <button type="button" id="agent-run-preview-button">Preview plan</button>
+          <button type="button" id="agent-run-start-button" disabled>Start run</button>
+          <div class="agent-run-control-group">
+            <button type="button" id="agent-run-pause-button" class="secondary" disabled>Pause</button>
+            <button type="button" id="agent-run-resume-button" class="secondary" disabled>Resume</button>
+            <button type="button" id="agent-run-cancel-button" class="danger" disabled>Cancel</button>
+          </div>
+        </div>
+        <div id="agent-run-budget" class="agent-run-summary">No active run.</div>
+        <ol id="agent-run-steps" class="agent-step-list"><li>Enter a goal to preview every exact step before anything runs.</li></ol>
+        <button type="button" id="agent-run-approve-button" class="agent-primary-approval" hidden>Approve waiting step exactly</button>
+      </section>
+
+      <section id="agent-approval-sheet" class="card agent-approval-sheet" hidden>
+        <div class="section-heading"><div><p class="label">Approval required</p><h2>Review exact action</h2></div><span class="badge warning">One shot</span></div>
+        <strong id="agent-approval-capability">—</strong>
+        <pre id="agent-approval-arguments"></pre>
+        <p class="muted">Check every target and value. Any edit requires a new draft; approval expires and cannot be replayed.</p>
+        <button type="button" id="agent-approve-button">Approve this exact action</button>
+      </section>
+
+      <details class="card agent-session-details">
+        <summary><span><strong>Session details</strong><small>Capabilities, current task, approvals, and sanitized activity</small></span></summary>
+        <div class="agent-status-grid">
+          <div><span class="label">Current task</span><p id="agent-current-task" class="quote">—</p></div>
+          <div><span class="label">Pending approval</span><p id="agent-pending-approval" class="quote">None</p></div>
+          <div><span class="label">Enabled capabilities</span><p id="agent-capabilities" class="quote">None</p></div>
+        </div>
+        <p class="label">Recent sanitized activity</p>
+        <ol id="agent-activity" class="agent-activity"><li>No activity yet</li></ol>
+      </details>
     </div>
 
     <div id="panel-kids" class="tab-panel kids-panel" role="tabpanel" aria-labelledby="tab-kids" data-panel="kids" hidden>
@@ -332,11 +348,11 @@
           </div>
         </div>
 
-        <div class="control-group precision-group">
-          <div class="control-group-heading">
-            <div><h3>Precision pose control</h3><p class="muted compact-note">Conservative head steps plus a separate rotating-base step. Position uses millimetres; orientation and base use degrees.</p></div>
-            <span class="control-chip">Head + base</span>
-          </div>
+        <details class="control-group precision-group disclosure">
+          <summary class="control-group-heading">
+            <div><h3>Precision pose control</h3><p class="muted compact-note">Fine head and rotating-base adjustments</p></div>
+            <span class="control-chip">Advanced</span>
+          </summary>
           <div class="precision-toolbar">
             <label>Head step
               <select id="precision-step">
@@ -389,7 +405,7 @@
             </div>
           </div>
           <p class="muted compact-note">Limits: X ±15 mm, Y/Z ±20 mm, roll ±15°, pitch ±25°, precision head yaw ±35°, base yaw ±120° (inside the SDK’s ±160° safety limit). Base steps of 30° or 60° require clear-space confirmation. Stop action freezes the current pose.</p>
-        </div>
+        </details>
 
         <div class="control-group dance-group">
           <div class="control-group-heading"><div><h3>Dance preset</h3><p class="muted compact-note">Recorded Reachy moves. Clear space before medium or wide motion.</p></div><span class="control-chip">Full body</span></div>
@@ -402,11 +418,11 @@
         <p class="muted action-status">Last action: <strong id="last-robot-action">—</strong><span id="robot-action-error"></span></p>
       </section>
 
-      <section class="card bluetooth-card">
-        <div class="section-heading">
-          <div><p class="label">Local controller</p><h2>Bluetooth gamepad</h2></div>
+      <details class="card bluetooth-card disclosure-card">
+        <summary class="section-heading">
+          <div><p class="label">Optional controller</p><h2>Bluetooth gamepad</h2><p class="muted compact-note">Pair and manage a supported Sony controller</p></div>
           <span id="bluetooth-badge" class="badge">Checking…</span>
-        </div>
+        </summary>
         <p class="muted">Pair a Sony DualShock 4 or DualSense controller through Reachy Pi's BlueZ adapter. Other controller layouts are rejected until they have a separately validated mapping. Controller actions use the same bounded movement queue, Kids lock, and Meeting/Sleep safety gates as this tab.</p>
         <p class="hardware-scope-note"><strong>Reachy Mini Wireless only.</strong> This tool requires the Wireless model's Raspberry Pi Bluetooth radio; it is not supported on Reachy Mini Lite or wired-only installations.</p>
         <div class="bluetooth-status-grid">
@@ -434,7 +450,7 @@
         </label>
         <p class="muted compact-note">Pairing mode: DualShock 4—hold <strong>Share + PS</strong>; DualSense—hold <strong>Create + PS</strong> until the light flashes. Keep Reachy clear of obstacles before enabling movement.</p>
         <p id="bluetooth-message" class="message" role="status" aria-live="polite"></p>
-      </section>
+      </details>
 
       <section class="card camera-card">
         <div class="section-heading">
@@ -544,7 +560,7 @@
           <label>TTS voice<select id="tts_voice" name="tts_voice"><option value="pNInz6obpgDQGcFmaJgB">Adam</option></select></label>
           <p id="voice-provider" class="muted provider-note">Speech providers are selected independently from the agent model.</p>
 
-          <details open>
+          <details>
             <summary>Embodiment and privacy</summary>
             <div class="settings-section">
               <label class="toggle-row"><span><strong>Continued conversation</strong><small>Listen for a follow-up after each answer</small></span><input id="continuous_conversation" name="continuous_conversation" type="checkbox" /></label>
@@ -605,7 +621,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=39"></script>
-  <script src="/static/main.js?v=39"></script>
+  <script src="/static/camera.js?v=40"></script>
+  <script src="/static/main.js?v=40"></script>
 </body>
 </html>

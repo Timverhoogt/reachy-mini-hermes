@@ -41,23 +41,40 @@ function renderAgentRun() {
   steps.replaceChildren();
   if (!run) {
     badge.textContent = "No plan";
-    $("agent-run-budget").textContent = "No run budget in use.";
+    badge.dataset.status = "idle";
+    $("agent-run-budget").textContent = "No active run.";
     steps.appendChild(Object.assign(document.createElement("li"), {
-      textContent: "Preview a plan to inspect every exact step.",
+      textContent: "Enter a goal to preview every exact step before anything runs.",
     }));
   } else {
-    badge.textContent = String(run.status || "unknown").replaceAll("_", " ");
+    const status = String(run.status || "unknown");
+    badge.textContent = status.replaceAll("_", " ");
+    badge.dataset.status = status;
     const budgets = run.budgets || {};
-    $("agent-run-budget").textContent = `${Number(run.tool_calls_used || 0)} / ${Number(budgets.max_tool_calls || 5)} tool calls · ${Number(run.side_effects_used || 0)} / ${Number(budgets.max_side_effects || 2)} side effects · ${Number(budgets.max_seconds || 120)}s ceiling · ${String(run.summary || "")}`;
-    (run.steps || []).forEach((step, index) => {
+    $("agent-run-budget").textContent = `${String(run.summary || "Run ready")} · ${Number(run.tool_calls_used || 0)}/${Number(budgets.max_tool_calls || 5)} tool calls · ${Number(run.side_effects_used || 0)}/${Number(budgets.max_side_effects || 2)} side effects · ${Number(budgets.max_seconds || 120)}s limit`;
+    (run.steps || []).forEach((step) => {
       const row = document.createElement("li");
       row.dataset.status = String(step.status || "queued");
-      const approval = step.requires_approval ? " · phone approval" : "";
+      const heading = document.createElement("strong");
+      heading.textContent = String(step.title || step.capability_id || "Plan step");
+      const meta = document.createElement("span");
+      meta.className = "agent-step-meta";
+      const labels = [String(step.status || "queued").replaceAll("_", " ")];
+      if (step.requires_approval) labels.push("phone approval");
+      if (step.verified) labels.push("verified");
+      meta.textContent = labels.join(" · ");
+      row.append(heading, meta);
       const exactArguments = JSON.stringify(step.arguments || {});
-      const evidence = (step.evidence_sources || []).length
-        ? ` · evidence: ${step.evidence_sources.join(", ")}${step.verified ? " · verified" : ""}`
-        : "";
-      row.textContent = `${index + 1}. ${String(step.capability_id || "step").replaceAll("_", " ")} · ${String(step.status || "queued").replaceAll("_", " ")}${approval} · ${exactArguments}${evidence}`;
+      if (exactArguments !== "{}") {
+        const args = document.createElement("code");
+        args.textContent = exactArguments;
+        row.appendChild(args);
+      }
+      if ((step.evidence_sources || []).length) {
+        const evidence = document.createElement("small");
+        evidence.textContent = `Evidence: ${step.evidence_sources.join(", ")}`;
+        row.appendChild(evidence);
+      }
       steps.appendChild(row);
     });
   }
@@ -329,6 +346,7 @@ function updateStatus(payload) {
   const agentProfile = agent.profile || "conversation";
   agentProfileActive = agentProfile === "agent";
   $("agent-profile-badge").textContent = agentProfile;
+  $("tab-agent").dataset.profileActive = String(agentProfileActive);
   $("agent-capabilities").textContent = (agent.enabled_capabilities || []).join(", ") || "None in Conversation profile";
   $("agent-current-task").textContent = agent.current_task || "—";
   $("agent-pending-approval").textContent = pendingAgentApproval
