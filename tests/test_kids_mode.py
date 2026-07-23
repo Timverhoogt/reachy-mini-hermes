@@ -159,6 +159,24 @@ def test_ispy_camera_capture_requires_live_consented_generation() -> None:
         runtime._capture_camera_jpeg(kids_generation=7)
 
 
+def test_cancelled_ispy_start_does_not_overwrite_parent_stop_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = HermesVoiceRuntime(FakeRobot(), threading.Event())
+    runtime._audio_ready = True
+    profile = KidsProfile(activity="ispy", camera_consent=True)
+
+    def cancelled_start(_generation: int, _profile: KidsProfile):
+        runtime.stop_kids_mode(reason="parent", fold=False)
+        raise RuntimeError("I Spy camera capture was cancelled")
+
+    monkeypatch.setattr(runtime, "_prepare_ispy_round", cancelled_start)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        runtime.start_kids_mode(profile, greet=False)
+
+    status = runtime.status()["kids_mode"]
+    assert status["active"] is False  # type: ignore[index]
+    assert status["last_end_reason"] == "parent"  # type: ignore[index]
+
+
 def test_ispy_both_picker_roles_use_the_base_motor(monkeypatch: pytest.MonkeyPatch) -> None:
     class CameraMedia:
         def __init__(self) -> None:
