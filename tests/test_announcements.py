@@ -4,9 +4,11 @@ import threading
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from reachy_mini_hermes.config import AppConfig
+from reachy_mini_hermes.contextual_offers import ContextualOffer
 from reachy_mini_hermes.hermes_client import SpeechAudio
 from reachy_mini_hermes.runtime import Announcement, HermesVoiceRuntime
 
@@ -82,6 +84,42 @@ def test_stop_announcements_clears_the_bounded_queue() -> None:
     assert runtime.status()["announcement_queue_depth"] == 0
 
 
+def test_stop_cancels_queued_contextual_offer_so_a_future_offer_is_not_blocked() -> None:
+    runtime = ready_runtime()
+    token = runtime._contextual_offers.queue(
+        ContextualOffer(
+            source="weather",
+            topic="rain",
+            confidence=0.9,
+            fingerprint="rain-1",
+            text="Rain is expected; would you like the short forecast?",
+            accepted_text="Light rain is expected soon.",
+        ),
+        response_window_seconds=10,
+    )
+    runtime.queue_announcement(
+        "Rain is expected; would you like the short forecast?",
+        behavior="voice_only",
+        contextual_offer_token=token,
+    )
+
+    runtime.stop_announcements(clear_queue=True)
+
+    assert runtime._contextual_offers.public_status(enabled=True)["state"] == "cancelled"
+    replacement = runtime._contextual_offers.queue(
+        ContextualOffer(
+            source="weather",
+            topic="wind",
+            confidence=0.9,
+            fingerprint="wind-1",
+            text="It will be windy; would you like the short forecast?",
+            accepted_text="Strong wind is expected soon.",
+        ),
+        response_window_seconds=10,
+    )
+    assert replacement > token
+
+
 def test_stop_waiting_announcement_does_not_interrupt_conversation_audio() -> None:
     runtime = ready_runtime()
     item = Announcement("Waiting", cancellation_generation=runtime._announcement_cancellation_generation)
@@ -128,6 +166,49 @@ def test_stop_generation_invalidates_item_already_dequeued(monkeypatch: pytest.M
 
     assert not synthesized.is_set()
     assert runtime.status()["announcements_completed"] == 0
+
+
+def test_spoken_contextual_offer_accepts_one_bounded_yes_without_agent_action() -> None:
+    runtime = ready_runtime()
+    runtime._power_mode = "awake"
+    runtime._motors_enabled = True
+    runtime._control_ready.set()
+    runtime._status.state = "waiting_for_wake_word"
+    token = runtime._contextual_offers.queue(
+        ContextualOffer(
+            source="timer",
+            topic="active_timer",
+            confidence=0.95,
+            fingerprint="timer-1",
+            text="Your timer is active; would you like the remaining time?",
+            accepted_text="There are five minutes remaining.",
+        ),
+        response_window_seconds=10,
+    )
+    item = Announcement(
+        "Your timer is active; would you like the remaining time?",
+        contextual_offer_token=token,
+    )
+    runtime._announcement_current = item
+    runtime._play_asset = lambda _name: None  # type: ignore[method-assign]
+    runtime._discard_audio = lambda _seconds: None  # type: ignore[method-assign]
+    runtime._record_utterance = lambda _config, **_kwargs: type(  # type: ignore[method-assign]
+        "Endpoint",
+        (),
+        {"speech_detected": True, "samples": np.ones(160, dtype=np.float32)},
+    )()
+    responses: list[tuple[int, str]] = []
+    runtime.respond_to_contextual_offer = (  # type: ignore[method-assign]
+        lambda offer_token, response: responses.append((offer_token, response)) or {"ok": True}
+    )
+
+    class Client:
+        def transcribe(self, _audio: bytes) -> str:
+            return "yes"
+
+    runtime._capture_contextual_offer_response(item, Client(), AppConfig())  # type: ignore[arg-type]
+
+    assert responses == [(token, "yes")]
 
 
 def test_shutdown_cancellation_prevents_post_shutdown_restore(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -355,5 +436,5 @@ def test_announcement_ui_exposes_full_tts_controls_and_private_routes() -> None:
     assert 'id="announcement-live"' in html
     assert 'role="alert"' in html
     assert "Voice only · do not change power state" in html
-    assert "reachy-hermes-shell-v43" in worker
-    assert "/static/main.js?v=43" in html
+    assert "reachy-hermes-shell-v44" in worker
+    assert "/static/main.js?v=44" in html

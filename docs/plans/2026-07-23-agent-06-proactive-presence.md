@@ -74,10 +74,13 @@
 
 **Outcome:** Reachy can make one concise, high-confidence offer based on allowlisted context.
 
+**Implemented foundation:** disabled by default; authenticated structured ingestion from a hard allowlist of calendar, reminder, timer, selected Home Assistant, weather, and explicitly scoped project sources; deterministic Goal 2 eligibility; one bounded spoken question; a 5–30 second English/Dutch yes/no response window; and trusted-phone Yes/No controls. Yes only reads pre-rendered, read-only help and never executes an Agent capability or consequential action.
+
 - Upcoming calendar event, active reminder/timer, selected Home Assistant states, weather, and explicitly scoped project context.
 - One sentence followed by a yes/no response opportunity.
 - No automatic consequential action.
 - Every offer includes a short phone-visible explanation and obeys initiative budgets.
+- Raw offer text, accepted text, fingerprints, and voice transcripts are omitted from polled status; the phone receives only sanitized source/topic/state/explanation.
 
 ## Goal 4 — Shared physical context
 

@@ -132,6 +132,14 @@ Runtime ownership and safety suppression run before policy timing or confidence 
 
 For initial acceptance, enable the policy in **Balanced** mode while Reachy remains folded in Standby, submit one trusted presence signal, and verify the latest decision is `remain_silent` with reason `not_awake`, initiative counters remain zero, and no robot action or speech occurs. Awake physical acceptance still requires an owner and clear space.
 
+### Agent 0.6 Contextual Offers
+
+Goal 3 is separately disabled by default. Enable **Contextual offers** only with Agent profile active and Reachy already safely Awake. The authenticated `POST /api/initiative/offers` route accepts one structured candidate from the hard source allowlist (`calendar`, `reminder`, `timer`, `home_assistant`, `weather`, `project`), a bounded machine topic/fingerprint, confidence, one question of at most 180 characters, and read-only accepted text of at most 240 characters.
+
+Eligible offers use Goal 2 quiet hours, confidence thresholds, budgets, cooldowns, duplicate suppression, and dismissal backoff. Runtime ownership is checked both when the offer is submitted and immediately before speech. Reachy never wakes itself for an offer. After speaking, it listens once for a bounded English/Dutch yes/no response; the unlocked phone also exposes single-use Yes/No controls. A Yes only queues the exact prepared read-only text. It does not invoke an Agent capability, execute Home Assistant control, write, message, or otherwise perform a consequential action.
+
+For safe no-motion acceptance, keep Reachy folded in Standby and submit a valid high-confidence offer with the configured bearer. Verify `queued: false`, decision `remain_silent`, reason `not_awake`, unchanged initiative counters, no announcement, and no robot action. Spoken yes/no acceptance requires Tim present, clear space, confirmed Awake torque, and Stop immediately available.
+
 ## Health checks
 
 ### Reachy app

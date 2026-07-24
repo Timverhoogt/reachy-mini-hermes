@@ -18,6 +18,7 @@ from reachy_mini import ReachyMini, ReachyMiniApp
 from .agent_audit import AgentAuditLog
 from .bluetooth import BluetoothGamepadService
 from .config import AppConfig, default_config_path, load_config, merge_config, save_config
+from .contextual_offers import ContextualOffer
 from .hermes_client import HermesBridgeClient
 from .kids_mode import KidsProfile
 from .presence import PresenceObservation
@@ -74,6 +75,8 @@ class SettingsUpdate(BaseModel):
     initiative_topic_cooldown_seconds: float | None = Field(default=None, ge=60, le=86400)
     initiative_duplicate_window_seconds: float | None = Field(default=None, ge=30, le=3600)
     initiative_dismissal_backoff_seconds: float | None = Field(default=None, ge=60, le=86400)
+    contextual_offers_enabled: bool | None = None
+    contextual_offer_response_window_seconds: float | None = Field(default=None, ge=5, le=30)
     robot_tools_enabled: bool | None = None
     home_assistant_enabled: bool | None = None
     home_assistant_controls_enabled: bool | None = None
@@ -104,6 +107,33 @@ class PresenceSignalRequest(BaseModel):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("presence values must be JSON numbers")
         return value
+
+
+class ContextualOfferRequest(BaseModel):
+    """One pre-rendered offer from an explicitly allowlisted local context source."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["calendar", "reminder", "timer", "home_assistant", "weather", "project"]
+    topic: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]{0,47}$")
+    confidence: float = Field(ge=0, le=1)
+    fingerprint: str = Field(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    text: str = Field(min_length=1, max_length=180)
+    accepted_text: str = Field(min_length=1, max_length=240)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def require_offer_number(cls, value: object) -> object:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("contextual offer confidence must be a JSON number")
+        return value
+
+
+class ContextualOfferResponseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: int = Field(ge=1)
+    response: Literal["yes", "no"]
 
 
 class RobotActionRequest(BaseModel):
@@ -324,6 +354,48 @@ class ReachyMiniHermes(ReachyMiniApp):
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             return {"ok": True, "presence": presence}
 
+        @self.settings_app.post("/api/initiative/offers")
+        def contextual_offer(
+            request: ContextualOfferRequest,
+            authorization: str = Header(default=""),
+        ) -> dict[str, object]:
+            config = load_config()
+            if not config.api_key:
+                raise HTTPException(status_code=503, detail="Contextual offer authentication is not configured")
+            if not secrets.compare_digest(authorization, f"Bearer {config.api_key}"):
+                raise HTTPException(status_code=401, detail="Unauthorized")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.submit_contextual_offer(
+                    ContextualOffer(
+                        source=request.source,
+                        topic=request.topic,
+                        confidence=request.confidence,
+                        fingerprint=request.fingerprint,
+                        text=request.text,
+                        accepted_text=request.accepted_text,
+                    )
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/initiative/offers/respond")
+        def contextual_offer_response(
+            request: ContextualOfferResponseRequest,
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return self._runtime.respond_to_contextual_offer(request.token, request.response)
+            except (ValueError, RuntimeError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
         @self.settings_app.post("/api/settings")
         def update_settings(update: SettingsUpdate) -> dict[str, object]:
             try:
@@ -340,6 +412,10 @@ class ReachyMiniHermes(ReachyMiniApp):
                 revoke_camera_control = getattr(self._runtime, "revoke_camera_control", None)
                 if callable(revoke_camera_control):
                     revoke_camera_control()
+            if self._runtime is not None and not merged.contextual_offers_enabled:
+                cancel_contextual_offer = getattr(self._runtime, "cancel_contextual_offer", None)
+                if callable(cancel_contextual_offer):
+                    cancel_contextual_offer("contextual_offers_disabled")
             return {
                 "ok": True,
                 "config": merged.redacted_dict(),

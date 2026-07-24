@@ -34,6 +34,7 @@ let agentRunRequestPending = false;
 let presenceRequestPending = false;
 let initiativeRequestPending = false;
 let initiativeEditActive = false;
+let currentContextualOfferToken = 0;
 let currentAgentRun = null;
 let agentRunId = window.sessionStorage.getItem("reachy-hermes-agent-run-id") || "";
 
@@ -382,10 +383,12 @@ function updateStatus(payload) {
     $("initiative-quiet-hours-end").value = String(payload.config?.initiative_quiet_hours_end || "07:00");
     $("initiative-hourly-budget").value = String(Number(payload.config?.initiative_hourly_budget || 2));
     $("initiative-daily-budget").value = String(Number(payload.config?.initiative_daily_budget || 6));
+    $("contextual-offers-enabled").checked = Boolean(payload.config?.contextual_offers_enabled);
+    $("contextual-offer-response-window").value = String(Number(payload.config?.contextual_offer_response_window_seconds || 10));
   }
   const initiativeBlocked = kidsActive || kidsLocked || initiativeRequestPending;
   $("initiative-policy-enabled").disabled = initiativeBlocked;
-  ["initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
+  ["initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget", "contextual-offers-enabled", "contextual-offer-response-window"].forEach((id) => {
     $(id).disabled = !initiativeEnabled || initiativeBlocked;
   });
   $("initiative-badge").textContent = initiativeEnabled ? initiativeMode : "off";
@@ -401,6 +404,20 @@ function updateStatus(payload) {
     ? `${initiativeReason} · ${initiativeTopic}`
     : initiativeReason;
   $("initiative-budget").textContent = `${Number(initiative.initiatives_today || 0)} / ${Number(initiative.daily_budget || payload.config?.initiative_daily_budget || 0)} today · ${Number(initiative.initiatives_this_hour || 0)} / ${Number(initiative.hourly_budget || payload.config?.initiative_hourly_budget || 0)} this hour`;
+  const contextualOffer = runtime.contextual_offer || {};
+  const offerState = String(contextualOffer.state || "disabled");
+  currentContextualOfferToken = Number(contextualOffer.token || 0);
+  $("contextual-offer-state").textContent = offerState.replaceAll("_", " ");
+  $("contextual-offer-text").textContent = contextualOffer.topic
+    ? `Topic: ${String(contextualOffer.topic).replaceAll("_", " ")}`
+    : "No offer yet.";
+  $("contextual-offer-explanation").textContent = contextualOffer.explanation
+    ? `${contextualOffer.explanation} · ${String(contextualOffer.reason || "")}`
+    : "Allowlisted context only.";
+  const awaitingOfferResponse = offerState === "awaiting_response" && currentContextualOfferToken > 0;
+  $("contextual-offer-response").hidden = !awaitingOfferResponse;
+  $("contextual-offer-yes").disabled = !awaitingOfferResponse || initiativeRequestPending;
+  $("contextual-offer-no").disabled = !awaitingOfferResponse || initiativeRequestPending;
   runtimeAgentActivity = agent.recent_activity || [];
   renderAgentActivity();
   document.querySelector(".agent-card").hidden = kidsActive || kidsLocked;
@@ -692,7 +709,7 @@ async function refreshStatus() {
     $("presence-enabled").disabled = true;
     $("presence-acknowledgement-enabled").disabled = true;
     $("presence-badge").textContent = "Offline";
-    ["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
+    ["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget", "contextual-offers-enabled", "contextual-offer-response-window", "contextual-offer-yes", "contextual-offer-no"].forEach((id) => {
       $(id).disabled = true;
     });
     $("initiative-badge").textContent = "Offline";
@@ -838,12 +855,16 @@ async function updateInitiativeSettings() {
         initiative_quiet_hours_end: $("initiative-quiet-hours-end").value,
         initiative_hourly_budget: Number($("initiative-hourly-budget").value),
         initiative_daily_budget: Number($("initiative-daily-budget").value),
+        contextual_offers_enabled: $("contextual-offers-enabled").checked,
+        contextual_offer_response_window_seconds: Number($("contextual-offer-response-window").value),
       }),
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
     $("initiative-message").textContent = $("initiative-policy-enabled").checked
-      ? "Initiative eligibility is active. Proactive speech remains disabled."
+      ? ($("contextual-offers-enabled").checked
+        ? "Initiative is active. Contextual offers may ask one yes/no question."
+        : "Initiative eligibility is active. Contextual offers remain off.")
       : "Initiative policy is off.";
     $("initiative-message").className = "message ok";
   } catch (error) {
@@ -855,9 +876,41 @@ async function updateInitiativeSettings() {
   }
 }
 
-["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget"].forEach((id) => {
+["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget", "contextual-offers-enabled", "contextual-offer-response-window"].forEach((id) => {
   $(id).addEventListener("change", updateInitiativeSettings);
 });
+
+async function respondToContextualOffer(responseValue) {
+  if (initiativeRequestPending || !currentContextualOfferToken) return;
+  initiativeRequestPending = true;
+  $("initiative-message").textContent = `Sending ${responseValue}…`;
+  $("initiative-message").className = "message";
+  try {
+    const response = await fetch("/api/initiative/offers/respond", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Reachy-Adult-UI": "unlocked",
+      },
+      body: JSON.stringify({ token: currentContextualOfferToken, response: responseValue }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    $("initiative-message").textContent = responseValue === "yes"
+      ? "Accepted. Reachy will only read the prepared help; no action was executed."
+      : "Dismissed. This topic now observes dismissal backoff.";
+    $("initiative-message").className = "message ok";
+  } catch (error) {
+    $("initiative-message").textContent = String(error);
+    $("initiative-message").className = "message error";
+  } finally {
+    initiativeRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+$("contextual-offer-yes").addEventListener("click", () => respondToContextualOffer("yes"));
+$("contextual-offer-no").addEventListener("click", () => respondToContextualOffer("no"));
 document.querySelector(".initiative-card").addEventListener("focusin", () => {
   initiativeEditActive = true;
 });

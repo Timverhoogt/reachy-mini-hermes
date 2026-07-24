@@ -31,6 +31,7 @@ from .audio import (
     resample_linear,
 )
 from .config import AppConfig, load_config
+from .contextual_offers import ContextualOffer, ContextualOfferState, parse_offer_response
 from .gesture_detection import GestureDetector, GestureReactionGate
 from .hermes_client import AgentBrokerContext, HermesBridgeClient, HermesBridgeError, SpeechAudio
 from .home_assistant import HermesHomeAssistantProvider, HomeAssistantBridge
@@ -119,6 +120,7 @@ class Announcement:
     repeat: int = 1
     pause_seconds: float = 1.0
     cancellation_generation: int = 0
+    contextual_offer_token: int = 0
     cancel_event: threading.Event = field(default_factory=threading.Event, compare=False, repr=False)
 
 
@@ -310,6 +312,7 @@ class HermesVoiceRuntime:
         self._presence = PresenceState()
         self._presence_action_active = threading.Event()
         self._initiative = InitiativePolicy()
+        self._contextual_offers = ContextualOfferState()
         self._audio_ready = False
         self._runtime_started = False
         self._control_ready = threading.Event()
@@ -603,7 +606,14 @@ class HermesVoiceRuntime:
             }
         config = self.config_loader()
         payload["presence"] = self._presence.public_status(enabled=config.proactive_presence_enabled)
-        payload["initiative"] = self._initiative.public_status(self._initiative_settings(config))
+        initiative_status = self._initiative.public_status(self._initiative_settings(config))
+        initiative_status["speech_enabled"] = bool(
+            config.initiative_policy_enabled and config.contextual_offers_enabled
+        )
+        payload["initiative"] = initiative_status
+        payload["contextual_offer"] = self._contextual_offers.public_status(
+            enabled=config.initiative_policy_enabled and config.contextual_offers_enabled
+        )
         with self._agent_lock:
             payload["agent"] = self._agent_status_unlocked()
         with self._kids_lock:
@@ -642,6 +652,7 @@ class HermesVoiceRuntime:
         config: AppConfig,
         *,
         owns_voice_activity: bool = False,
+        owns_announcement: bool = False,
     ) -> str:
         """Return why silent presence motion is currently unsafe, or an empty string."""
         if self.stop_event.is_set() or not self._control_ready.is_set() or not self._audio_ready:
@@ -658,7 +669,7 @@ class HermesVoiceRuntime:
         with self._kids_lock:
             if self._kids_active or self._kids_locked:
                 return "kids_mode"
-        if self._announcement_active.is_set():
+        if self._announcement_active.is_set() and not owns_announcement:
             return "announcement_active"
         if self._voice_activity_lock.locked() and not owns_voice_activity:
             return "voice_active"
@@ -821,6 +832,92 @@ class HermesVoiceRuntime:
             self._initiative.commit(decision)
         return decision
 
+    def submit_contextual_offer(self, offer: ContextualOffer) -> dict[str, object]:
+        """Evaluate and queue one read-only spoken offer from trusted structured context."""
+        config = self.config_loader()
+        with self._agent_lock:
+            agent_active = self._capability_profile == "agent"
+        suppression_reason = self._presence_suppression_reason(config)
+        if not config.contextual_offers_enabled:
+            suppression_reason = suppression_reason or "contextual_offers_disabled"
+        elif not agent_active:
+            suppression_reason = suppression_reason or "agent_profile_inactive"
+        decision = self._initiative.evaluate(
+            InitiativeCandidate(
+                topic=offer.topic,
+                requested_outcome="offer_candidate",
+                confidence=offer.confidence,
+                fingerprint=offer.fingerprint,
+            ),
+            self._initiative_settings(config),
+            suppression_reason=suppression_reason,
+        )
+        if decision.outcome != "offer_candidate":
+            return {
+                "ok": True,
+                "queued": False,
+                "decision": decision.outcome,
+                "reason": decision.reason,
+            }
+        token = 0
+        try:
+            token = self._contextual_offers.queue(
+                offer,
+                response_window_seconds=config.contextual_offer_response_window_seconds,
+            )
+            queued = self.queue_announcement(
+                offer.text,
+                behavior="voice_only",
+                contextual_offer_token=token,
+            )
+        except Exception:
+            if token:
+                self._contextual_offers.cancel(token, "queue_failed")
+            self._initiative.cancel(decision, "queue_failed")
+            raise
+        if not self._initiative.commit(decision):
+            self._contextual_offers.cancel(token, "stale_decision")
+            raise RuntimeError("Contextual offer eligibility became stale")
+        return {
+            **queued,
+            "decision": "offer_candidate",
+            "reason": "committed",
+            "token": token,
+        }
+
+    def respond_to_contextual_offer(self, token: int, response: str) -> dict[str, object]:
+        """Record one exact phone/voice response without performing a consequential action."""
+        result = self._contextual_offers.respond(token, response)
+        offer = self._contextual_offers.current_offer(token)
+        config = self.config_loader()
+        if response == "yes":
+            self._initiative.record_welcomed(offer.topic)
+            self.queue_announcement(str(result["accepted_text"]), behavior="voice_only")
+        else:
+            self._initiative.record_dismissal(offer.topic, self._initiative_settings(config))
+        return {"ok": True, "token": token, "response": response, "action_executed": False}
+
+    def cancel_contextual_offer(self, reason: str = "disabled") -> bool:
+        """Cancel only the active contextual offer, preserving unrelated announcements."""
+        token = self._contextual_offers.cancel_active(reason)
+        if not token:
+            return False
+        stop_playback = False
+        with self._announcement_state_lock:
+            current = self._announcement_current
+            if current is not None and current.contextual_offer_token == token:
+                current.cancel_event.set()
+                stop_playback = self._announcement_playing.is_set()
+        if stop_playback:
+            try:
+                play_sound = getattr(getattr(self.robot, "media", None), "play_sound", None)
+                if callable(play_sound):
+                    play_sound(str(self.assets / "silence.wav"))
+            except Exception:
+                _LOGGER.debug("Could not stop contextual-offer playback", exc_info=True)
+            self._clear_streamed_audio()
+        return True
+
     @property
     def control_ready(self) -> bool:
         """Return whether external controls may begin hardware transitions."""
@@ -851,6 +948,8 @@ class HermesVoiceRuntime:
                 self._record_agent_activity_unlocked("profile_changed")
                 payload = self._agent_status_unlocked()
         self._conversation_stop_requested.set()
+        if profile != "agent":
+            self.cancel_contextual_offer("agent_profile_inactive")
         if active_request_id:
             threading.Thread(
                 target=self._cancel_remote_agent_request,
@@ -1472,6 +1571,7 @@ class HermesVoiceRuntime:
         behavior: str = "wake_and_return",
         repeat: int = 1,
         pause_seconds: float = 1.0,
+        contextual_offer_token: int = 0,
     ) -> dict[str, object]:
         """Queue TTS without exposing provider credentials to Reachy or the browser."""
         clean_text = text.strip()
@@ -1505,6 +1605,7 @@ class HermesVoiceRuntime:
                 repeat=int(repeat),
                 pause_seconds=float(pause_seconds),
                 cancellation_generation=generation,
+                contextual_offer_token=contextual_offer_token,
             )
             try:
                 self._announcement_queue.put_nowait(item)
@@ -1531,6 +1632,8 @@ class HermesVoiceRuntime:
             active = current is not None
             if current is not None:
                 current.cancel_event.set()
+                if current.contextual_offer_token:
+                    self._contextual_offers.cancel(current.contextual_offer_token, "cancelled")
             cleared = self._clear_announcement_queue_unlocked() if clear_queue else 0
         if self._announcement_playing.is_set():
             try:
@@ -1550,6 +1653,8 @@ class HermesVoiceRuntime:
             try:
                 item = self._announcement_queue.get_nowait()
                 item.cancel_event.set()
+                if item.contextual_offer_token:
+                    self._contextual_offers.cancel(item.contextual_offer_token, "cancelled")
                 self._announcement_queue.task_done()
                 cleared += 1
             except queue.Empty:
@@ -2957,6 +3062,60 @@ class HermesVoiceRuntime:
                 or self._announcement_current is not item
             )
 
+    def _capture_contextual_offer_response(
+        self,
+        item: Announcement,
+        client: HermesBridgeClient,
+        config: AppConfig,
+    ) -> None:
+        """Listen once for an explicit yes/no after a successfully spoken offer."""
+        token = item.contextual_offer_token
+        if not token or not self._contextual_offers.mark_spoken(token):
+            return
+        if not self._contextual_offers.begin_listening(token):
+            return
+        if self._announcement_item_cancelled(item):
+            self._contextual_offers.cancel(token, "cancelled")
+            return
+        self._set_status("listening", "Waiting for a yes or no response")
+        self._play_asset("listening.wav")
+        self._discard_audio(0.34)
+        response_config = replace(
+            config,
+            initial_speech_timeout_seconds=config.contextual_offer_response_window_seconds,
+            max_utterance_seconds=4.0,
+            end_silence_seconds=min(config.end_silence_seconds, 0.6),
+        )
+        endpoint = self._record_utterance(
+            response_config,
+            should_stop=lambda: self._announcement_item_cancelled(item)
+            or self._privacy_requested.is_set()
+            or self._effective_power_mode() != "awake",
+        )
+        if (
+            not endpoint.speech_detected
+            or endpoint.samples.size == 0
+        ):
+            self._contextual_offers.finish_listening(token)
+            return
+        if (
+            self._announcement_item_cancelled(item)
+            or self._privacy_requested.is_set()
+            or self._effective_power_mode() != "awake"
+        ):
+            self._contextual_offers.cancel(token, "cancelled")
+            return
+        transcript = client.transcribe(encode_wav(endpoint.samples, 16000))
+        response = parse_offer_response(transcript)
+        if response == "unknown":
+            self._contextual_offers.cancel(token, "unrecognized_response")
+            return
+        try:
+            self.respond_to_contextual_offer(token, response)
+        except RuntimeError:
+            # The trusted phone may have answered while local transcription ran.
+            _LOGGER.info("Contextual offer response was already resolved")
+
     def _run_announcement_worker(self) -> None:
         """Serialize announcements with conversations and restore the requested physical state."""
         while not self.stop_event.is_set():
@@ -2991,6 +3150,27 @@ class HermesVoiceRuntime:
                     if mode in {"meeting", "sleep"} or self._privacy_requested.is_set():
                         raise RuntimeError("Announcement was blocked by the current privacy mode")
                     config = self.config_loader()
+                    if item.contextual_offer_token:
+                        if not self._contextual_offers.is_queued(item.contextual_offer_token):
+                            continue
+                        reason = self._presence_suppression_reason(
+                            config,
+                            owns_voice_activity=True,
+                            owns_announcement=True,
+                        )
+                        with self._agent_lock:
+                            agent_active = self._capability_profile == "agent"
+                        if reason or not config.contextual_offers_enabled or not agent_active:
+                            blocked_reason = reason or (
+                                "contextual_offers_disabled"
+                                if not config.contextual_offers_enabled
+                                else "agent_profile_inactive"
+                            )
+                            self._contextual_offers.cancel(
+                                item.contextual_offer_token,
+                                blocked_reason,
+                            )
+                            continue
                     if not config.configured:
                         raise RuntimeError("Configure the Hermes bridge before making announcements")
                     if item.behavior in {"wake_and_return", "wake_and_stay"} and mode == "standby":
@@ -3026,8 +3206,12 @@ class HermesVoiceRuntime:
                         with self._status_lock:
                             self._status.announcements_completed += 1
                             self._status.announcement_last_text = item.text[:240]
+                        if item.contextual_offer_token:
+                            self._capture_contextual_offer_response(item, client, config)
             except Exception as exc:
                 _LOGGER.exception("Announcement failed")
+                if item.contextual_offer_token:
+                    self._contextual_offers.cancel(item.contextual_offer_token, "speech_failed")
                 with self._status_lock:
                     self._status.announcement_last_error = str(exc)
             finally:
@@ -3062,6 +3246,13 @@ class HermesVoiceRuntime:
                     self._status.announcement_busy = False
                     self._status.announcement_queue_depth = self._announcement_queue.qsize()
                     self._status.announcement_current_preview = ""
+                if (
+                    item.contextual_offer_token
+                    and not self.stop_event.is_set()
+                    and not self._privacy_requested.is_set()
+                    and self._effective_power_mode() == "awake"
+                ):
+                    self._set_status("waiting_for_wake_word", _WAKE_PROMPT)
 
     def _play_announcement_audio(self, item: Announcement, speech: SpeechAudio, text: str) -> None:
         suffix = speech.extension if speech.extension.startswith(".") else ".audio"
@@ -3320,7 +3511,12 @@ class HermesVoiceRuntime:
         finally:
             client.close()
 
-    def _record_utterance(self, config: AppConfig) -> EndpointResult:
+    def _record_utterance(
+        self,
+        config: AppConfig,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> EndpointResult:
         recorder = AdaptiveEndpointRecorder(
             initial_timeout=config.initial_speech_timeout_seconds,
             max_duration=config.max_utterance_seconds,
@@ -3331,7 +3527,7 @@ class HermesVoiceRuntime:
         result = recorder.record(
             self._read_16k_frame,
             noise_floor=self._noise.value,
-            should_stop=self.stop_event.is_set,
+            should_stop=should_stop or self.stop_event.is_set,
         )
         _LOGGER.info(
             "Speech endpoint: reason=%s speech=%s duration=%.2fs threshold=%.4f",

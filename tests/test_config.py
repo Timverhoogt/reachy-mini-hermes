@@ -53,6 +53,8 @@ def test_embodiment_features_are_explicit_and_privacy_bounded_by_default() -> No
     assert config.initiative_quiet_hours_end == "07:00"
     assert config.initiative_hourly_budget == 2
     assert config.initiative_daily_budget == 6
+    assert config.contextual_offers_enabled is False
+    assert config.contextual_offer_response_window_seconds == 10.0
 
 
 @pytest.mark.parametrize("mode", ["off", "chatty", "maintenance"])
@@ -77,12 +79,14 @@ def test_initiative_quiet_hours_require_valid_24_hour_time(value: str) -> None:
         ("initiative_topic_cooldown_seconds", 59),
         ("initiative_duplicate_window_seconds", 29),
         ("initiative_dismissal_backoff_seconds", 59),
+        ("contextual_offer_response_window_seconds", 4),
+        ("contextual_offer_response_window_seconds", 31),
     ],
 )
 def test_initiative_limits_are_bounded(field: str, value: int) -> None:
     config = AppConfig()
     setattr(config, field, value)
-    with pytest.raises(ValueError, match="Initiative"):
+    with pytest.raises(ValueError, match="Initiative|Contextual"):
         config.validate()
 
 

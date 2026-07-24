@@ -581,4 +581,4 @@ def test_agent_05_trusted_ui_exposes_preview_budget_progress_and_control() -> No
     assert "/api/agent/run/status" in script
     assert "/api/agent/run/current" in script
     assert "Approve this exact step once?" in script
-    assert "reachy-hermes-shell-v43" in worker
+    assert "reachy-hermes-shell-v44" in worker

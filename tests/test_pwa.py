@@ -82,7 +82,7 @@ def test_dashboard_exposes_bounded_agent_status_approval_and_stop_controls() -> 
     assert 'document.querySelector(".agent-card").hidden = kidsActive || kidsLocked' in javascript
 
 
-def test_v43_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> None:
+def test_v44_ui_uses_dedicated_agent_workspace_and_contextual_offers() -> None:
     html = (STATIC / "index.html").read_text()
     css = (STATIC / "style.css").read_text()
     script = (STATIC / "main.js").read_text()
@@ -98,7 +98,12 @@ def test_v43_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> N
     assert 'id="initiative-mode"' in html
     assert 'id="initiative-quiet-hours-start"' in html
     assert 'id="initiative-hourly-budget"' in html
-    assert "Eligibility decisions only · proactive speech remains disabled" in html
+    assert 'id="contextual-offers-enabled"' in html
+    assert 'id="contextual-offer-response-window"' in html
+    assert 'id="contextual-offer-explanation"' in html
+    assert 'id="contextual-offer-yes"' in html
+    assert 'id="contextual-offer-no"' in html
+    assert "Offers never execute an action" in html
     assert '<details class="control-group precision-group disclosure">' in html
     assert '<details class="card bluetooth-card disclosure-card">' in html
     assert '<details id="install-card" class="card install-card disclosure-card">' in html
@@ -110,6 +115,9 @@ def test_v43_ui_uses_dedicated_agent_workspace_and_progressive_disclosure() -> N
     assert 'presence_acknowledgement_enabled' in script
     assert 'initiative_policy_enabled' in script
     assert 'initiative_quiet_hours_start' in script
+    assert 'contextual_offers_enabled' in script
+    assert 'fetch("/api/initiative/offers/respond"' in script
+    assert '"X-Reachy-Adult-UI": "unlocked"' in script
     assert 'if (!initiativeEditActive)' in script
     assert '$("initiative-badge").textContent = "Offline"' in script
-    assert 'reachy-hermes-shell-v43' in worker
+    assert 'reachy-hermes-shell-v44' in worker

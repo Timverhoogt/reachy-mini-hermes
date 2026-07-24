@@ -354,6 +354,15 @@ body.camera-app-fullscreen-active { overflow: hidden; }
 .initiative-limit-grid label { margin: 0; min-width: 0; font-size: .75rem; }
 .initiative-limit-grid input { margin-top: 6px; min-width: 0; }
 .initiative-limit-grid .initiative-quiet-toggle { align-self: stretch; padding: 9px; border: 1px solid var(--line); border-radius: 10px; }
+.contextual-offer-panel { display: grid; grid-template-columns: 1.6fr .7fr; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); align-items: stretch; }
+.contextual-offer-panel > label { margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: #080a0f88; }
+.contextual-offer-panel .inline-number { display: flex; gap: 8px; align-items: center; margin-top: 6px; color: var(--muted); }
+.contextual-offer-panel .inline-number input { width: 84px; margin: 0; }
+.contextual-offer-status { grid-column: 1 / -1; padding: 11px 12px; border: 1px solid #7b61ff44; border-radius: 11px; background: #0d1020aa; }
+.contextual-offer-status strong, .contextual-offer-status small { display: block; margin-top: 4px; }
+.contextual-offer-status .quote { margin: 7px 0 0; }
+.contextual-offer-response { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(100px, 1fr)); gap: 9px; }
+.contextual-offer-response[hidden] { display: none; }
 .agent-run-sheet { border-color: #7b61ff55; background: linear-gradient(145deg, rgba(25, 20, 40, .96), rgba(14, 16, 24, .96)); }
 .agent-run-sheet textarea { min-height: 112px; margin-top: 18px; border-color: #ffffff16; background: #070b11; font-size: 1rem; }
 .agent-guardrail-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; }
@@ -510,7 +519,7 @@ body.camera-app-fullscreen-active { overflow: hidden; }
   .agent-run-control-group button { min-width: 0; padding-inline: 8px; }
   .agent-status-grid { grid-template-columns: 1fr; }
   .agent-status-grid > div:last-child { grid-column: auto; }
-  .presence-controls, .presence-status-grid, .initiative-primary-controls, .initiative-status-grid, .initiative-limit-grid { grid-template-columns: 1fr; }
+  .presence-controls, .presence-status-grid, .initiative-primary-controls, .initiative-status-grid, .initiative-limit-grid, .contextual-offer-panel { grid-template-columns: 1fr; }
   .presence-controls .checkbox-row { min-height: 0; }
   .agent-step-list li { padding-right: 11px; font-size: .85rem; }
   .install-card .badge { display: none; }

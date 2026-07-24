@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 
 from reachy_mini_hermes.config import AppConfig
+from reachy_mini_hermes.contextual_offers import ContextualOffer
 from reachy_mini_hermes.initiative import InitiativeCandidate, InitiativePolicy
 from reachy_mini_hermes.presence import PresenceObservation
 from reachy_mini_hermes.runtime import HermesVoiceRuntime
@@ -182,6 +183,105 @@ def test_future_offer_candidate_is_evaluated_without_speech_or_robot_action() ->
     runtime._privacy_requested.set()
     suppressed = runtime.evaluate_initiative_candidate(offer)
     assert (suppressed.outcome, suppressed.reason) == ("remain_silent", "privacy")
+
+
+def contextual_offer() -> ContextualOffer:
+    return ContextualOffer(
+        source="weather",
+        topic="rain_soon",
+        confidence=0.9,
+        fingerprint="weather-rain-1",
+        text="Rain is expected soon; would you like the short forecast?",
+        accepted_text="Light rain is expected within the next hour.",
+    )
+
+
+def test_goal_3_queues_one_offer_and_commits_budget_without_action() -> None:
+    runtime, _motion, actions = make_runtime(
+        initiative_policy_enabled=True,
+        initiative_mode="balanced",
+        initiative_quiet_hours_enabled=False,
+        contextual_offers_enabled=True,
+    )
+    runtime._capability_profile = "agent"
+    runtime._announcement_worker = object()  # type: ignore[assignment]
+
+    result = runtime.submit_contextual_offer(contextual_offer())
+    announcement = runtime._announcement_queue.get_nowait()
+    status = runtime.status()
+
+    assert result["queued"] is True
+    assert result["decision"] == "offer_candidate"
+    assert announcement.text == contextual_offer().text
+    assert announcement.behavior == "voice_only"
+    assert announcement.contextual_offer_token == result["token"]
+    assert actions.queued == []
+    assert cast(dict[str, object], status["initiative"])["initiatives_this_hour"] == 1
+    assert cast(dict[str, object], status["initiative"])["speech_enabled"] is True
+    assert cast(dict[str, object], status["contextual_offer"])["state"] == "queued"
+
+
+def test_goal_3_phone_yes_is_single_use_and_only_queues_read_only_speech() -> None:
+    runtime, _motion, actions = make_runtime(
+        initiative_policy_enabled=True,
+        initiative_mode="balanced",
+        initiative_quiet_hours_enabled=False,
+        contextual_offers_enabled=True,
+    )
+    runtime._capability_profile = "agent"
+    runtime._announcement_worker = object()  # type: ignore[assignment]
+    submitted = runtime.submit_contextual_offer(contextual_offer())
+    runtime._announcement_queue.get_nowait()
+    token = submitted["token"]
+    assert isinstance(token, int)
+    runtime._contextual_offers.mark_spoken(token)
+
+    response = runtime.respond_to_contextual_offer(token, "yes")
+    follow_up = runtime._announcement_queue.get_nowait()
+
+    assert response["action_executed"] is False
+    assert follow_up.text == contextual_offer().accepted_text
+    assert follow_up.contextual_offer_token == 0
+    assert actions.queued == []
+    with pytest.raises(RuntimeError, match="not awaiting"):
+        runtime.respond_to_contextual_offer(token, "yes")
+
+
+def test_goal_3_rechecks_hard_safety_before_queueing() -> None:
+    runtime, _motion, actions = make_runtime(
+        initiative_policy_enabled=True,
+        initiative_mode="engaged",
+        initiative_quiet_hours_enabled=False,
+        contextual_offers_enabled=True,
+    )
+    runtime._capability_profile = "agent"
+    runtime._announcement_worker = object()  # type: ignore[assignment]
+    runtime._privacy_requested.set()
+
+    result = runtime.submit_contextual_offer(contextual_offer())
+
+    assert result == {"ok": True, "queued": False, "decision": "remain_silent", "reason": "privacy"}
+    assert runtime._announcement_queue.empty()
+    assert actions.queued == []
+
+
+def test_disabling_goal_3_cancels_pending_offer_without_clearing_other_announcements() -> None:
+    runtime, _motion, _actions = make_runtime(
+        initiative_policy_enabled=True,
+        initiative_mode="balanced",
+        initiative_quiet_hours_enabled=False,
+        contextual_offers_enabled=True,
+    )
+    runtime._capability_profile = "agent"
+    runtime._announcement_worker = object()  # type: ignore[assignment]
+    submitted = runtime.submit_contextual_offer(contextual_offer())
+    runtime.queue_announcement("Keep this normal announcement", behavior="voice_only")
+
+    assert runtime.cancel_contextual_offer("contextual_offers_disabled") is True
+    assert cast(dict[str, object], runtime.status()["contextual_offer"])["state"] == "cancelled"
+    queued = [runtime._announcement_queue.get_nowait() for _ in range(2)]
+    assert [item.text for item in queued] == [contextual_offer().text, "Keep this normal announcement"]
+    assert submitted["queued"] is True
 
 
 @pytest.mark.parametrize("power_mode", ["meeting", "sleep"])

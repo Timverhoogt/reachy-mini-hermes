@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=43">
+  <link rel="stylesheet" href="/static/style.css?v=44">
 </head>
 <body>
   <main>
@@ -126,7 +126,7 @@
 
       <section class="card initiative-card" aria-labelledby="initiative-heading">
         <div class="section-heading">
-          <div><p class="label">Agent 0.6 · Goal 2</p><h2 id="initiative-heading">Initiative Policy</h2></div>
+          <div><p class="label">Agent 0.6 · Goals 2–3</p><h2 id="initiative-heading">Initiative & Offers</h2></div>
           <span id="initiative-badge" class="badge">Off</span>
         </div>
         <p class="muted">A deterministic gate decides whether Reachy should remain silent, acknowledge physically, or prepare an offer candidate.</p>
@@ -161,7 +161,25 @@
             <label>Per day <input type="number" id="initiative-daily-budget" min="1" max="30" /></label>
           </div>
         </details>
-        <p class="presence-boundary"><span aria-hidden="true">●</span> Eligibility decisions only · proactive speech remains disabled</p>
+        <div class="contextual-offer-panel">
+          <label class="checkbox-row">
+            <input type="checkbox" id="contextual-offers-enabled" />
+            <span><strong>Contextual offers</strong><small>One concise question from calendar, reminder, timer, selected Home Assistant, weather, or explicitly scoped project context.</small></span>
+          </label>
+          <label>Response window
+            <span class="inline-number"><input type="number" id="contextual-offer-response-window" min="5" max="30" /> seconds</span>
+          </label>
+          <div class="contextual-offer-status" aria-live="polite">
+            <span class="label">Latest offer</span><strong id="contextual-offer-state">Disabled</strong>
+            <p id="contextual-offer-text" class="quote">No offer yet.</p>
+            <small id="contextual-offer-explanation">Allowlisted context only.</small>
+          </div>
+          <div id="contextual-offer-response" class="contextual-offer-response" hidden>
+            <button type="button" id="contextual-offer-yes">Yes</button>
+            <button type="button" id="contextual-offer-no" class="secondary">No</button>
+          </div>
+        </div>
+        <p class="presence-boundary"><span aria-hidden="true">●</span> Offers never execute an action · yes only reads the prepared help</p>
         <p id="initiative-message" class="message" role="status" aria-live="polite"></p>
       </section>
 
@@ -687,7 +705,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=43"></script>
-  <script src="/static/main.js?v=43"></script>
+  <script src="/static/camera.js?v=44"></script>
+  <script src="/static/main.js?v=44"></script>
 </body>
 </html>
