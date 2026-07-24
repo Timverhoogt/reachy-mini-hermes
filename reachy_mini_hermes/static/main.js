@@ -35,6 +35,8 @@ let presenceRequestPending = false;
 let initiativeRequestPending = false;
 let initiativeEditActive = false;
 let currentContextualOfferToken = 0;
+let presentationRequestPending = false;
+let presentationEditActive = false;
 let currentAgentRun = null;
 let agentRunId = window.sessionStorage.getItem("reachy-hermes-agent-run-id") || "";
 
@@ -418,6 +420,31 @@ function updateStatus(payload) {
   $("contextual-offer-response").hidden = !awaitingOfferResponse;
   $("contextual-offer-yes").disabled = !awaitingOfferResponse || initiativeRequestPending;
   $("contextual-offer-no").disabled = !awaitingOfferResponse || initiativeRequestPending;
+  const presentation = runtime.shared_physical_context || {};
+  const presentationEnabled = Boolean(payload.config?.shared_physical_context_enabled);
+  const presentationState = String(presentation.state || "disabled");
+  const presentationActive = ["starting", "watching"].includes(presentationState);
+  if (!presentationEditActive) {
+    $("shared-physical-context-enabled").checked = presentationEnabled;
+    $("presentation-window-seconds").value = String(Number(payload.config?.presentation_window_seconds || 20));
+  }
+  $("presentation-badge").textContent = presentationActive ? "Local camera active" : presentationState;
+  $("presentation-badge").dataset.status = presentationActive ? "completed" : "idle";
+  $("presentation-state").textContent = presentationState.replaceAll("_", " ");
+  $("presentation-remaining").textContent = `${Number(presentation.expires_seconds_remaining || 0)} seconds`;
+  $("presentation-reason").textContent = String(presentation.reason || "none").replaceAll("_", " ");
+  const presentationBlocked = kidsActive || kidsLocked || presentationRequestPending;
+  $("shared-physical-context-enabled").disabled = presentationBlocked;
+  $("presentation-window-seconds").disabled = !presentationEnabled || presentationBlocked;
+  $("presentation-start").disabled = !presentationEnabled
+    || !Boolean(payload.config?.camera_enabled)
+    || !initiativeEnabled
+    || !Boolean(payload.config?.contextual_offers_enabled)
+    || agentProfile !== "agent"
+    || powerMode !== "awake"
+    || presentationActive
+    || presentationBlocked;
+  $("presentation-stop").disabled = !presentationActive || presentationRequestPending;
   runtimeAgentActivity = agent.recent_activity || [];
   renderAgentActivity();
   document.querySelector(".agent-card").hidden = kidsActive || kidsLocked;
@@ -709,7 +736,7 @@ async function refreshStatus() {
     $("presence-enabled").disabled = true;
     $("presence-acknowledgement-enabled").disabled = true;
     $("presence-badge").textContent = "Offline";
-    ["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget", "contextual-offers-enabled", "contextual-offer-response-window", "contextual-offer-yes", "contextual-offer-no"].forEach((id) => {
+    ["initiative-policy-enabled", "initiative-mode", "initiative-quiet-hours-enabled", "initiative-quiet-hours-start", "initiative-quiet-hours-end", "initiative-hourly-budget", "initiative-daily-budget", "contextual-offers-enabled", "contextual-offer-response-window", "contextual-offer-yes", "contextual-offer-no", "shared-physical-context-enabled", "presentation-window-seconds", "presentation-start", "presentation-stop"].forEach((id) => {
       $(id).disabled = true;
     });
     $("initiative-badge").textContent = "Offline";
@@ -911,6 +938,77 @@ async function respondToContextualOffer(responseValue) {
 
 $("contextual-offer-yes").addEventListener("click", () => respondToContextualOffer("yes"));
 $("contextual-offer-no").addEventListener("click", () => respondToContextualOffer("no"));
+
+async function updatePresentationSettings() {
+  if (presentationRequestPending) return;
+  presentationRequestPending = true;
+  try {
+    const response = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shared_physical_context_enabled: $("shared-physical-context-enabled").checked,
+        presentation_window_seconds: Number($("presentation-window-seconds").value),
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    $("presentation-message").textContent = $("shared-physical-context-enabled").checked
+      ? "Shared physical context is ready. Start remains an explicit action."
+      : "Shared physical context is off.";
+    $("presentation-message").className = "message ok";
+  } catch (error) {
+    $("presentation-message").textContent = `Could not update presentation settings: ${error.message}`;
+    $("presentation-message").className = "message error";
+  } finally {
+    presentationRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+async function setPresentationWindow(active) {
+  if (presentationRequestPending) return;
+  presentationRequestPending = true;
+  $("presentation-message").textContent = active
+    ? "Starting the visible local presentation window…"
+    : "Stopping the presentation window…";
+  $("presentation-message").className = "message";
+  try {
+    const response = await fetch(`/api/presentation/${active ? "start" : "stop"}`, {
+      method: "POST",
+      headers: { "X-Reachy-Adult-UI": "unlocked" },
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+    $("presentation-message").textContent = active
+      ? "Local presentation window active. Hold the item or text steady in the center of Reachy's view."
+      : "Presentation window stopped; ephemeral visual features were cleared.";
+    $("presentation-message").className = "message ok";
+  } catch (error) {
+    $("presentation-message").textContent = `Presentation window failed: ${error.message}`;
+    $("presentation-message").className = "message error";
+  } finally {
+    presentationRequestPending = false;
+    await refreshStatus();
+  }
+}
+
+["shared-physical-context-enabled", "presentation-window-seconds"].forEach((id) => {
+  $(id).addEventListener("change", updatePresentationSettings);
+});
+$("presentation-start").addEventListener("click", () => setPresentationWindow(true));
+$("presentation-stop").addEventListener("click", () => setPresentationWindow(false));
+document.querySelector(".presentation-card").addEventListener("focusin", () => {
+  presentationEditActive = true;
+});
+document.querySelector(".presentation-card").addEventListener("focusout", () => {
+  window.setTimeout(() => {
+    if (!document.querySelector(".presentation-card").contains(document.activeElement)) {
+      presentationEditActive = false;
+    }
+  }, 0);
+});
+
 document.querySelector(".initiative-card").addEventListener("focusin", () => {
   initiativeEditActive = true;
 });

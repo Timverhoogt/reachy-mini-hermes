@@ -104,20 +104,29 @@ def test_v44_ui_uses_dedicated_agent_workspace_and_contextual_offers() -> None:
     assert 'id="contextual-offer-yes"' in html
     assert 'id="contextual-offer-no"' in html
     assert "Offers never execute an action" in html
+    assert 'id="shared-physical-context-enabled"' in html
+    assert 'id="presentation-window-seconds"' in html
+    assert 'id="presentation-start"' in html
+    assert 'id="presentation-stop"' in html
+    assert "zero frames retained" in html
+    assert "no cloud vision during this window" in html
     assert '<details class="control-group precision-group disclosure">' in html
     assert '<details class="card bluetooth-card disclosure-card">' in html
     assert '<details id="install-card" class="card install-card disclosure-card">' in html
     assert 'grid-template-columns: repeat(6, 1fr)' in css
     assert '.presence-status-grid' in css
     assert '.initiative-status-grid' in css
+    assert '.presentation-status-grid' in css
     assert '.agent-step-list' in css
     assert 'proactive_presence_enabled' in script
     assert 'presence_acknowledgement_enabled' in script
     assert 'initiative_policy_enabled' in script
     assert 'initiative_quiet_hours_start' in script
     assert 'contextual_offers_enabled' in script
+    assert 'shared_physical_context_enabled' in script
+    assert 'fetch(`/api/presentation/${active ? "start" : "stop"}`' in script
     assert 'fetch("/api/initiative/offers/respond"' in script
     assert '"X-Reachy-Adult-UI": "unlocked"' in script
     assert 'if (!initiativeEditActive)' in script
     assert '$("initiative-badge").textContent = "Offline"' in script
-    assert 'reachy-hermes-shell-v44' in worker
+    assert 'reachy-hermes-shell-v45' in worker

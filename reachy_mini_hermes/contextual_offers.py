@@ -10,10 +10,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-OfferSource = Literal["calendar", "reminder", "timer", "home_assistant", "weather", "project"]
+OfferSource = Literal["calendar", "reminder", "timer", "home_assistant", "weather", "project", "presentation"]
 OfferResponse = Literal["yes", "no", "unknown"]
 
-_SOURCES = frozenset({"calendar", "reminder", "timer", "home_assistant", "weather", "project"})
+_SOURCES = frozenset(
+    {"calendar", "reminder", "timer", "home_assistant", "weather", "project", "presentation"}
+)
 _TOPIC_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,47}$")
 _FINGERPRINT_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 _URL_RE = re.compile(r"(?:https?://|www\.)", re.IGNORECASE)
@@ -25,6 +27,7 @@ _EXPLANATIONS = {
     "home_assistant": "Allowlisted Home Assistant state",
     "weather": "Current weather context",
     "project": "Explicitly scoped project context",
+    "presentation": "High-confidence presentation context",
 }
 _YES = frozenset({"yes", "yeah", "yep", "sure", "please", "please do", "go ahead", "ja", "graag", "doe maar"})
 _NO = frozenset({"no", "nope", "no thanks", "not now", "nee", "liever niet", "nu niet"})

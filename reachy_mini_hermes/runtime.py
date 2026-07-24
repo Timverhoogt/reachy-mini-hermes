@@ -46,6 +46,7 @@ from .ispy import ISpyTarget
 from .kids_mode import KidsProfile, build_kids_prompt, kids_greeting
 from .motion import VoiceMotion
 from .presence import PresenceObservation, PresenceState
+from .presentation import IntentionalPresentationGate
 from .realtime_client import RealtimeBridgeError, RealtimeBridgeSession
 from .robot_tools import (
     CameraJoystickStream,
@@ -313,6 +314,17 @@ class HermesVoiceRuntime:
         self._presence_action_active = threading.Event()
         self._initiative = InitiativePolicy()
         self._contextual_offers = ContextualOfferState()
+        self._presentation_lock = threading.RLock()
+        self._presentation_generation = 0
+        self._presentation_state = "idle"
+        self._presentation_reason = "none"
+        self._presentation_started_at = 0.0
+        self._presentation_expires_at = 0.0
+        self._presentation_samples = 0
+        self._presentation_detections = 0
+        self._presentation_gate: IntentionalPresentationGate | None = None
+        self._presentation_stop_requested = threading.Event()
+        self._presentation_worker: threading.Thread | None = None
         self._audio_ready = False
         self._runtime_started = False
         self._control_ready = threading.Event()
@@ -362,6 +374,8 @@ class HermesVoiceRuntime:
         mode = mode.strip().lower()
         if mode not in _POWER_MODES:
             raise ValueError(f"Unsupported power mode: {mode}")
+        if mode != "awake":
+            self.stop_presentation_window(f"power_{mode}")
         self.revoke_camera_control()
         if mode in {"standby", "meeting", "sleep"}:
             self.cancel_agent_work(f"power_{mode}")
@@ -614,6 +628,7 @@ class HermesVoiceRuntime:
         payload["contextual_offer"] = self._contextual_offers.public_status(
             enabled=config.initiative_policy_enabled and config.contextual_offers_enabled
         )
+        payload["shared_physical_context"] = self._presentation_public_status(config)
         with self._agent_lock:
             payload["agent"] = self._agent_status_unlocked()
         with self._kids_lock:
@@ -646,6 +661,237 @@ class HermesVoiceRuntime:
                     "kids_mode": kids_payload,
                 }
         return payload
+
+    def _presentation_public_status(self, config: AppConfig | None = None) -> dict[str, object]:
+        config = config or self.config_loader()
+        enabled = bool(config.shared_physical_context_enabled)
+        with self._presentation_lock:
+            if not enabled:
+                return {
+                    "enabled": False,
+                    "state": "disabled",
+                    "reason": "disabled",
+                    "visible_indicator": False,
+                    "expires_seconds_remaining": 0,
+                    "samples": 0,
+                    "detections": self._presentation_detections,
+                    "semantic_analysis": False,
+                    "frames_retained": 0,
+                }
+            remaining = (
+                max(0, int(math.ceil(self._presentation_expires_at - time.monotonic())))
+                if self._presentation_state in {"starting", "watching"}
+                else 0
+            )
+            return {
+                "enabled": True,
+                "state": self._presentation_state,
+                "reason": self._presentation_reason,
+                "visible_indicator": self._presentation_state in {"starting", "watching"},
+                "expires_seconds_remaining": remaining,
+                "samples": self._presentation_samples,
+                "detections": self._presentation_detections,
+                "semantic_analysis": False,
+                "frames_retained": 0,
+            }
+
+    def _presentation_suppression_reason(self, config: AppConfig) -> str:
+        if self.stop_event.is_set() or not self._control_ready.is_set() or not self._audio_ready:
+            return "runtime is not ready"
+        if not config.shared_physical_context_enabled:
+            return "shared physical context is disabled"
+        if not config.camera_enabled:
+            return "camera access is disabled"
+        if not config.contextual_offers_enabled or not config.initiative_policy_enabled:
+            return "contextual offers are disabled"
+        if self._effective_power_mode() != "awake" or self._motors_enabled is not True:
+            return "Reachy must be safely Awake"
+        if self._privacy_requested.is_set():
+            return "privacy mode is active"
+        with self._agent_lock:
+            if self._capability_profile != "agent":
+                return "Agent profile is required"
+        with self._kids_lock:
+            if self._kids_active or self._kids_locked:
+                return "Kids Mode is active"
+        with self._camera_control_lock:
+            if self._camera_control_session_id:
+                return "camera control is active"
+        if self._recording or self._announcement_active.is_set() or self._voice_activity_lock.locked():
+            return "voice activity is active"
+        if self._face_tracking_active:
+            return "face tracking is active"
+        actions = self._actions
+        if actions is not None and (actions.busy or actions.pending_count):
+            return "robot action is active"
+        with self._status_lock:
+            if self._status.last_error:
+                return "runtime error is active"
+            if self._status.state != "waiting_for_wake_word":
+                return "voice activity is active"
+        return ""
+
+    def start_presentation_window(self) -> dict[str, object]:
+        """Start one visible, local, non-semantic presentation window."""
+        config = self.config_loader()
+        reason = self._presentation_suppression_reason(config)
+        if reason:
+            raise RuntimeError(reason)
+        duration = float(config.presentation_window_seconds)
+        with self._presentation_lock:
+            if self._presentation_state in {"starting", "watching"}:
+                raise RuntimeError("A presentation window is already active")
+            self._presentation_generation += 1
+            generation = self._presentation_generation
+            self._presentation_state = "starting"
+            self._presentation_reason = "capturing_local_baseline"
+            self._presentation_started_at = time.monotonic()
+            self._presentation_expires_at = self._presentation_started_at + duration
+            self._presentation_samples = 0
+            self._presentation_stop_requested.clear()
+            self._presentation_gate = None
+        try:
+            baseline = self._capture_camera_jpeg()
+            gate = IntentionalPresentationGate(required_stable_frames=3)
+            gate.begin(baseline)
+            baseline = b""
+        except Exception as exc:
+            with self._presentation_lock:
+                if generation == self._presentation_generation:
+                    self._presentation_state = "error"
+                    self._presentation_reason = "camera_unavailable"
+                    self._presentation_expires_at = 0.0
+                    self._presentation_gate = None
+            raise RuntimeError(f"Could not start local presentation window: {exc}") from exc
+        with self._presentation_lock:
+            if generation != self._presentation_generation or self._presentation_stop_requested.is_set():
+                gate.clear()
+                raise RuntimeError("Presentation window was cancelled")
+            self._presentation_gate = gate
+            self._presentation_state = "watching"
+            self._presentation_reason = "waiting_for_presented_object_or_text"
+        self._start_presentation_worker(generation, gate, duration)
+        return self._presentation_public_status(config)
+
+    def _start_presentation_worker(
+        self,
+        generation: int,
+        gate: IntentionalPresentationGate,
+        duration: float,
+    ) -> None:
+        worker = threading.Thread(
+            target=self._run_presentation_window,
+            args=(generation, gate, duration),
+            name="reachy-presentation",
+            daemon=True,
+        )
+        with self._presentation_lock:
+            self._presentation_worker = worker
+        worker.start()
+
+    def _run_presentation_window(
+        self,
+        generation: int,
+        gate: IntentionalPresentationGate,
+        duration: float,
+    ) -> None:
+        with self._presentation_lock:
+            deadline = self._presentation_expires_at
+        try:
+            while not self._presentation_stop_requested.wait(0.5):
+                if self.stop_event.is_set():
+                    self.stop_presentation_window("runtime_stopping")
+                    return
+                with self._presentation_lock:
+                    if generation != self._presentation_generation or self._presentation_state != "watching":
+                        return
+                if time.monotonic() >= deadline:
+                    with self._presentation_lock:
+                        if generation == self._presentation_generation:
+                            self._presentation_state = "expired"
+                            self._presentation_reason = "no_stable_presentation"
+                            self._presentation_expires_at = 0.0
+                            self._presentation_gate = None
+                    return
+                reason = self._presentation_suppression_reason(self.config_loader())
+                if reason:
+                    self.stop_presentation_window(reason.replace(" ", "_"))
+                    return
+                try:
+                    jpeg = self._capture_camera_jpeg()
+                    detected = self._observe_presentation_frame(generation, jpeg)
+                    jpeg = b""
+                except Exception:
+                    _LOGGER.exception("Local presentation sampling failed")
+                    self.stop_presentation_window("camera_error")
+                    return
+                if detected:
+                    return
+        finally:
+            gate.clear()
+
+    def _observe_presentation_frame(self, generation: int, jpeg: bytes) -> bool:
+        with self._presentation_lock:
+            if generation != self._presentation_generation or self._presentation_state != "watching":
+                return False
+            gate = self._presentation_gate
+        if gate is None:
+            return False
+        try:
+            detected = gate.observe(jpeg)
+        except RuntimeError:
+            with self._presentation_lock:
+                if generation != self._presentation_generation or self._presentation_state != "watching":
+                    return False
+            raise
+        if not detected:
+            with self._presentation_lock:
+                if generation == self._presentation_generation and self._presentation_state == "watching":
+                    self._presentation_samples += 1
+            return False
+        with self._presentation_lock:
+            if generation != self._presentation_generation or self._presentation_state != "watching":
+                return False
+            self._presentation_samples += 1
+            self._presentation_detections += 1
+            self._presentation_state = "detected"
+            self._presentation_reason = "stable_presented_change"
+            self._presentation_expires_at = 0.0
+            self._presentation_gate = None
+            self._presentation_stop_requested.set()
+        offer = ContextualOffer(
+            source="presentation",
+            topic="presented_context",
+            confidence=0.95,
+            fingerprint=f"presentation-{generation}",
+            text="I can see you are showing me something; would you like help looking at or reading it?",
+            accepted_text="Okay—say Hey Hermes and ask me to look at what you are showing me.",
+        )
+        try:
+            result = self.submit_contextual_offer(offer)
+            reason = "offer_queued" if result.get("queued") is True else str(result.get("reason") or "suppressed")
+        except (ValueError, RuntimeError) as exc:
+            reason = f"offer_suppressed:{str(exc)[:80]}"
+        with self._presentation_lock:
+            if generation == self._presentation_generation:
+                self._presentation_reason = reason
+        return True
+
+    def stop_presentation_window(self, reason: str = "user_stopped") -> dict[str, object]:
+        """Cancel local sampling and discard every ephemeral visual feature."""
+        with self._presentation_lock:
+            active = self._presentation_state in {"starting", "watching"}
+            self._presentation_generation += 1
+            self._presentation_stop_requested.set()
+            gate = self._presentation_gate
+            self._presentation_gate = None
+            self._presentation_expires_at = 0.0
+            if active:
+                self._presentation_state = "cancelled"
+                self._presentation_reason = reason[:96] or "cancelled"
+            if gate is not None:
+                gate.clear()
+        return self._presentation_public_status()
 
     def _presence_suppression_reason(
         self,
@@ -950,6 +1196,7 @@ class HermesVoiceRuntime:
         self._conversation_stop_requested.set()
         if profile != "agent":
             self.cancel_contextual_offer("agent_profile_inactive")
+            self.stop_presentation_window("agent_profile_inactive")
         if active_request_id:
             threading.Thread(
                 target=self._cancel_remote_agent_request,
@@ -1164,6 +1411,7 @@ class HermesVoiceRuntime:
 
     def start_kids_mode(self, profile: KidsProfile, *, greet: bool = True) -> dict[str, object]:
         """Start one time-bounded, camera-free, private-tool-free Realtime session."""
+        self.stop_presentation_window("kids_mode")
         if self._effective_power_mode() in {"meeting", "sleep"} or self._privacy_requested.is_set():
             raise RuntimeError("Kids Mode is blocked in Meeting and Sleep")
         if not self._audio_ready:

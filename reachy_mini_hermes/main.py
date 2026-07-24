@@ -77,6 +77,8 @@ class SettingsUpdate(BaseModel):
     initiative_dismissal_backoff_seconds: float | None = Field(default=None, ge=60, le=86400)
     contextual_offers_enabled: bool | None = None
     contextual_offer_response_window_seconds: float | None = Field(default=None, ge=5, le=30)
+    shared_physical_context_enabled: bool | None = None
+    presentation_window_seconds: float | None = Field(default=None, ge=5, le=30)
     robot_tools_enabled: bool | None = None
     home_assistant_enabled: bool | None = None
     home_assistant_controls_enabled: bool | None = None
@@ -396,6 +398,32 @@ class ReachyMiniHermes(ReachyMiniApp):
             except (ValueError, RuntimeError) as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+        @self.settings_app.post("/api/presentation/start")
+        def start_presentation(
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            try:
+                return {"ok": True, "presentation": self._runtime.start_presentation_window()}
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        @self.settings_app.post("/api/presentation/stop")
+        def stop_presentation(
+            x_reachy_adult_ui: str = Header(default=""),
+        ) -> dict[str, object]:
+            if x_reachy_adult_ui != "unlocked":
+                raise HTTPException(status_code=403, detail="An unlocked adult UI action is required")
+            if self._runtime is None:
+                raise HTTPException(status_code=409, detail="Voice runtime has not started")
+            return {
+                "ok": True,
+                "presentation": self._runtime.stop_presentation_window("user_stopped"),
+            }
+
         @self.settings_app.post("/api/settings")
         def update_settings(update: SettingsUpdate) -> dict[str, object]:
             try:
@@ -416,6 +444,12 @@ class ReachyMiniHermes(ReachyMiniApp):
                 cancel_contextual_offer = getattr(self._runtime, "cancel_contextual_offer", None)
                 if callable(cancel_contextual_offer):
                     cancel_contextual_offer("contextual_offers_disabled")
+            if self._runtime is not None and (
+                not merged.shared_physical_context_enabled or not merged.camera_enabled
+            ):
+                stop_presentation = getattr(self._runtime, "stop_presentation_window", None)
+                if callable(stop_presentation):
+                    stop_presentation("shared_physical_context_disabled")
             return {
                 "ok": True,
                 "config": merged.redacted_dict(),

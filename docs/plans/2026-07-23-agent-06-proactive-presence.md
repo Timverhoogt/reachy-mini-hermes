@@ -86,6 +86,8 @@
 
 **Outcome:** Reachy can notice when the owner intentionally presents an object or text and offer help.
 
+**Implemented foundation:** disabled by default; an unlocked-phone Start/Stop gate; a 5–30 second safely-Awake window; local central grayscale change detection with three stable samples; immediate JPEG discard and ephemeral feature cleanup; sanitized phone status; and one internal `presentation` candidate routed through the existing Goal 3 policy. A Yes response performs no vision or other action—it instructs the owner to wake Reachy and make a separate explicit look/read request through the existing one-frame cloud-vision path.
+
 - Local, visible, ephemeral perception while Awake and camera-enabled.
 - Intentional-presentation gate; no continuous semantic surveillance.
 - No face recognition, child monitoring, identity inference, or background recording.

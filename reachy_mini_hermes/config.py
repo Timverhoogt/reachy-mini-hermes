@@ -76,6 +76,8 @@ class AppConfig:
     initiative_dismissal_backoff_seconds: float = 3600.0
     contextual_offers_enabled: bool = False
     contextual_offer_response_window_seconds: float = 10.0
+    shared_physical_context_enabled: bool = False
+    presentation_window_seconds: float = 20.0
     robot_tools_enabled: bool = True
     home_assistant_enabled: bool = False
     home_assistant_controls_enabled: bool = False
@@ -162,6 +164,8 @@ class AppConfig:
             raise ValueError("Initiative dismissal backoff must be between 60 and 86400 seconds")
         if not 5.0 <= float(self.contextual_offer_response_window_seconds) <= 30.0:
             raise ValueError("Contextual offer response window must be between 5 and 30 seconds")
+        if not 5.0 <= float(self.presentation_window_seconds) <= 30.0:
+            raise ValueError("Presentation window must be between 5 and 30 seconds")
         if self.stt_provider not in {"configured", "local", "elevenlabs"}:
             raise ValueError("Unsupported STT provider")
         if self.tts_provider not in {"configured", "elevenlabs"}:

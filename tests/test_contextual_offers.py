@@ -38,6 +38,11 @@ def test_offer_contract_is_allowlisted_bounded_and_one_question() -> None:
         offer(accepted_text="x" * 241)
 
 
+def test_intentional_presentation_is_an_allowlisted_sanitized_source() -> None:
+    presented = offer(source="presentation", topic="presented_context")
+    assert presented.explanation == "High-confidence presentation context"
+
+
 def test_offer_state_exposes_explanation_and_response_without_fingerprint() -> None:
     now = [100.0]
     state = ContextualOfferState(monotonic_clock=lambda: now[0])

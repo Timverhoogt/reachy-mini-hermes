@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/static/icon-192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <link rel="stylesheet" href="/static/style.css?v=44">
+  <link rel="stylesheet" href="/static/style.css?v=45">
 </head>
 <body>
   <main>
@@ -181,6 +181,35 @@
         </div>
         <p class="presence-boundary"><span aria-hidden="true">●</span> Offers never execute an action · yes only reads the prepared help</p>
         <p id="initiative-message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card presentation-card" aria-labelledby="presentation-heading">
+        <div class="section-heading">
+          <div><p class="label">Agent 0.6 · Goal 4</p><h2 id="presentation-heading">Show Reachy something</h2></div>
+          <span id="presentation-badge" class="badge">Off</span>
+        </div>
+        <p class="muted">Start a short window only when you intentionally hold an object or text in the center of Reachy's view.</p>
+        <div class="presentation-controls">
+          <label class="checkbox-row">
+            <input type="checkbox" id="shared-physical-context-enabled" />
+            <span><strong>Shared physical context</strong><small>Local grayscale change and stability only; no object, face, identity, or text analysis.</small></span>
+          </label>
+          <label>Presentation window
+            <span class="inline-number"><input type="number" id="presentation-window-seconds" min="5" max="30" /> seconds</span>
+          </label>
+        </div>
+        <div class="presentation-status-grid" aria-live="polite">
+          <div><span class="label">Local camera gate</span><strong id="presentation-state">Disabled</strong></div>
+          <div><span class="label">Time remaining</span><strong id="presentation-remaining">0 seconds</strong></div>
+          <div><span class="label">Latest result</span><strong id="presentation-reason">Disabled</strong></div>
+        </div>
+        <div class="presentation-actions">
+          <button type="button" id="presentation-start">Start presentation window</button>
+          <button type="button" id="presentation-stop" class="secondary" disabled>Stop presentation window</button>
+        </div>
+        <p class="presence-boundary"><span aria-hidden="true">●</span> Visible and ephemeral · zero frames retained · no cloud vision during this window</p>
+        <p class="muted presentation-help">If Reachy notices a stable presented change, it may ask one bounded offer. Saying Yes only tells you to wake Reachy and explicitly ask it to look; that later request uses the existing one-frame cloud-vision path.</p>
+        <p id="presentation-message" class="message" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card agent-run-sheet" aria-labelledby="agent-run-heading">
@@ -705,7 +734,7 @@
     </div>
   </main>
   <script src="/static/gstwebrtc-api.js"></script>
-  <script src="/static/camera.js?v=44"></script>
-  <script src="/static/main.js?v=44"></script>
+  <script src="/static/camera.js?v=45"></script>
+  <script src="/static/main.js?v=45"></script>
 </body>
 </html>

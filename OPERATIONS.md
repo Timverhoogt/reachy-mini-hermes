@@ -140,6 +140,16 @@ Eligible offers use Goal 2 quiet hours, confidence thresholds, budgets, cooldown
 
 For safe no-motion acceptance, keep Reachy folded in Standby and submit a valid high-confidence offer with the configured bearer. Verify `queued: false`, decision `remain_silent`, reason `not_awake`, unchanged initiative counters, no announcement, and no robot action. Spoken yes/no acceptance requires Tim present, clear space, confirmed Awake torque, and Stop immediately available.
 
+### Agent 0.6 Shared Physical Context
+
+Goal 4 is disabled by default and never runs in the background. The trusted phone must explicitly start `POST /api/presentation/start`; each window lasts 5–30 seconds and requires Agent profile, safely Awake torque, camera access, Goal 2 Initiative Policy, Goal 3 Contextual Offers, idle voice/announcement/camera-control/face-tracking/action ownership, and no Kids or privacy mode. `POST /api/presentation/stop` cancels immediately.
+
+The gate decodes each bounded JPEG in memory, retains only small central grayscale feature arrays for the active window, requires three stable changed samples, and clears all features on detection, Stop, expiry, power/profile/privacy change, settings disable, or failure. It performs no OCR, object classification, face recognition, identity inference, child monitoring, or background recording. Polled status exposes only state, reason, time remaining, sample/detection counts, and the fixed facts `semantic_analysis: false` and `frames_retained: 0`.
+
+A stable intentional presentation submits the internal `presentation` source to the existing Goal 3 policy. The resulting Yes response only says to wake Reachy and explicitly ask it to look. No image is sent to a cloud service during the presentation window; the later explicit request uses the existing bounded one-frame Realtime camera path.
+
+For safe deployment acceptance, leave Shared Physical Context disabled with Reachy folded in Standby and verify start is rejected without camera capture, announcement, initiative-budget use, or robot action. Physical camera acceptance requires Tim present, clear space, camera opt-in, confirmed Awake state, and Stop immediately available.
+
 ## Health checks
 
 ### Reachy app

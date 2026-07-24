@@ -48,6 +48,12 @@ def test_offer_submission_requires_bearer_and_forbids_unknown_context(monkeypatc
         json={**OFFER, "source": "email"},
     )
     assert invalid.status_code == 422
+    presentation_spoof = client.post(
+        "/api/initiative/offers",
+        headers={"Authorization": "Bearer secret"},
+        json={**OFFER, "source": "presentation"},
+    )
+    assert presentation_spoof.status_code == 422
     accepted = client.post(
         "/api/initiative/offers",
         headers={"Authorization": "Bearer secret"},

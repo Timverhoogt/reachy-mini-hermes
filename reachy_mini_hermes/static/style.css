@@ -363,6 +363,16 @@ body.camera-app-fullscreen-active { overflow: hidden; }
 .contextual-offer-status .quote { margin: 7px 0 0; }
 .contextual-offer-response { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(100px, 1fr)); gap: 9px; }
 .contextual-offer-response[hidden] { display: none; }
+.presentation-card { border-color: #41c7e855; background: linear-gradient(145deg, rgba(12, 29, 37, .95), rgba(14, 17, 24, .96)); }
+.presentation-controls { display: grid; grid-template-columns: 1.6fr .7fr; gap: 10px; margin-top: 16px; align-items: stretch; }
+.presentation-controls > label { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #080a0f99; }
+.presentation-controls .inline-number { display: flex; gap: 8px; align-items: center; margin-top: 6px; color: var(--muted); }
+.presentation-controls .inline-number input { width: 84px; margin: 0; }
+.presentation-status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.presentation-status-grid > div { min-width: 0; padding: 10px 12px; border: 1px solid #41c7e844; border-radius: 11px; background: #07131aaa; }
+.presentation-status-grid strong { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: .86rem; }
+.presentation-actions { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 9px; margin-top: 12px; }
+.presentation-help { margin: 10px 0 0; font-size: .78rem; }
 .agent-run-sheet { border-color: #7b61ff55; background: linear-gradient(145deg, rgba(25, 20, 40, .96), rgba(14, 16, 24, .96)); }
 .agent-run-sheet textarea { min-height: 112px; margin-top: 18px; border-color: #ffffff16; background: #070b11; font-size: 1rem; }
 .agent-guardrail-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; }
@@ -519,7 +529,7 @@ body.camera-app-fullscreen-active { overflow: hidden; }
   .agent-run-control-group button { min-width: 0; padding-inline: 8px; }
   .agent-status-grid { grid-template-columns: 1fr; }
   .agent-status-grid > div:last-child { grid-column: auto; }
-  .presence-controls, .presence-status-grid, .initiative-primary-controls, .initiative-status-grid, .initiative-limit-grid, .contextual-offer-panel { grid-template-columns: 1fr; }
+  .presence-controls, .presence-status-grid, .initiative-primary-controls, .initiative-status-grid, .initiative-limit-grid, .contextual-offer-panel, .presentation-controls, .presentation-status-grid, .presentation-actions { grid-template-columns: 1fr; }
   .presence-controls .checkbox-row { min-height: 0; }
   .agent-step-list li { padding-right: 11px; font-size: .85rem; }
   .install-card .badge { display: none; }
