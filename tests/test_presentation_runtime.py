@@ -66,31 +66,21 @@ def test_presentation_window_is_explicit_bounded_and_status_is_redacted(monkeypa
     assert "baseline" not in status
 
 
-def test_presentation_recovers_only_an_orphaned_idle_voice_mutex(monkeypatch) -> None:
+def test_wake_word_microphone_capture_does_not_block_explicit_presentation(monkeypatch) -> None:
     target = runtime()
-    orphaned = target._voice_activity_lock
-    orphaned.acquire()
+    target._recording = True
     monkeypatch.setattr(target, "_capture_camera_jpeg", lambda: jpeg(30))
     monkeypatch.setattr(target, "_start_presentation_worker", lambda *_args: None)
 
-    status = target.start_presentation_window()
-
-    assert status["state"] == "watching"
-    assert orphaned.locked() is True
-    assert target._voice_activity_lock is not orphaned
-    assert target._voice_activity_lock.locked() is False
+    assert target.start_presentation_window()["state"] == "watching"
 
 
-def test_presentation_does_not_recover_mutex_during_real_voice_activity() -> None:
+def test_active_voice_mutex_still_blocks_presentation() -> None:
     target = runtime()
-    original = target._voice_activity_lock
-    original.acquire()
-    target._recording = True
+    target._voice_activity_lock.acquire()
 
     with pytest.raises(RuntimeError, match="voice activity"):
         target.start_presentation_window()
-
-    assert target._voice_activity_lock is original
 
 
 def test_repeated_presented_change_queues_one_bounded_offer(monkeypatch) -> None:
