@@ -731,10 +731,40 @@ class HermesVoiceRuntime:
                 return "voice activity is active"
         return ""
 
+    def _presentation_window_active(self) -> bool:
+        with self._presentation_lock:
+            return self._presentation_state in {"starting", "watching"}
+
+    def _recover_idle_voice_lock_for_presentation(self) -> bool:
+        """Replace an orphaned voice mutex only when every public owner is idle.
+
+        A physical Goal 4 acceptance exposed an orphaned mutex while the wake
+        loop was already back in ``waiting_for_wake_word``.  Replacing rather
+        than releasing the old mutex lets any late owner unwind safely.
+        """
+        if not self._voice_activity_lock.locked():
+            return False
+        with self._status_lock:
+            idle = self._status.state == "waiting_for_wake_word"
+        actions = self._actions
+        if (
+            not idle
+            or self._recording
+            or self._announcement_active.is_set()
+            or self._face_tracking_active
+            or (actions is not None and (actions.busy or actions.pending_count))
+        ):
+            return False
+        self._voice_activity_lock = threading.Lock()
+        _LOGGER.warning("Recovered an orphaned voice-activity mutex before an explicit presentation window")
+        return True
+
     def start_presentation_window(self) -> dict[str, object]:
         """Start one visible, local, non-semantic presentation window."""
         config = self.config_loader()
         reason = self._presentation_suppression_reason(config)
+        if reason == "voice activity is active" and self._recover_idle_voice_lock_for_presentation():
+            reason = self._presentation_suppression_reason(config)
         if reason:
             raise RuntimeError(reason)
         duration = float(config.presentation_window_seconds)
@@ -2722,6 +2752,9 @@ class HermesVoiceRuntime:
             if self._announcement_active.is_set():
                 self.stop_event.wait(0.05)
                 continue
+            if self._presentation_window_active():
+                self.stop_event.wait(0.05)
+                continue
 
             if not config.configured and not config.home_assistant_assist_enabled:
                 self._set_status("waiting_for_configuration", "Open the app settings and configure the Hermes bridge")
@@ -2747,6 +2780,9 @@ class HermesVoiceRuntime:
             self._noise.update(frame)
             keyword = self._spotter.accept(frame, 16000)
             if not keyword:
+                continue
+            if self._presentation_window_active():
+                self._spotter.reset()
                 continue
             now = time.monotonic()
             if now - self._last_wake_at < config.wake_cooldown_seconds:
